@@ -1,0 +1,22 @@
+services:
+  exo-smtp-relay:
+    build: .
+    image: exo-smtp-relay:latest
+    container_name: exo-smtp-relay
+    restart: unless-stopped
+    ports:
+      - "25:25"             # SMTP: Geräte im eigenen Netz → Relay
+      - "8443:8080"         # Weboberfläche (HTTPS, selbstsigniert)
+    cap_add:
+      - NET_BIND_SERVICE
+    volumes:
+      - ./data:/app/data
+    environment:
+      # Startwerte — nur beim allerersten Start relevant, solange settings.json
+      # noch nicht existiert. Danach ist settings.json massgeblich.
+      TENANT_DOMAIN: ${TENANT_DOMAIN:-}
+      CLIENT_ID: ${CLIENT_ID:-}
+      EXO_SMARTHOST: ${EXO_SMARTHOST:-}
+      WEBUI_USERNAME: ${WEBUI_USERNAME:-admin}
+      WEBUI_PASSWORD: ${WEBUI_PASSWORD:-admin}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}

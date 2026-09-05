@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Einrichtung</h1>
+<p class="hint" style="max-width:720px;margin:0 0 18px">
+  Sechs Schritte, dann liefern die Geräte. Jeder Schritt zeigt, ob er erledigt ist;
+  alles, was hier automatisch gesetzt wird, lässt sich später unter
+  <a href="/einstellungen">Einstellungen</a> ändern.
+</p>
+
+{% if auth_error %}
+<div class="alert error" style="margin-bottom:16px">Anmeldung fehlgeschlagen: {{ auth_error }}</div>
+{% endif %}
+
+{% if e.setup_complete %}
+<div class="alert success" style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span>Die Einrichtung ist abgeschlossen. Zum <a href="/">Dashboard</a>.</span>
+  <button class="btn secondary btn-sm" style="margin-left:auto" onclick="postJSON('/api/setup/reopen',{}).then(function(){location.reload();})">Erneut durchgehen</button>
+</div>
+{% endif %}
+
+<!-- ── 1 Passwort ────────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.password_ok %}done{% endif %}" id="step-1">
+  <div class="step-header">
+    <span class="step-badge">1</span><span class="step-title">Adminzugang sichern</span>
+    {% if e.password_ok %}<span class="step-status done">Erledigt</span>{% else %}<span class="step-status pending">Aktion erforderlich</span>{% endif %}
+  </div>
+  <div class="step-body">
+    {% if e.password_ok %}
+    <p class="hint" style="margin:0">Eigenes Passwort gesetzt. Ändern unter <a href="/einstellungen#passwort">Einstellungen → Anmeldung</a>.</p>
+    {% else %}
+    <p class="hint" style="margin:0 0 10px">Die Anmeldung läuft noch mit <code>admin</code> / <code>admin</code>.</p>
+    <div class="settings-row"><label for="pw-alt">Aktuelles Passwort</label><input type="password" id="pw-alt" style="width:200px" autocomplete="current-password"></div>
+    <div class="settings-row"><label for="pw-neu">Neues Passwort</label><input type="password" id="pw-neu" style="width:200px" autocomplete="new-password"><span class="hint">Mindestens 10 Zeichen.</span></div>
+    <div class="actions"><button class="btn primary" onclick="passwortSetzen(this)">Passwort setzen</button><span id="pw-result" style="font-size:12px;margin-left:8px"></span></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── 2 Hostname ────────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.hostname %}done{% endif %}" id="step-2">
+  <div class="step-header">
+    <span class="step-badge">2</span><span class="step-title">Hostname</span>
+    {% if e.hostname %}<span class="step-status done">{{ e.hostname }}</span>{% else %}<span class="step-status pending">Nicht konfiguriert</span>{% endif %}
+  </div>
+  <div class="step-body">
+    <p class="hint" style="margin:0 0 10px">
+      Der Name, unter dem Exchange Online diesen Dienst kennt — er steht im
+      TLS-Zertifikat und im Inbound-Connector. Für den Rückweg muss er von aussen
+      auflösbar sein (z. B. <code>relay.firma.de</code>). Ein selbstsigniertes
+      Zertifikat wird automatisch darauf ausgestellt; ein Zertifikat einer CA lässt
+      sich unter <a href="/einstellungen#tls">Einstellungen → TLS</a> importieren.
+    </p>
+    <div class="settings-row">
+      <label for="hostname">Hostname</label>
+      <input type="text" id="hostname" value="{{ e.hostname }}" placeholder="relay.firma.de" style="width:280px" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="hostname-btn" data-wache="hostname" onclick="hostnameSpeichern()">Speichern</button>
+    </div>
+    {% if e.tls.vorhanden %}
+    <p class="hint" style="margin-top:8px">TLS-Zertifikat: <code>{{ e.tls.hostnames|join(', ') }}</code> · {% if e.tls.selbstsigniert %}selbstsigniert{% else %}{{ e.tls.aussteller }}{% endif %} · bis {{ e.tls.not_after[:10] }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── 3 Entra-Login ─────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.azure_app_created %}done{% endif %}" id="step-3">
+  <div class="step-header">
+    <span class="step-badge">3</span><span class="step-title">Entra-Login — App-Registrierung automatisch</span>
+    {% if e.azure_app_created %}<span class="step-status done">Abgeschlossen</span>
+    {% elif e.bootstrap_client_id %}<span class="step-status pending">Login-App konfiguriert</span>
+    {% else %}<span class="step-status pending">Ausstehend</span>{% endif %}
+  </div>
+  <div class="step-body">
+    {% if e.azure_app_created %}
+    <div class="alert success" style="margin-bottom:0">
+      App-Registrierung <strong>{{ s.GATEWAY_NAME }}</strong> mit <code>Exchange.ManageAsApp</code> und Rolle Exchange-Administrator eingerichtet.<br>
+      App-ID: <code>{{ e.client_id }}</code> · Tenant: <code>{{ e.tenant_domain }}</code> · Smarthost: <code>{{ e.smarthost }}</code><br>
+      {% if e.auth_cert.vorhanden %}Auth-Zertifikat hochgeladen, Thumbprint <code>{{ e.auth_cert.thumbprint }}</code>.{% endif %}
+    </div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:13px;color:#64748b">↩ Erneut anmelden (erneuert das Auth-Zertifikat)</summary>
+      <div style="margin-top:12px" id="login-block-retry">
+        <div class="actions"><button class="btn secondary" onclick="anmelden(this, 'paste-retry')">Jetzt anmelden →</button>
+          <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block-retry').querySelector('button'), 'paste-retry', true);return false;">per Localhost (Copy-Paste)</a></div>
+        <div id="paste-retry" style="display:none;margin-top:10px">
+          <input type="text" id="paste-retry-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px" autocapitalize="off" spellcheck="false">
+          <div id="paste-retry-result" style="display:none;margin-top:8px"></div>
+          <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste-retry')">Einrichtung fortsetzen</button></div>
+        </div>
+      </div>
+    </details>
+    {% else %}
+    <p style="font-size:13px;margin:0 0 12px">
+      Einmal als Entra-Administrator anmelden — danach legt der Dienst
+      <strong>automatisch</strong> die App-Registrierung an (nur <code>Exchange.ManageAsApp</code>),
+      erteilt die Zustimmung, weist die Rolle Exchange-Administrator zu, erzeugt das
+      Auth-Zertifikat und lädt es hoch. Tenant und Smarthost werden dabei erkannt.
+    </p>
+
+    <p style="font-weight:600;font-size:13px;margin:0 0 6px">1 · Login-App {% if e.bootstrap_client_id %}<span style="color:#16a34a">✓ konfiguriert</span>{% endif %}</p>
+    <div style="font-size:13px">
+      <p class="hint" style="margin-bottom:8px">
+        Für die Anmeldung braucht es eine kleine App-Registrierung als Public Client.
+        <strong>Wer das EXO Signature Gateway betreibt, trägt hier die Client-ID von dessen
+        „… Login"-App ein</strong> und ergänzt dort die Rückadresse unten. Sonst so anlegen:
+      </p>
+      <ol style="margin:0 0 10px 16px;line-height:1.9">
+        <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Entra Admin Center → App-Registrierungen</a> → <strong>Neue Registrierung</strong></li>
+        <li>Name z. B. <code>{{ s.GATEWAY_NAME }} Login</code>, Kontotyp <em>Nur dieses Organisationsverzeichnis</em></li>
+        <li>Plattform <strong>„Public client/native (mobile &amp; desktop)"</strong>, Redirect-URIs <strong>exakt</strong>:
+          <br><code>{{ e.localhost_redirect_uri }}</code>
+          {% if e.sso_redirect_uri %}<br><code>{{ e.sso_redirect_uri }}</code>{% endif %}</li>
+        <li>Unter <strong>Authentifizierung</strong>: <em>Öffentliche Clientflows zulassen → Ja</em></li>
+        <li>Anwendungs-ID (Client-ID) unten eintragen</li>
+      </ol>
+      <div class="settings-row">
+        <label for="bootstrap-client-id">Client-ID der Login-App</label>
+        <input type="text" id="bootstrap-client-id" value="{{ e.bootstrap_client_id }}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:320px;font-family:monospace" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="actions"><button class="btn primary" id="bootstrap-btn" data-wache="bootstrap-client-id" onclick="bootstrapSpeichern()">Client-ID speichern</button></div>
+    </div>
+
+    <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="login-block">
+      <p style="font-weight:600;font-size:13px;margin:0 0 6px">2 · Als Entra-Administrator anmelden</p>
+      {% if not e.bootstrap_client_id %}
+      <div class="alert warn" style="margin-bottom:0">Erst die Login-App oben speichern.</div>
+      {% else %}
+      <ol style="margin:0 0 10px 16px;line-height:1.9;font-size:13px">
+        <li><strong>Jetzt anmelden</strong> öffnet den Microsoft-Login in einem neuen Fenster (MFA wird unterstützt).</li>
+        <li>Beim allerersten Mal landet der Browser auf <code>localhost</code> mit einer Fehlerseite — <em>das ist normal</em>: die komplette Adresse aus der Adressleiste unten einfügen. Ab dem zweiten Mal schliesst sich das Fenster von selbst.</li>
+      </ol>
+      <div class="actions"><button class="btn primary" onclick="anmelden(this, 'paste')">Jetzt anmelden →</button>
+        <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block').querySelector('button'), 'paste', true);return false;">per Localhost (Copy-Paste)</a></div>
+      <div id="paste" style="display:none;margin-top:10px">
+        <label for="paste-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
+        <input type="text" id="paste-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
+        <div id="paste-result" style="display:none;margin-top:8px"></div>
+        <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste')">Einrichtung fortsetzen</button></div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    <p class="hint" style="margin-top:12px">Ohne Entra-Login: App-ID, Tenant und Zertifikat unter <a href="/einstellungen#tenant">Einstellungen</a> von Hand — oder ganz ohne App-Registrierung mit <a href="/einstellungen#adressen">Adressen von Hand</a>.</p>
+  </div>
+</div>
+
+<!-- ── 4 Connector ───────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.connector_created %}done{% endif %}" id="step-4">
+  <div class="step-header">
+    <span class="step-badge">4</span><span class="step-title">Inbound-Connector in Exchange Online</span>
+    {% if e.connector_created %}<span class="step-status done">Eingerichtet</span>{% elif e.azure_app_created %}<span class="step-status pending">Ausstehend</span>{% else %}<span class="step-status waiting">Nach Schritt 3</span>{% endif %}
+  </div>
+  <div class="step-body">
+    <p class="hint" style="margin:0 0 10px">
+      Exchange Online nimmt Post vom Relay nur über einen Inbound-Connector an. Er
+      erkennt den Dienst <strong>am TLS-Zertifikat</strong> (nur mit einem Zertifikat
+      einer öffentlichen CA) oder <strong>an der öffentlichen IP</strong> (feste
+      Adresse nötig; mit selbstsigniertem Zertifikat der einzige Weg).
+      Läuft per PowerShell mit dem Modul ExchangeOnlineManagement ({{ e.pwsh }}).
+    </p>
+    {% if not e.azure_app_created %}
+    <div class="alert warn" style="margin-bottom:0">Erst Schritt 3 abschliessen.</div>
+    {% else %}
+    <div class="settings-row">
+      <label for="conn-ips">Öffentliche IP(s)</label>
+      <input type="text" id="conn-ips" placeholder="203.0.113.10" style="width:300px">
+      <span class="hint">Leer lassen für die Zertifikatsvariante mit <code>{{ e.hostname }}</code>.</span>
+    </div>
+    <div class="actions" style="flex-wrap:wrap;gap:8px">
+      <button class="btn secondary" onclick="exoPruefen(this)">Modul und Anmeldung prüfen</button>
+      <button class="btn primary" onclick="connectorEinrichten(this)">{% if e.connector_created %}Connector nachziehen{% else %}Connector anlegen{% endif %}</button>
+      <span id="conn-result" style="font-size:12px"></span>
+    </div>
+    <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:240px;overflow:auto;font-size:11px"></pre>
+    <p class="hint" style="margin-top:8px">Postfachliste: {{ e.exo.postfaecher }} Postfächer{% if e.exo.letzter_erfolg %} (Stand {{ e.exo.letzter_erfolg }}){% endif %}{% if e.exo.letzter_fehler %} — <span data-state="err">{{ e.exo.letzter_fehler }}</span>{% endif %}. Der Dienst holt sie stündlich; <a href="#" onclick="abfragen(this);return false;">jetzt abrufen</a>.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── 5 Geräte ──────────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.geraete %}done{% endif %}" id="step-5">
+  <div class="step-header">
+    <span class="step-badge">5</span><span class="step-title">Geräte freigeben</span>
+    {% if e.geraete %}<span class="step-status done">{{ e.geraete }} Gerät{{ '' if e.geraete == 1 else 'e' }}</span>{% else %}<span class="step-status pending">Noch keines</span>{% endif %}
+  </div>
+  <div class="step-body">
+    <p class="hint" style="margin:0 0 10px">
+      Nur eingetragene Geräte dürfen einliefern. Wer nicht alle kennt, startet den
+      <strong>Lernmodus</strong>: Ein Bereich wird für höchstens zwei Stunden freigegeben,
+      und jedes Gerät, das darin gültig einliefert, wird eingetragen. Dann an jedem Gerät
+      einen Testdruck oder Testscan auslösen. Geräte einstellen auf: Server
+      <code>{{ e.hostname or '<IP dieses Dienstes>' }}</code>, Port <code>{{ e.smtp_port }}</code>,
+      keine Anmeldung, STARTTLS wenn möglich.
+    </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <label for="lern-bereiche" style="font-size:12px;color:#555">Bereich</label>
+        <input type="text" id="lern-bereiche" style="width:100%;margin-top:3px" placeholder="192.168.1.0/24">
+      </div>
+      <div><label for="lern-minuten" style="font-size:12px;color:#555">Minuten</label><br><input type="number" id="lern-minuten" min="1" max="120" value="15" style="width:90px;margin-top:3px"></div>
+      <button class="btn primary" onclick="lernStarten(this)">Lernmodus starten</button>
+    </div>
+    <div id="lern-result" style="display:none;margin-top:10px"></div>
+    <p class="hint" style="margin-top:10px">Oder von Hand: Adresse <input type="text" id="neu-ip" placeholder="10.1.5.7" style="width:130px"> <input type="text" id="neu-kommentar" placeholder="Kopierer Empfang" style="width:180px"> <button class="btn secondary btn-sm" onclick="geraetHinzufuegen(this)">Hinzufügen</button> <span id="neu-result" style="font-size:12px"></span></p>
+  </div>
+</div>
+
+<!-- ── 6 Abschluss ───────────────────────────────────────────────────────── -->
+<div class="wizard-step {% if e.setup_complete %}done{% endif %}" id="step-6">
+  <div class="step-header">
+    <span class="step-badge">6</span><span class="step-title">Abschluss</span>
+    {% if e.setup_complete %}<span class="step-status done">Abgeschlossen</span>{% else %}<span class="step-status pending">Ausstehend</span>{% endif %}
+  </div>
+  <div class="step-body">
+    <p class="hint" style="margin:0 0 10px">Danach führt die Startseite zum Dashboard. Alles Weitere — Rückweg, Zertifikate, Adressen — unter Einstellungen.</p>
+    <div class="actions">
+      <button class="btn primary" onclick="abschliessen(this)" {% if e.setup_complete %}disabled{% endif %}>Einrichtung abschliessen</button>
+      <span id="abschluss-result" style="font-size:12px;margin-left:8px"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+async function passwortSetzen(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/password', { current: document.getElementById('pw-alt').value, new: document.getElementById('pw-neu').value });
+  btn.disabled = false;
+  showMsg('pw-result', r.ok ? 'gesetzt' : (r.error || 'Fehler'), !!r.ok);
+  if (r.ok) setTimeout(function () { location.reload(); }, 800);
+}
+async function hostnameSpeichern() {
+  const r = await postJSON('/api/setup/hostname', { hostname: document.getElementById('hostname').value });
+  wacheFertig('hostname-btn', r.ok, r.ok ? (r.tls_neu ? 'gespeichert — Zertifikat neu ausgestellt (wirkt nach Neustart)' : undefined) : (r.error || 'nicht gespeichert'));
+  if (r.ok) setTimeout(function () { location.reload(); }, 1200);
+}
+async function bootstrapSpeichern() {
+  const r = await postJSON('/api/setup/bootstrap-client', { client_id: document.getElementById('bootstrap-client-id').value });
+  wacheFertig('bootstrap-btn', r.ok, r.ok ? undefined : (r.error || 'nicht gespeichert'));
+  if (r.ok) setTimeout(function () { location.reload(); }, 800);
+}
+window.addEventListener('message', function (ev) {
+  if (ev.origin !== window.location.origin || !ev.data) return;
+  if (ev.data.type === 'setup-auth-done') location.reload();
+  if (ev.data.type === 'setup-auth-fail') alert('Einrichtung fehlgeschlagen: ' + (ev.data.msg || ''));
+});
+async function anmelden(btn, pasteId, localhost) {
+  btn.disabled = true;
+  const r = await getJSON('/auth/start' + (localhost ? '?localhost=1' : ''));
+  btn.disabled = false;
+  if (!r.ok) { alert('Anmeldung konnte nicht gestartet werden: ' + errText(r)); return; }
+  window.open(r.auth_url, 'exo-relay-login', 'width=520,height=720');
+  if (r.paste) document.getElementById(pasteId).style.display = '';
+}
+async function einfuegen(pasteId) {
+  const box = document.getElementById(pasteId + '-result');
+  const url = (document.getElementById(pasteId + '-url').value || '').trim();
+  if (!url) { showAlert(box, 'error', 'Bitte die Adresse einfügen.'); return; }
+  showAlert(box, 'warn', 'Richte ein — App-Registrierung, Zustimmung, Zertifikat … das dauert einen Moment.');
+  const r = await postJSON('/api/setup/auth-paste', { url: url });
+  if (!r.ok) { showAlert(box, 'error', esc(errText(r))); return; }
+  showAlert(box, 'success', 'Eingerichtet: App <code>' + esc(r.app_id) + '</code>' + (r.auth_cert_error ? ' — Zertifikat: ' + esc(r.auth_cert_error) : ''));
+  setTimeout(function () { location.reload(); }, 1500);
+}
+async function exoPruefen(btn) {
+  const alt = btn.textContent; btn.disabled = true; btn.textContent = 'prüft (bis zu einer Minute) …';
+  const r = await postJSON('/api/setup/exo-check', {});
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('conn-result', r.text || errText(r), !!r.ok);
+}
+async function connectorEinrichten(btn) {
+  const alt = btn.textContent; btn.disabled = true; btn.textContent = 'läuft (bis zu einer Minute) …';
+  const r = await postJSON('/api/setup/connector', { sender_ips: document.getElementById('conn-ips').value });
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('conn-result', r.ok ? 'Connector eingerichtet' : 'fehlgeschlagen', !!r.ok);
+  const pre = document.getElementById('conn-output');
+  pre.textContent = r.output || r.error || ''; pre.style.display = pre.textContent ? '' : 'none';
+  if (r.ok) setTimeout(function () { location.reload(); }, 2500);
+}
+async function abfragen(a) {
+  a.textContent = 'ruft ab …';
+  const r = await postJSON('/api/exo/abfragen', {});
+  a.textContent = r.ok ? r.anzahl + ' Postfächer geladen' : (r.letzter_fehler || 'fehlgeschlagen');
+  if (r.ok) setTimeout(function () { location.reload(); }, 1200);
+}
+async function lernStarten(btn) {
+  const box = document.getElementById('lern-result');
+  const bereiche = (document.getElementById('lern-bereiche').value || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!bereiche.length) { showAlert(box, 'error', 'Bereich erforderlich.'); return; }
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/lernmodus', { start: true, bereiche: bereiche, minuten: parseInt(document.getElementById('lern-minuten').value, 10) || 15 });
+  btn.disabled = false;
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler.')); return; }
+  showAlert(box, r.verstanden < r.eingetragen ? 'warn' : 'success', r.verstanden < r.eingetragen
+    ? (r.eingetragen - r.verstanden) + ' Angabe(n) nicht verstanden — erwartet <code>192.168.1.0/24</code> oder <code>172.16.16.10-172.16.17.20</code>.'
+    : 'Lernmodus läuft. Jetzt an den Geräten einen Testversand auslösen — sie erscheinen auf dem <a href="/">Dashboard</a>.');
+}
+async function geraetHinzufuegen(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/geraet', { ip: document.getElementById('neu-ip').value.trim(), kommentar: document.getElementById('neu-kommentar').value.trim() });
+  btn.disabled = false;
+  showMsg('neu-result', r.ok ? 'eingetragen' : (r.error || 'Fehler'), !!r.ok);
+  if (r.ok) setTimeout(function () { location.reload(); }, 800);
+}
+async function abschliessen(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/setup/mark-complete', {});
+  showMsg('abschluss-result', r.ok ? 'abgeschlossen' : errText(r), !!r.ok);
+  if (r.ok) setTimeout(function () { window.location.href = '/'; }, 800);
+  else btn.disabled = false;
+}
+</script>
+{% endblock %}

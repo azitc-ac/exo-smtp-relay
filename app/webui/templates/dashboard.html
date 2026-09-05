@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+  <h1 style="margin:0">Dashboard</h1>
+  <span class="hint" style="margin-left:auto">Zeitraum</span>
+  <select id="db-tage" onchange="laden(false)" style="font-size:13px">
+    <option value="1">heute</option><option value="7">7 Tage</option>
+    <option value="30" selected>30 Tage</option><option value="90">90 Tage</option>
+  </select>
+</div>
+<p class="hint" style="max-width:720px;margin:0 0 16px">
+  Geräte im eigenen Netz liefern auf Port <span id="db-port">25</span> ein; der Dienst
+  prüft Gerät, Absender und Ziel und übergibt an Exchange Online.
+</p>
+
+<div id="db-warnungen" style="margin-bottom:16px"></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+  <div class="stat-card"><div class="stat-value" id="k-zugestellt">–</div><div class="stat-label">Zugestellt</div></div>
+  <div class="stat-card" id="c-tls"><div class="stat-value" id="k-tls">–</div><div class="stat-label">davon mit TLS</div></div>
+  <div class="stat-card" id="c-extern"><div class="stat-value" id="k-extern">–</div><div class="stat-label">davon nach aussen</div></div>
+  <div class="stat-card" id="c-abgelehnt"><div class="stat-value" id="k-abgelehnt">–</div><div class="stat-label">Abgelehnt / Fehler</div></div>
+  <div class="stat-card"><div class="stat-value" id="k-geraete">–</div><div class="stat-label">Geräte</div></div>
+  <div class="stat-card" id="c-abgewiesen"><div class="stat-value" id="k-abgewiesen">–</div><div class="stat-label">Unbekannte Absender</div></div>
+</div>
+
+<!-- ── Geräte ────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Geräte</h2>
+    <span class="hint" id="geraete-anzahl"></span>
+    <button class="btn secondary btn-sm" style="margin-left:auto" onclick="namenAufloesen(this)">Namen auflösen</button>
+  </div>
+  <p style="font-size:13px;color:#555;margin:10px 0 12px">
+    Je Gerät die Einlieferungen im gewählten Zeitraum: gesamt, davon mit
+    <strong>TLS</strong> bzw. im <em>Klartext</em>, davon an <strong>interne</strong>
+    bzw. <strong>externe</strong> Empfänger. Rechts das Aufkommen der letzten
+    30/90/180/360 Tage — ein Eintrag mit durchgehend 0 wird nicht mehr genutzt.
+  </p>
+  <div class="tabellen-rollbereich">
+    <table class="config-table" style="min-width:980px">
+      <thead>
+        <tr>
+          <th>Adresse</th><th>Name / Kommentar</th>
+          <th style="text-align:right">Gesamt</th>
+          <th style="text-align:right">TLS</th><th style="text-align:right">Klartext</th>
+          <th style="text-align:right">Intern</th><th style="text-align:right">Extern</th>
+          <th style="text-align:right">Abgelehnt</th>
+          <th style="text-align:center">Extern erlaubt</th>
+          <th>Letzte Mail</th>
+          <th style="text-align:right">30/90/180/360</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="geraete-body"><tr><td colspan="12" style="color:#888">Wird geladen …</td></tr></tbody>
+    </table>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button class="btn secondary" id="geraete-btn" data-wache-container="#geraete-body"
+            data-wache-hinweis="geraete-result" onclick="geraeteSpeichern()">Kommentare speichern</button>
+    <span id="geraete-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+
+  <div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px">
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div>
+        <label for="neu-ip" style="font-size:12px;color:#555">Gerät von Hand hinzufügen</label><br>
+        <input type="text" id="neu-ip" placeholder="10.1.5.7" style="margin-top:3px">
+      </div>
+      <input type="text" id="neu-kommentar" placeholder="Kopierer Empfang" style="flex:1;min-width:160px">
+      <button class="btn secondary" onclick="geraetHinzufuegen(this)">Hinzufügen</button>
+    </div>
+    <div id="neu-result" style="display:none;margin-top:10px"></div>
+  </div>
+</div>
+
+<!-- ── Unbekannte Absender ───────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Abgewiesen</h2>
+    <span class="hint" id="abgewiesen-anzahl"></span>
+    <button class="btn secondary btn-sm" style="margin-left:auto" onclick="abweisungenLeeren(this)">Liste leeren</button>
+  </div>
+  <p style="font-size:13px;color:#555;margin:10px 0 12px">
+    Meist ein noch nicht eingetragenes Gerät — dann genügt <em>Übernehmen</em>.
+    Steht die Adresse bereits in der Geräteliste, scheiterte sie an Absender- oder
+    Zielgrenze; der Grund steht daneben.
+  </p>
+  <div class="tabellen-rollbereich">
+    <table class="config-table" style="min-width:700px">
+      <thead><tr><th>Adresse</th><th>Absender</th><th>An</th><th>Grund</th><th>Zuletzt</th><th style="text-align:right">Versuche</th><th></th></tr></thead>
+      <tbody id="abgewiesen-body"><tr><td colspan="7" style="color:#888">Wird geladen …</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Lernmodus ─────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <h2 style="margin-top:0">Lernmodus</h2>
+  <div id="lern-aktiv" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-size:14px;color:#92400e;font-weight:700" id="lern-restzeit"></div>
+    <div style="font-size:12px;color:#92400e;margin-top:4px" id="lern-bereiche-aktiv"></div>
+    <button class="btn secondary" style="margin-top:10px" onclick="lernStoppen(this)">Lernmodus jetzt beenden</button>
+  </div>
+  <div id="lern-formular">
+    <p style="font-size:13px;color:#555;margin:0 0 12px">
+      Gibt einen Bereich <strong>befristet</strong> frei und trägt jedes Gerät ein, das
+      darin gültig einliefert. Danach an jedem Gerät einen Testversand auslösen.
+    </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px">
+        <label for="lern-bereiche" style="font-size:12px;color:#555">Bereich</label>
+        <input type="text" id="lern-bereiche" style="width:100%;margin-top:3px" placeholder="192.168.1.0/24  oder  172.16.16.10-172.16.17.20">
+      </div>
+      <div>
+        <label for="lern-minuten" style="font-size:12px;color:#555">Minuten</label><br>
+        <input type="number" id="lern-minuten" min="1" max="120" value="15" style="width:90px;margin-top:3px">
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer;padding-bottom:6px">
+        <input type="checkbox" id="lern-extern"><span style="font-size:13px">auch nach aussen</span>
+      </label>
+      <button class="btn primary" onclick="lernStarten(this)">Lernmodus starten</button>
+    </div>
+    <div id="lern-result" style="display:none;margin-top:10px"></div>
+  </div>
+</div>
+
+<!-- ── Letzte Einlieferungen ─────────────────────────────────────────────── -->
+<div class="settings-card">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Letzte Einlieferungen</h2>
+    <a href="/log" class="hint" style="margin-left:auto">Live-Protokoll</a>
+  </div>
+  <div class="tabellen-rollbereich" style="margin-top:10px">
+    <table class="config-table" style="min-width:820px">
+      <thead><tr><th>Zeit (UTC)</th><th>Gerät</th><th>Absender</th><th>An</th><th>Betreff</th><th>TLS</th><th>Ergebnis</th></tr></thead>
+      <tbody id="ereignis-body"><tr><td colspan="7" style="color:#888">Wird geladen …</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const FENSTER = {{ fenster|tojson }};
+let _stand = null;
+
+function zeitKurz(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function zahl(n) { return String(n || 0); }
+
+async function laden(mitNamen) {
+  const tage = document.getElementById('db-tage').value;
+  const r = await getJSON('/api/dashboard?tage=' + tage + (mitNamen ? '&namen=1' : ''));
+  if (!r.ok) {
+    document.getElementById('geraete-body').innerHTML = '<tr><td colspan="12" style="color:#991b1b">Nicht abrufbar: ' + esc(r.error) + '</td></tr>';
+    return;
+  }
+  _stand = r;
+  zeichneKarten(r);
+  zeichneWarnungen(r);
+  zeichneGeraete(r.geraete);
+  zeichneAbgewiesen(r.abgewiesen);
+  zeichneLernmodus(r.lernmodus);
+  zeichneEreignisse(r.ereignisse);
+  wacheNeuMessen('geraete-btn');
+}
+
+function zeichneKarten(r) {
+  const g = r.gesamt || {};
+  document.getElementById('db-port').textContent = r.smtp_port;
+  document.getElementById('k-zugestellt').textContent = zahl(g.zugestellt);
+  document.getElementById('k-tls').textContent = zahl(g.tls) + (g.zugestellt ? ' (' + Math.round(100 * g.tls / g.zugestellt) + ' %)' : '');
+  document.getElementById('c-tls').classList.toggle('warn', (g.klartext || 0) > 0);
+  document.getElementById('k-extern').textContent = zahl(g.extern);
+  const fehl = (g.abgelehnt || 0) + (g.fehler || 0);
+  document.getElementById('k-abgelehnt').textContent = zahl(fehl);
+  document.getElementById('c-abgelehnt').classList.toggle('warn', fehl > 0);
+  document.getElementById('k-geraete').textContent = r.geraete.length;
+  document.getElementById('k-abgewiesen').textContent = r.abgewiesen.length;
+  document.getElementById('c-abgewiesen').classList.toggle('warn', r.abgewiesen.length > 0);
+}
+
+function zeichneWarnungen(r) {
+  const w = [];
+  if (!r.relay_an) w.push('<strong>Das Relay ist abgeschaltet.</strong> Jede Einlieferung wird abgewiesen. Einschalten unter <a href="/einstellungen#relay">Einstellungen</a>.');
+  if (r.adressen === 0) w.push('<strong>Keine Postfachadressen bekannt.</strong> Absender und Ziel lassen sich nicht prüfen — jede Einlieferung wird mit 451 abgewiesen. <a href="/einrichtung">Einrichtung</a> abschliessen oder Adressen unter <a href="/einstellungen#adressen">Einstellungen → Adressquelle</a> eintragen.');
+  if (!r.rueckweg.konfiguriert) w.push('<strong>Kein Rückweg konfiguriert.</strong> Angenommene Post kann nicht zugestellt werden. <a href="/einstellungen#rueckweg">Einstellungen → Rückweg</a>.');
+  if (!r.tls.vorhanden) w.push('<strong>Kein TLS-Zertifikat.</strong> Der Listener bietet kein STARTTLS an.');
+  if (r.exo && r.exo.letzter_fehler) w.push('<strong>Postfachliste:</strong> ' + esc(r.exo.letzter_fehler) + (r.exo.postfaecher ? ' — es gilt der letzte Stand (' + r.exo.postfaecher + ' Postfächer).' : ''));
+  document.getElementById('db-warnungen').innerHTML = w.map(function (t) {
+    return '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin-bottom:8px">' + t + '</div>';
+  }).join('');
+}
+
+function zeichneGeraete(liste) {
+  const tb = document.getElementById('geraete-body');
+  document.getElementById('geraete-anzahl').textContent = liste.length ? liste.length + ' Gerät' + (liste.length === 1 ? '' : 'e') : '';
+  if (!liste.length) {
+    tb.innerHTML = '<tr><td colspan="12" style="color:#888">Noch kein Gerät eingetragen — Lernmodus starten oder eines von Hand eintragen.</td></tr>';
+    return;
+  }
+  tb.innerHTML = '';
+  liste.forEach(function (g) {
+    const s = g.statistik || {};
+    const zahlen = FENSTER.map(function (f) { return g.zaehler[f] || 0; }).join(' / ');
+    const tr = document.createElement('tr');
+    tr.dataset.relayIp = g.ip;
+    if (g.gesperrt) tr.setAttribute('data-relay-gesperrt', '1');
+    tr.innerHTML =
+      '<td style="white-space:nowrap"><code>' + esc(g.ip) + '</code>'
+        + (g.gesperrt ? ' <span style="font-size:10px;font-weight:700;color:#991b1b;background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:1px 5px">GESPERRT</span>' : '')
+        + (g.gelernt ? ' <span style="font-size:10px;color:#64748b">gelernt</span>' : '')
+        + (g.dns && g.dns !== '—' ? '<div style="font-size:11px;color:#64748b">' + esc(g.dns) + '</div>' : '')
+      + '</td>'
+      + '<td><input type="text" value="' + escAttr(g.kommentar) + '" placeholder="Kommentar" style="width:100%;min-width:120px"></td>'
+      + '<td style="text-align:right;font-weight:600">' + zahl(s.zugestellt) + '</td>'
+      + '<td style="text-align:right">' + zahl(s.tls) + '</td>'
+      + '<td style="text-align:right"' + (s.klartext ? ' data-state="err"' : '') + '>' + zahl(s.klartext) + '</td>'
+      + '<td style="text-align:right">' + zahl(s.intern) + '</td>'
+      + '<td style="text-align:right">' + zahl(s.extern) + '</td>'
+      + '<td style="text-align:right"' + ((s.abgelehnt || s.fehler) ? ' data-state="err"' : '') + '>' + zahl((s.abgelehnt || 0) + (s.fehler || 0)) + '</td>'
+      + '<td style="text-align:center"><input type="checkbox"' + (g.extern ? ' checked' : '') + '></td>'
+      + '<td style="white-space:nowrap;font-size:12px">' + esc(zeitKurz(g.letzte_mail)) + '</td>'
+      + '<td style="text-align:right;white-space:nowrap;font-size:12px">' + esc(zahlen) + '</td>'
+      + '<td style="white-space:nowrap">'
+        + '<button class="btn secondary btn-sm" onclick="sperreUmschalten(\'' + escAttr(g.ip) + '\', ' + (g.gesperrt ? 'false' : 'true') + ', this)">' + (g.gesperrt ? 'Entsperren' : 'Sperren') + '</button> '
+        + '<button class="btn secondary btn-sm" onclick="geraetLoeschen(\'' + escAttr(g.ip) + '\', this)">Löschen</button>'
+      + '</td>';
+    tb.appendChild(tr);
+  });
+}
+
+function zeichneAbgewiesen(liste) {
+  const tb = document.getElementById('abgewiesen-body');
+  document.getElementById('abgewiesen-anzahl').textContent = liste.length ? liste.length + ' Adresse' + (liste.length === 1 ? '' : 'n') : '';
+  if (!liste.length) { tb.innerHTML = '<tr><td colspan="7" style="color:#888">Nichts abgewiesen.</td></tr>'; return; }
+  const bekannt = new Set((_stand.geraete || []).map(function (g) { return g.ip; }));
+  tb.innerHTML = '';
+  liste.forEach(function (a) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td style="white-space:nowrap"><code>' + esc(a.ip) + '</code></td>'
+      + '<td style="font-size:12px">' + esc(a.absender || '—') + '</td>'
+      + '<td style="font-size:12px">' + esc(a.empfaenger || '—') + '</td>'
+      + '<td style="font-size:12px;color:#64748b">' + esc(a.grund || '—') + '</td>'
+      + '<td style="white-space:nowrap;font-size:12px">' + esc(zeitKurz(a.zuletzt)) + '</td>'
+      + '<td style="text-align:right">' + esc(String(a.anzahl)) + '</td>'
+      + '<td style="white-space:nowrap">' + (bekannt.has(a.ip)
+          ? '<span class="hint">steht bereits in der Liste</span>'
+          : '<button class="btn secondary btn-sm" onclick="uebernehmen(\'' + escAttr(a.ip) + '\', this)">Übernehmen</button>') + '</td>';
+    tb.appendChild(tr);
+  });
+}
+
+function zeichneLernmodus(l) {
+  const aktiv = document.getElementById('lern-aktiv');
+  const form = document.getElementById('lern-formular');
+  document.getElementById('lern-minuten').max = l.max_minuten;
+  if (!l.aktiv) {
+    aktiv.style.display = 'none'; form.style.display = '';
+    if (!document.getElementById('lern-bereiche').value) document.getElementById('lern-bereiche').value = (l.bereiche || []).join(', ');
+    return;
+  }
+  aktiv.style.display = ''; form.style.display = 'none';
+  const min = Math.max(1, Math.round(l.rest_sek / 60));
+  document.getElementById('lern-restzeit').textContent = 'Läuft noch ' + min + ' Minute' + (min === 1 ? '' : 'n');
+  document.getElementById('lern-bereiche-aktiv').textContent = 'Bereich: ' + (l.bereiche || []).join(', ')
+    + (l.extern_vorgabe ? ' · neue Geräte dürfen auch nach aussen' : ' · neue Geräte dürfen nur intern');
+}
+
+function zeichneEreignisse(liste) {
+  const tb = document.getElementById('ereignis-body');
+  if (!(liste || []).length) { tb.innerHTML = '<tr><td colspan="7" style="color:#888">Noch keine Einlieferung.</td></tr>'; return; }
+  const label = {relay: 'zugestellt', relay_abgelehnt: 'abgelehnt', relay_fehler: 'Zustellfehler'};
+  tb.innerHTML = liste.map(function (ev) {
+    const ok = ev.action === 'relay';
+    return '<tr><td style="white-space:nowrap;font-size:12px">' + esc((ev.ts || '').replace('T', ' ').replace('Z', '')) + '</td>'
+      + '<td><code>' + esc(ev.quelle || '—') + '</code></td>'
+      + '<td style="font-size:12px">' + esc(ev.sender || '—') + '</td>'
+      + '<td style="font-size:12px">' + esc((ev.recipients || []).slice(0, 3).join(', ')) + (ev.extern ? ' <span class="hint" style="display:inline">extern</span>' : '') + '</td>'
+      + '<td style="font-size:12px">' + esc(ev.subject || '') + '</td>'
+      + '<td>' + (ev.tls ? '✓' : '<span data-state="err">Klartext</span>') + '</td>'
+      + '<td><span data-state="' + (ok ? 'ok' : 'err') + '">' + esc(label[ev.action] || ev.action) + '</span>'
+      + (ev.error ? '<div class="hint" style="margin:2px 0 0">' + esc(ev.error) + '</div>' : '') + '</td></tr>';
+  }).join('');
+}
+
+// ── Aktionen ────────────────────────────────────────────────────────────────
+async function geraeteSpeichern() {
+  const zeilen = [...document.querySelectorAll('#geraete-body tr[data-relay-ip]')];
+  let fehler = null;
+  for (const tr of zeilen) {
+    const felder = tr.querySelectorAll('input');
+    const r = await postJSON('/api/relay/geraet', { ip: tr.dataset.relayIp,
+      kommentar: felder[0] ? felder[0].value : undefined, extern: felder[1] ? felder[1].checked : undefined });
+    if (!r.ok) { fehler = r.error || 'Fehler beim Speichern'; break; }
+  }
+  wacheFertig('geraete-btn', !fehler, fehler || undefined);
+  if (!fehler) laden(false);
+}
+async function sperreUmschalten(ip, sperren, btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/geraet', { ip: ip, gesperrt: sperren });
+  btn.disabled = false;
+  if (!r.ok) { showMsg(btn, r.error || 'Fehler', false); return; }
+  laden(false);
+}
+async function geraetLoeschen(ip, btn) {
+  if (!confirm('Gerät ' + ip + ' entfernen? Es darf danach nicht mehr einliefern, und seine Zähler gehen verloren.')) return;
+  btn.disabled = true;
+  await postJSON('/api/relay/geraet/loeschen', { ip: ip });
+  laden(false);
+}
+async function geraetHinzufuegen(btn) {
+  const ip = (document.getElementById('neu-ip').value || '').trim();
+  const kommentar = (document.getElementById('neu-kommentar').value || '').trim();
+  const box = document.getElementById('neu-result');
+  if (!ip) { showAlert(box, 'error', 'Ohne Adresse geht es nicht.'); return; }
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/geraet', { ip: ip, kommentar: kommentar });
+  btn.disabled = false;
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler beim Speichern.')); return; }
+  hideAlert(box);
+  document.getElementById('neu-ip').value = ''; document.getElementById('neu-kommentar').value = '';
+  laden(false);
+}
+async function uebernehmen(ip, btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/geraet', { ip: ip, kommentar: '' });
+  btn.disabled = false;
+  if (!r.ok) { showMsg(btn, r.error || 'Fehler', false); return; }
+  laden(false);
+}
+async function abweisungenLeeren(btn) {
+  btn.disabled = true;
+  await postJSON('/api/relay/abweisungen/leeren', {});
+  btn.disabled = false;
+  laden(false);
+}
+async function namenAufloesen(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'löst auf …';
+  await laden(true);
+  btn.disabled = false; btn.textContent = alt;
+}
+async function lernStarten(btn) {
+  const box = document.getElementById('lern-result');
+  const bereiche = (document.getElementById('lern-bereiche').value || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!bereiche.length) { showAlert(box, 'error', 'Bereich erforderlich — bitte angeben.'); return; }
+  btn.disabled = true;
+  const r = await postJSON('/api/relay/lernmodus', { start: true, bereiche: bereiche,
+    minuten: parseInt(document.getElementById('lern-minuten').value, 10) || 15,
+    extern_vorgabe: document.getElementById('lern-extern').checked });
+  btn.disabled = false;
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler.')); return; }
+  if (r.verstanden < r.eingetragen) {
+    showAlert(box, 'warn', (r.eingetragen - r.verstanden) + ' von ' + r.eingetragen + ' Angaben sind weder ein Netz noch eine Spanne und bleiben wirkungslos. Erwartet wird <code>192.168.1.0/24</code> oder <code>172.16.16.10-172.16.17.20</code>.');
+  } else { hideAlert(box); }
+  setTimeout(function () { location.reload(); }, r.verstanden < r.eingetragen ? 4000 : 800);
+}
+async function lernStoppen(btn) {
+  btn.disabled = true;
+  await postJSON('/api/relay/lernmodus', { start: false });
+  location.reload();
+}
+
+laden(false);
+setInterval(function () { laden(false); }, _stand && _stand.lernmodus && _stand.lernmodus.aktiv ? 10000 : 30000);
+</script>
+{% endblock %}

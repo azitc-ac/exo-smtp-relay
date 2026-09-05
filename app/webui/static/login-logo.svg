@@ -1,0 +1,72 @@
+<svg viewBox="46 36 220 220" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="envGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f8ef7"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="envGradLight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7fb0ff"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="lockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="sealGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fcd34d"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#1e3a8a" flood-opacity="0.28"/>
+    </filter>
+    <filter id="badgeShadow" x="-80%" y="-80%" width="260%" height="260%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#1e293b" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+
+    <clipPath id="envClip">
+      <rect x="75" y="90" width="150" height="110" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <!-- soft background glow -->
+  <ellipse cx="150" cy="150" rx="130" ry="110" fill="#3b82f6" opacity="0.12" filter="url(#glow)"/>
+
+  <!-- gateway envelope -->
+  <g filter="url(#softShadow)">
+    <rect x="75" y="90" width="150" height="110" rx="20" fill="url(#envGrad)"/>
+  </g>
+  <g clip-path="url(#envClip)">
+    <path d="M75,90 L225,90 L150,152 Z" fill="url(#envGradLight)" opacity="0.9"/>
+    <path d="M75,90 L150,152" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1.5"/>
+    <path d="M225,90 L150,152" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1.5"/>
+    <ellipse cx="105" cy="107" rx="28" ry="13" fill="#ffffff" opacity="0.12"/>
+  </g>
+
+  <!-- signature flourish -->
+  <path d="M105,165 C117,148 125,180 137,160 C145,148 155,176 170,158"
+        fill="none" stroke="#fbbf24" stroke-width="4.4" stroke-linecap="round"/>
+  <circle cx="174" cy="155" r="2.8" fill="#fbbf24"/>
+
+  <!-- dynamic field placeholder lines (Jobtitel/Telefon/Abteilung etc.) -->
+  <rect x="105" y="176" width="72" height="5.5" rx="2.75" fill="#ffffff" opacity="0.55"/>
+  <rect x="105" y="188" width="48" height="5.5" rx="2.75" fill="#ffffff" opacity="0.35"/>
+
+  <!-- S/MIME encryption badge -->
+  <g filter="url(#badgeShadow)">
+    <circle cx="208" cy="192" r="21" fill="url(#lockGrad)"/>
+  </g>
+  <g transform="translate(208,192)">
+    <rect x="-7.5" y="-2" width="15" height="12" rx="2.7" fill="#ffffff"/>
+    <path d="M-5.3,-2 v-4.3 a5.3,5.3 0 0 1 10.6,0 v4.3" fill="none" stroke="#ffffff" stroke-width="2.6"/>
+  </g>
+
+  <!-- signed/verified seal badge -->
+  <g filter="url(#badgeShadow)">
+    <circle cx="218" cy="98" r="19" fill="url(#sealGrad)"/>
+  </g>
+  <path d="M209,98 L216,105 L228,90" fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

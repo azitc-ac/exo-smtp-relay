@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- ── Protokoll-Suche ───────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <h2 style="margin-top:0">Protokoll-Suche</h2>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+    <input readonly type="text" id="searchInput" placeholder="Suchbegriff (z.B. IP-Adresse, ERROR, [mail:…])"
+      style="flex:1; min-width:180px" onkeydown="if(event.key==='Enter') doSearch()" onfocus="this.removeAttribute('readonly')">
+    <button class="btn primary" onclick="doSearch()">Suchen</button>
+    <button class="btn secondary" onclick="clearSearch()">Leeren</button>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px">
+    <label style="font-size:12px;color:#888">Von</label>
+    <input type="datetime-local" id="searchFrom" style="font-size:13px">
+    <label style="font-size:12px;color:#888">Bis</label>
+    <input type="datetime-local" id="searchTo" style="font-size:13px">
+    <span class="hint" style="font-size:12px">Zeitraum optional — mit Zeitraum darf der Suchbegriff auch leer sein.
+      Tipp: Jede Mail trägt eine <code>[mail:…]</code>-Trace-ID; danach suchen zeigt alle Einträge dieser Nachricht.</span>
+  </div>
+  <details id="qs-details" style="margin-top:8px">
+    <summary style="font-size:12px;color:#888;cursor:pointer;user-select:none">Schnellsuche</summary>
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      <button class="btn secondary btn-sm" onclick="quickSearch('SMTP-Relay')">SMTP-Relay</button>
+      <button class="btn secondary btn-sm" onclick="quickSearch('ERROR')">ERROR</button>
+      <button class="btn secondary btn-sm" onclick="quickSearch('WARNING')">WARNING</button>
+      <button class="btn secondary btn-sm" onclick="quickSearch('CRITICAL')">CRITICAL</button>
+      <button class="btn secondary btn-sm" onclick="quickSearch('abgewiesen')">abgewiesen</button>
+      <button class="btn secondary btn-sm" onclick="quickSearch('Zustellung')">Zustellung</button>
+    </div>
+  </details>
+  <script>if (window.innerWidth > 600) document.getElementById('qs-details').open = true;</script>
+  <div id="searchStats" style="font-size:12px;color:#666;margin-top:6px;display:none"></div>
+  <div id="searchResults" style="margin-top:10px;display:none">
+    <div class="log-wrap" style="max-height:300px">
+      <pre id="searchPre" class="log-pre"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ── Live-Protokoll ─────────────────────────────────────────────────────── -->
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <h1 style="margin:0;flex-shrink:0">Live-Protokoll</h1>
+    <input type="text" id="liveFilter" placeholder="Live-Filter…"
+        style="flex:1;min-width:140px;padding:5px 10px;font-size:13px;border:1px solid #ccc;border-radius:6px"
+        oninput="applyFilter()">
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap">
+        <button class="btn secondary btn-sm" onclick="kopiereProtokoll(this)">Kopieren</button>
+        <button class="btn secondary btn-sm" onclick="clearLog()">Leeren</button>
+        <button id="btnScroll"   class="btn-toggle active" onclick="toggleScroll()">autoscroll ✓</button>
+        <button id="btnVerbose"  class="btn-toggle"        onclick="toggleVerbose()">verbose ✗</button>
+        <button id="btnLogging"  class="btn-toggle active" onclick="toggleLogging()">logging ✓</button>
+        <span id="connStatus" class="log-status connecting">Verbinde…</span>
+    </div>
+</div>
+
+<div id="logWrap" class="log-wrap">
+    <pre id="logPre" class="log-pre"></pre>
+</div>
+
+<script>
+// ── Suche ──────────────────────────────────────────────────────────────────
+function quickSearch(term) {
+  document.getElementById('searchInput').value = term;
+  doSearch();
+}
+
+async function doSearch() {
+  const q    = (document.getElementById('searchInput').value || '').trim();
+  const from = document.getElementById('searchFrom').value;
+  const to   = document.getElementById('searchTo').value;
+  if (!q && !from && !to) return;
+  const stats   = document.getElementById('searchStats');
+  const results = document.getElementById('searchResults');
+  const pre     = document.getElementById('searchPre');
+  stats.textContent = 'Suche läuft…';
+  stats.style.display = 'block';
+  results.style.display = 'none';
+
+  const resp = await fetch('/api/logs/search?q=' + encodeURIComponent(q)
+    + '&time_from=' + encodeURIComponent(from) + '&time_to=' + encodeURIComponent(to));
+  if (!resp.ok) { stats.textContent = 'Fehler bei der Suche.'; return; }
+  const data  = await resp.json();
+  const lines = data.results || [];
+  stats.textContent = lines.length + ' Treffer' + (lines.length === 500 ? ' (Limit erreicht)' : '');
+  pre.innerHTML = '';
+  if (lines.length === 0) {
+    pre.textContent = '(keine Treffer)';
+  } else {
+    lines.forEach(function(line) {
+      var span = document.createElement('span');
+      span.className = levelClass(line);
+      span.textContent = line + '\n';
+      pre.appendChild(span);
+    });
+  }
+  results.style.display = 'block';
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchFrom').value = '';
+  document.getElementById('searchTo').value = '';
+  document.getElementById('searchStats').style.display = 'none';
+  document.getElementById('searchResults').style.display = 'none';
+}
+
+// ── Live-Log ───────────────────────────────────────────────────────────────
+const pre    = document.getElementById('logPre');
+const wrap   = document.getElementById('logWrap');
+const status = document.getElementById('connStatus');
+
+const LOG_MAX    = 2000;
+let logBuffer    = [];
+let autoScroll   = true;
+let verboseOn    = false;
+let loggingOn    = true;
+let filterText   = '';
+let es           = null;
+
+function levelClass(line) {
+    if (/\bCRITICAL\b/.test(line)) return 'log-critical';
+    if (/\bERROR\b/.test(line))    return 'log-error';
+    if (/\bWARNING\b/.test(line))  return 'log-warn';
+    if (/\bDEBUG\b/.test(line))    return 'log-debug';
+    return '';
+}
+
+function lineVisible(line) {
+    if (!verboseOn && /\bDEBUG\b/.test(line)) return false;
+    if (filterText && line.toLowerCase().indexOf(filterText.toLowerCase()) === -1) return false;
+    return true;
+}
+
+function renderBuffer() {
+    // Neu zeichnen verwirft jede Auswahl — deshalb nur, wenn keine besteht.
+    // Betrifft Filterwechsel und das Umschalten von „verbose".
+    if (typeof _auswahlImProtokoll === 'function' && _auswahlImProtokoll()) return;
+    pre.innerHTML = '';
+    logBuffer.forEach(function(line) {
+        if (!lineVisible(line)) return;
+        var span = document.createElement('span');
+        var cls  = levelClass(line);
+        if (cls) span.className = cls;
+        span.textContent = line + '\n';
+        pre.appendChild(span);
+    });
+    if (autoScroll) wrap.scrollTop = wrap.scrollHeight;
+}
+
+// Markiert gerade jemand etwas IM Protokoll?
+//
+// ⚠️ Ohne diese Prüfung ist Markieren auf einem Telefon praktisch unmöglich:
+// Long-Press setzt die Auswahl, im selben Moment trifft die nächste Logzeile
+// ein — `scrollTop` springt ans Ende und die Auswahl ist weg. Kommt sie aus
+// dem Puffer heraus, wird ihr Element sogar entfernt. Beides wird ausgesetzt,
+// solange eine Auswahl besteht; sie überlebt damit, bis man daneben tippt.
+function _auswahlImProtokoll() {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+    var knoten = sel.getRangeAt(0).commonAncestorContainer;
+    if (knoten.nodeType === 3) knoten = knoten.parentNode;
+    return !!(knoten && wrap.contains(knoten));
+}
+
+function appendLine(text) {
+    logBuffer.push(text);
+    if (logBuffer.length > LOG_MAX) logBuffer.shift();
+    if (!lineVisible(text)) return;
+    var span = document.createElement('span');
+    var cls  = levelClass(text);
+    if (cls) span.className = cls;
+    span.textContent = text + '\n';
+    pre.appendChild(span);
+    var haelt = _auswahlImProtokoll();
+    // Der Puffer läuft weiter — nur das Wegwerfen wartet, bis die Auswahl
+    // aufgehoben ist. Sonst verschwindet das Markierte unter den Fingern.
+    if (!haelt) {
+        while (pre.children.length > LOG_MAX) pre.removeChild(pre.firstChild);
+    }
+    if (autoScroll && !haelt) wrap.scrollTop = wrap.scrollHeight;
+}
+
+// Alles im Sichtbereich in die Zwischenablage — auf dem Telefon der
+// verlässlichste Weg, weil kein genaues Markieren nötig ist.
+async function kopiereProtokoll(btn) {
+    var text = pre.textContent || '';
+    var alt = btn.textContent;
+    if (!text.trim()) { showMsg(btn, '', false); btn.textContent = 'nichts da'; }
+    else {
+        try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = 'kopiert ✓';
+        } catch (e) {
+            // Ohne HTTPS oder ohne Berechtigung gibt es keine Zwischenablage.
+            // Dann wenigstens alles markieren, damit ein Tippen genügt.
+            var r = document.createRange();
+            r.selectNodeContents(pre);
+            var s = window.getSelection();
+            s.removeAllRanges(); s.addRange(r);
+            btn.textContent = 'markiert — jetzt kopieren';
+        }
+    }
+    setTimeout(function () { btn.textContent = alt; }, 2500);
+}
+
+function setStatus(label, cls) {
+    status.textContent = label;
+    status.className   = 'log-status ' + cls;
+}
+
+function connect() {
+    if (es) { es.close(); es = null; }
+    setStatus('Verbinde…', 'connecting');
+    es = new EventSource('/log/stream?token={{ stream_token }}');
+    es.onopen    = function() { setStatus('Live', 'live'); };
+    es.onmessage = function(e) { try { appendLine(JSON.parse(e.data)); } catch(_) { ursache(_, 'log:170'); } };
+    es.onerror   = function() {
+        es.close(); es = null;
+        if (loggingOn) { setStatus('Verbinde…', 'connecting'); setTimeout(connect, 3000); }
+    };
+}
+
+function clearLog() {
+    logBuffer = [];
+    pre.textContent = '';
+}
+
+function applyFilter() {
+    filterText = document.getElementById('liveFilter').value;
+    renderBuffer();
+}
+
+function toggleScroll() {
+    autoScroll = !autoScroll;
+    var btn = document.getElementById('btnScroll');
+    btn.textContent = autoScroll ? 'autoscroll ✓' : 'autoscroll ✗';
+    btn.classList.toggle('active', autoScroll);
+    if (autoScroll) wrap.scrollTop = wrap.scrollHeight;
+}
+
+function toggleVerbose() {
+    verboseOn = !verboseOn;
+    var btn = document.getElementById('btnVerbose');
+    btn.textContent = verboseOn ? 'verbose ✓' : 'verbose ✗';
+    btn.classList.toggle('active', verboseOn);
+    renderBuffer();
+}
+
+function toggleLogging() {
+    loggingOn = !loggingOn;
+    var btn = document.getElementById('btnLogging');
+    btn.textContent = loggingOn ? 'logging ✓' : 'logging ✗';
+    btn.classList.toggle('active', loggingOn);
+    if (loggingOn) {
+        connect();
+    } else {
+        if (es) { es.close(); es = null; }
+        setStatus('Gestoppt', 'connecting');
+    }
+}
+
+connect();
+
+function _resizeLog() {
+    var w = document.getElementById('logWrap');
+    if (!w) return;
+    var top = w.getBoundingClientRect().top + window.scrollY;
+    w.style.height = Math.max(200, window.innerHeight - top - 20) + 'px';
+}
+window.addEventListener('resize', _resizeLog);
+_resizeLog();
+</script>
+{% endblock %}

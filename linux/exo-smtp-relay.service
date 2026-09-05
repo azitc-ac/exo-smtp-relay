@@ -1,0 +1,36 @@
+# systemd-Unit für den Betrieb OHNE Docker (Debian/Ubuntu, Raspberry Pi OS).
+#
+# Einrichten:
+#   sudo useradd -r -s /usr/sbin/nologin -d /opt/exo-smtp-relay exo-relay
+#   sudo mkdir -p /opt/exo-smtp-relay && sudo cp -r app /opt/exo-smtp-relay/
+#   sudo python3 -m venv /opt/exo-smtp-relay/venv
+#   sudo /opt/exo-smtp-relay/venv/bin/pip install -r /opt/exo-smtp-relay/app/requirements.lock
+#   sudo mkdir -p /opt/exo-smtp-relay/data && sudo chown -R exo-relay /opt/exo-smtp-relay
+#   sudo cp linux/exo-smtp-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now exo-smtp-relay
+#
+# Port 25 ohne root: AmbientCapabilities gibt dem Prozess genau dieses eine
+# Recht. PowerShell 7 (`pwsh`) für die Postfachabfrage getrennt installieren:
+# https://learn.microsoft.com/powershell/scripting/install/install-debian
+[Unit]
+Description=EXO SMTP Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=exo-relay
+Group=exo-relay
+WorkingDirectory=/opt/exo-smtp-relay/app
+Environment=DATA_DIR=/opt/exo-smtp-relay/data
+ExecStart=/opt/exo-smtp-relay/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/exo-smtp-relay/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

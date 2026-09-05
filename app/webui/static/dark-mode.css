@@ -1,0 +1,669 @@
+/* ── Dark Theme Overrides ─────────────────────────────────────────────────
+   Applied via [data-theme="dark"] on <html>. All other styles stay as-is.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* color-scheme lässt den Browser native Widgets dunkel rendern:
+   Select-Popups, Scrollbalken, Checkboxen. */
+[data-theme="dark"] { color-scheme: dark; }
+
+/* ── Basis ───────────────────────────────────────────────────────────────── */
+[data-theme="dark"] body  { background: #0f1117; color: #e2e8f0; }
+[data-theme="dark"] h1    { color: #e2e8f0; }
+[data-theme="dark"] h2    { color: #cbd5e1; }
+[data-theme="dark"] h3    { color: #94a3b8; }
+[data-theme="dark"] label { color: #cbd5e1; }
+[data-theme="dark"] .checkbox-label { color: #cbd5e1; }
+[data-theme="dark"] details summary  { color: #94a3b8; }
+[data-theme="dark"] code  { background: #495166; color: #94a3b8; }
+
+/* ── Navigation ─────────────────────────────────────────────────────────── */
+[data-theme="dark"] nav {
+  background: #0e1c2e;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+[data-theme="dark"] .nav-links {
+  background: #0e1c2e;
+  border-top-color: rgba(255,255,255,0.08);
+}
+[data-theme="dark"] .nav-sub-tabs  { border-bottom-color: #495166; }
+[data-theme="dark"] .nav-sub-tab   { color: #94a3b8; }
+[data-theme="dark"] .nav-sub-tab:hover { color: #5b9bd5; }
+[data-theme="dark"] .nav-sub-tab.active { color: #5b9bd5; border-bottom-color: #5b9bd5; }
+[data-theme="dark"] .nav-sub-tab.nav-planned { color: #4a5568; }
+[data-theme="dark"] .nav-planned-badge { background: #495166 !important; }
+
+/* ── Cards & Wizard-Steps ────────────────────────────────────────────────── */
+[data-theme="dark"] .settings-card {
+  background: #1c2030 !important;
+  border-color: #495166 !important;
+}
+[data-theme="dark"] .settings-card h2 { color: #5b9bd5; }
+[data-theme="dark"] .settings-card p  { color: #cbd5e1; }
+[data-theme="dark"] .settings-card li { color: #cbd5e1; }
+
+[data-theme="dark"] .wizard-step {
+  background: #1c2030 !important;
+  border-color: #495166 !important;
+}
+[data-theme="dark"] .wizard-step.done     { border-left-color: #22c55e !important; }
+[data-theme="dark"] .wizard-step:not(.done) { border-left-color: #495166 !important; }
+
+[data-theme="dark"] .step-header {
+  background: #262b3a;
+  border-bottom-color: #495166;
+}
+[data-theme="dark"] .wizard-step.done .step-header { background: #0d2018; }
+[data-theme="dark"] .step-title  { color: #e2e8f0; }
+[data-theme="dark"] .step-badge  { background: #1e4060; }
+
+[data-theme="dark"] .step-status.done    { background: #0a1f10 !important; color: #4ade80 !important; }
+[data-theme="dark"] .step-status.pending { background: #1f1500 !important; color: #fbbf24 !important; }
+[data-theme="dark"] .step-status.waiting { background: #394159 !important; color: #94a3b8 !important; }
+
+[data-theme="dark"] .stat-card  { background: #1c2030; border-color: #495166; border-top-color: #5b9bd5; }
+[data-theme="dark"] .stat-value { color: #5b9bd5; }
+[data-theme="dark"] .stat-label { color: #94a3b8; }
+[data-theme="dark"] .preview-frame { background: #1c2030; border-color: #495166; }
+
+/* ── Formulare ───────────────────────────────────────────────────────────── */
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="url"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="datetime-local"],
+[data-theme="dark"] input[type="time"],
+[data-theme="dark"] input[type="search"],
+[data-theme="dark"] input[type="file"],
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  /* Eingabefelder bewusst DUNKLER als die Karte (eingesenkt) + kräftigerer
+     Rahmen — vorher war Feld == Kartenfläche (Kontrast 1.00:1, unsichtbar). */
+  background: #0e1119;
+  border-color: #5a6480;
+  color: #e2e8f0;
+}
+[data-theme="dark"] select option       { background: #1c2030; color: #e2e8f0; }
+[data-theme="dark"] select:disabled,
+[data-theme="dark"] input:disabled      { opacity: 0.5; color: #94a3b8; }
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus      { border-color: #5b9bd5; box-shadow: 0 0 0 2px rgba(78,157,232,0.18); }
+[data-theme="dark"] input[type="checkbox"] { accent-color: #5b9bd5; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .btn.primary          { background: #2563eb; }
+[data-theme="dark"] .btn.primary:hover    { background: #3b82f6; }
+[data-theme="dark"] .btn.secondary        { background: #394159; color: #e2e8f0; }
+[data-theme="dark"] .btn.secondary:hover  { background: #495166; }
+[data-theme="dark"] .btn.danger           { background: #7f1d1d; color: #fca5a5; }
+[data-theme="dark"] .btn.danger:hover     { background: #991b1b; }
+[data-theme="dark"] .btn-sm.secondary     { background: #394159; color: #e2e8f0; }
+[data-theme="dark"] .btn-toggle           { background: #394159; border-color: #495166; color: #94a3b8; }
+[data-theme="dark"] .btn-toggle.active    { background: #2563eb; border-color: #2563eb; color: #fff; }
+[data-theme="dark"] .btn-toggle:hover:not(.active) { background: #495166; }
+[data-theme="dark"] .copy-btn             { color: #5b9bd5; }
+[data-theme="dark"] .copy-btn:hover       { background: #394159; }
+[data-theme="dark"] .clear-btn            { color: #94a3b8; }
+[data-theme="dark"] .clear-btn:hover      { background: #4a2020; color: #fca5a5; }
+[data-theme="dark"] .clear-btn.copied     { color: #fcd34d; }
+/* Die Knöpfe liegen auf dem Feld — ihr Hintergrund muss dessen Farbe treffen,
+   sonst leuchtet ein weisser Fleck im dunklen Feld. */
+[data-theme="dark"] .feld-knoepfe .copy-btn,
+[data-theme="dark"] .feld-knoepfe .clear-btn { background: #2a3142; }
+
+/* ── Alerts ──────────────────────────────────────────────────────────────── */
+[data-theme="dark"] .alert.success { background: #0a1f10; border-color: #166534; color: #4ade80; }
+[data-theme="dark"] .alert.error   { background: #1f0a0a; border-color: #991b1b; color: #fca5a5; }
+[data-theme="dark"] .alert.warn    { background: #1f1500; border-color: #92400e; color: #fbbf24; }
+
+/* ── Tabellen ────────────────────────────────────────────────────────────── */
+[data-theme="dark"] table             { color: #e2e8f0; }
+/* JS normalisiert border zu rgb() → !important nötig */
+[data-theme="dark"] table tr { border-bottom-color: #495166 !important; }
+[data-theme="dark"] table th { border-bottom-color: #495166 !important; color: #94a3b8; }
+[data-theme="dark"] table td { border-color: #495166 !important; }
+/* Aufklapper der Behaelter-Einstellungen im Baukasten (style.css).
+   Die Farben stehen dort in einer Klasse, nicht als style-Attribut — die
+   Attribut-Selektoren weiter unten greifen hier also nicht. */
+[data-theme="dark"] .behaelter-einstellungen > summary {
+    background: #1c2030;
+    border-color: #334155;
+    color: #94a3b8;
+}
+
+/* Feste Kopfzeile der Postfachtabelle (style.css, ab 1100px).
+ *
+ * Der Hintergrund ist hier ZWINGEND: Eine klebende Kopfzeile ohne eigene
+ * Fuellung laesst die durchrollenden Zeilen hindurchscheinen. Im hellen Modus
+ * steht dafuer #fff, das im Dunkelmodus als weisser Streifen stehen bliebe.
+ * Der Wert entspricht dem Seitenhintergrund (`body` oben, #0f1117). */
+[data-theme="dark"] .tabellen-rollbereich thead th {
+    background: #0f1117;
+    box-shadow: inset 0 -2px 0 #495166;
+}
+/* Gegenstueck zur Regel in style.css: Die spezifischere Rollbereich-Regel
+ * uebermalt sonst den Kopf einer .config-table mit dem Seitenhintergrund. */
+[data-theme="dark"] .tabellen-rollbereich .config-table thead th { background: #394159; }
+[data-theme="dark"] .kv-table th { color: #94a3b8; border-color: #495166; }
+[data-theme="dark"] .kv-table td { border-color: #495166; }
+[data-theme="dark"] .config-table    { background: #1c2030; border-color: #495166; }
+[data-theme="dark"] .config-table th { background: #394159; color: #94a3b8; }
+[data-theme="dark"] .config-table td { border-top-color: #495166; }
+[data-theme="dark"] .config-table tr:hover td { background: #394159; }
+[data-theme="dark"] .config-table code { background: #495166; color: #94a3b8; }
+
+/* ── Hints / Sekundärtexte ───────────────────────────────────────────────── */
+[data-theme="dark"] .hint            { color: #94a3b8 !important; }
+[data-theme="dark"] .hint code       { background: #394159 !important; color: #93c5fd !important; }
+[data-theme="dark"] .step-body .hint { color: #94a3b8 !important; }
+[data-theme="dark"] .step-body p     { color: #cbd5e1 !important; }
+[data-theme="dark"] .step-body ul    { color: #cbd5e1 !important; }
+[data-theme="dark"] .settings-row    { border-bottom-color: #495166; }
+[data-theme="dark"] .step-header     { border-bottom-color: #495166; }
+
+/* ── Info-Box + Dialog-Card ──────────────────────────────────────────────── */
+/* Hinweis auf nicht erprobte Bereiche. Die Farben stehen in style.css als
+   KLASSE, nicht inline — darkcheck.py sieht nur Inline-Styles und haette den
+   Kasten deshalb nicht gemeldet. Ohne diese Regel leuchtet er im Dunkelmodus. */
+[data-theme="dark"] .preview-hinweis {
+  background: #1a1200 !important;
+  border-color: #92400e !important;
+  color: #fcd34d !important;
+}
+[data-theme="dark"] .preview-hinweis a { color: #fbbf24 !important; }
+
+[data-theme="dark"] .info-box {
+  background: #1e2235 !important;
+  border-color: #495166 !important;
+}
+[data-theme="dark"] .dlg-card {
+  background: #1c2030 !important;
+  color: #e2e8f0;
+}
+
+/* ── Status-Badges ───────────────────────────────────────────────────────── */
+[data-theme="dark"] .conn-ok   { background: #0a1f10 !important; color: #4ade80 !important; }
+[data-theme="dark"] .conn-wait { background: #1f1500 !important; color: #fbbf24 !important; }
+[data-theme="dark"] .log-status.live       { background: #0a1f10; color: #4ade80; }
+[data-theme="dark"] .log-status.connecting { background: #1f1500; color: #fbbf24; }
+
+/* ── Dashboard: System-Tiles ─────────────────────────────────────────────── */
+[data-theme="dark"] .sys-tile        { background: #394159 !important; }
+[data-theme="dark"] .sys-tile .sys-val   { color: #e2e8f0 !important; }
+[data-theme="dark"] .sys-tile .sys-label { color: #94a3b8 !important; }
+[data-theme="dark"] .sys-tile .sys-sub   { color: #64748b !important; }
+
+/* ── User-Tooltip ────────────────────────────────────────────────────────── */
+[data-theme="dark"] #user-tooltip {
+  background: #1c2030; border-color: #495166;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+[data-theme="dark"] #user-tt-upn  { color: #e2e8f0; }
+[data-theme="dark"] #user-tt-role { color: #94a3b8; }
+[data-theme="dark"] #user-tooltip [style*="border-top"] { border-top-color: #495166 !important; }
+
+/* ── Inline-Style-Überschreibungen ───────────────────────────────────────────
+   Templates setzen hunderte Farben als style="…". Attribut-Selektoren +
+   !important überschreiben sie zentral ohne Template-Änderungen.          */
+
+/* Hintergründe: fast-weiß / hell-grau → dunkel */
+[data-theme="dark"] [style*="background:#fff"],
+[data-theme="dark"] [style*="background: #fff"],
+[data-theme="dark"] [style*="background:white"],
+[data-theme="dark"] [style*="background:#f8fafc"],
+[data-theme="dark"] [style*="background:#f8f9fa"],
+[data-theme="dark"] [style*="background:#f8f7f6"],
+[data-theme="dark"] [style*="background:#f1f5f9"],
+[data-theme="dark"] [style*="background:#f3f4f6"],
+[data-theme="dark"] [style*="background:#fafafa"],
+[data-theme="dark"] [style*="background:#fafaf9"],
+[data-theme="dark"] [style*="background:#fcfcfc"],
+[data-theme="dark"] [style*="background:#f0f0f0"] {
+  background: #14171f !important;
+}
+/* Ausnahme: Signatur-Vorschau muss auf Weiß rendern */
+[data-theme="dark"] .preview-frame [style*="background:#fff"],
+[data-theme="dark"] #pv-html,
+[data-theme="dark"] .sig-preview-white { background: #ffffff !important; }
+
+/* Hintergründe: semantische Farben */
+[data-theme="dark"] [style*="background:#f0fdf4"],
+[data-theme="dark"] [style*="background:#dcfce7"] { background: #0a1f10 !important; }
+
+[data-theme="dark"] [style*="background:#fef2f2"] { background: #1f0a0a !important; }
+
+[data-theme="dark"] [style*="background:#f0f9ff"],
+[data-theme="dark"] [style*="background:#e0f2fe"],
+[data-theme="dark"] [style*="background:#eff6ff"],
+[data-theme="dark"] [style*="background:#dbeafe"] { background: #0a1827 !important; }
+
+[data-theme="dark"] [style*="background:#ecfdf5"] { background: #0a1f10 !important; }
+
+[data-theme="dark"] [style*="background:#f0f4ff"] { background: #0f1530 !important; }
+
+[data-theme="dark"] [style*="background:#ede9fe"],
+[data-theme="dark"] [style*="background:#f3e8ff"],
+[data-theme="dark"] [style*="background:#f5f3ff"],
+[data-theme="dark"] [style*="background:#fafafe"] { background: #1a0d2e !important; }
+
+[data-theme="dark"] [style*="background:#fffbeb"],
+[data-theme="dark"] [style*="background:#fefce8"],
+[data-theme="dark"] [style*="background:#fef9c3"],
+[data-theme="dark"] [style*="background:#fef3e2"],
+[data-theme="dark"] [style*="background:#fff7ed"],
+[data-theme="dark"] [style*="background:#fef9f0"],
+[data-theme="dark"] [style*="background:#fef3c7"] { background: #1a1200 !important; }
+
+/* Störung beim Abruf des Anbieterkatalogs: Der Kasten erscheint über
+   `style.display`, damit wird das style-Attribut neu serialisiert und der
+   Attributselektor oben greift nicht mehr. Über die ID, wie bei den Nachbarn. */
+[data-theme="dark"] #cert-katalog-stoerung {
+  background: #1a1200 !important;
+  border-color: #92400e !important;
+  color: #fcd34d !important;
+}
+
+/* Die offene Kontowechsel-Anforderung: JavaScript setzt hier `style.display`,
+   und der Browser serialisiert das gesamte style-Attribut dabei neu — der
+   Attributselektor oben trifft die Farbe danach nicht mehr. Deshalb über die
+   ID, nicht über den Wert. */
+/* Hinweis der HTML-Rückübersetzung: der Kasten entsteht per JavaScript, sein
+   style-Attribut wird also neu serialisiert — ein Attributselektor auf den
+   Farbwert griffe nicht. Deshalb über die ID. */
+[data-theme="dark"] #umwandlung-hinweis {
+  background: #0d2137 !important;
+  border: 1px solid #1e40af !important;
+  color: #bfdbfe !important;
+}
+
+[data-theme="dark"] #hub-konto-offen {
+  background: #1a1200 !important;
+  border-color: #78350f !important;
+}
+
+[data-theme="dark"] [style*="background:#e2e8f0"] {
+  background: #495166 !important;
+  color: #94a3b8 !important;
+}
+
+/* Textfarben: dunkel → hell */
+[data-theme="dark"] [style*="color:#0f172a"],
+[data-theme="dark"] [style*="color:#111"],
+[data-theme="dark"] [style*="color:#222"],
+[data-theme="dark"] [style*="color:#333"],
+[data-theme="dark"] [style*="color:#1c1917"],
+[data-theme="dark"] [style*="color:#1e293b"],
+[data-theme="dark"] [style*="color:#1f2937"],
+[data-theme="dark"] [style*="color:#334155"],
+[data-theme="dark"] [style*="color:#374151"],
+[data-theme="dark"] [style*="color:#44403c"],
+[data-theme="dark"] [style*="color:#555"] { color: #cbd5e1 !important; }
+
+[data-theme="dark"] [style*="color:#475569"],
+[data-theme="dark"] [style*="color:#57534e"],
+[data-theme="dark"] [style*="color:#64748b"],
+[data-theme="dark"] [style*="color:#666"],
+[data-theme="dark"] [style*="color:#6b7280"],
+[data-theme="dark"] [style*="color:#78716c"],
+[data-theme="dark"] [style*="color:#888"],
+[data-theme="dark"] [style*="color:#94a3b8"],
+[data-theme="dark"] [style*="color:#9ca3af"],
+[data-theme="dark"] [style*="color:#a8a29e"],
+[data-theme="dark"] [style*="color:#aaa"],
+[data-theme="dark"] [style*="color:#bbb"] { color: #94a3b8 !important; }
+
+/* Grün */
+[data-theme="dark"] [style*="color:#15803d"],
+[data-theme="dark"] [style*="color:#166534"],
+[data-theme="dark"] [style*="color:#065f46"],
+[data-theme="dark"] [style*="color:#16a34a"],
+[data-theme="dark"] [style*="color:#27ae60"] { color: #4ade80 !important; }
+
+/* Rot */
+[data-theme="dark"] [style*="color:#dc2626"],
+[data-theme="dark"] [style*="color:#991b1b"],
+[data-theme="dark"] [style*="color:#e74c3c"],
+[data-theme="dark"] [style*="color:#ef4444"] { color: #fca5a5 !important; }
+
+/* Blau */
+[data-theme="dark"] [style*="color:#0078d4"] { color: #5b9bd5 !important; }
+[data-theme="dark"] [style*="color:#0284c7"],
+[data-theme="dark"] [style*="color:#0369a1"] { color: #7dd3fc !important; }
+[data-theme="dark"] [style*="color:#1e40af"] { color: #60a5fa !important; }
+
+/* Orange / Bernstein */
+[data-theme="dark"] [style*="color:#92400e"] { color: #fbbf24 !important; }
+[data-theme="dark"] [style*="color:#b45309"] { color: #f59e0b !important; }
+[data-theme="dark"] [style*="color:#c2410c"],
+[data-theme="dark"] [style*="color:#9a3412"] { color: #fb923c !important; }
+[data-theme="dark"] [style*="color:#d97706"] { color: #fbbf24 !important; }
+[data-theme="dark"] [style*="color:#e67e22"] { color: #fb923c !important; }
+
+/* Lila */
+[data-theme="dark"] [style*="color:#6366f1"],
+[data-theme="dark"] [style*="color:#7c3aed"] { color: #a78bfa !important; }
+
+/* Rahmen: neutral → dunkel */
+[data-theme="dark"] [style*="border:1px solid #ccc"],
+[data-theme="dark"] [style*="border:1px solid #cbd5e1"],
+[data-theme="dark"] [style*="border:1px solid #d4d0cc"],
+[data-theme="dark"] [style*="border:1px solid #d1d5db"],
+[data-theme="dark"] [style*="border:1px solid #e0e0e0"],
+[data-theme="dark"] [style*="border:1px solid #e2e8f0"],
+[data-theme="dark"] [style*="border:1px solid #e5e7eb"],
+[data-theme="dark"] [style*="border:1px solid #e7e5e4"],
+[data-theme="dark"] [style*="border:1px solid #eee"],
+[data-theme="dark"] [style*="border:1px solid #f0f0f0"] { border-color: #495166 !important; }
+
+[data-theme="dark"] [style*="border-bottom:1px solid #e2e8f0"],
+[data-theme="dark"] [style*="border-bottom:1px solid #e7e5e4"],
+[data-theme="dark"] [style*="border-bottom:1px solid #edf0f4"],
+[data-theme="dark"] [style*="border-bottom:1px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-bottom:1px solid #f0f4f8"],
+[data-theme="dark"] [style*="border-bottom:1px solid #f1f5f9"],
+[data-theme="dark"] [style*="border-bottom:1px solid #f5f4f3"],
+[data-theme="dark"] [style*="border-bottom:1px solid #f5f5f5"],
+[data-theme="dark"] [style*="border-bottom:2px solid #e2e8f0"],
+[data-theme="dark"] [style*="border-top:1px solid #e2e8f0"],
+[data-theme="dark"] [style*="border-top:1px solid #eee"],
+[data-theme="dark"] [style*="border-top:1px solid #f0f0f0"],
+[data-theme="dark"] [style*="border-left:3px solid #e2e8f0"],
+[data-theme="dark"] [style*="border-right:1px solid #e2e8f0"] { border-color: #495166 !important; }
+
+/* Rahmen: semantische Farben */
+[data-theme="dark"] [style*="border:1px solid #bae6fd"],
+[data-theme="dark"] [style*="border:1px solid #bfdbfe"],
+[data-theme="dark"] [style*="border:1px solid #c7d7ff"],
+[data-theme="dark"] [style*="border-color:#bae6fd"] { border-color: #1e4060 !important; }
+
+[data-theme="dark"] [style*="border:1px solid #bbf7d0"],
+[data-theme="dark"] [style*="border:1px solid #a7f3d0"],
+[data-theme="dark"] [style*="border:1px solid #d1fae5"] { border-color: #166534 !important; }
+
+[data-theme="dark"] [style*="border-color:#fca5a5"],
+[data-theme="dark"] [style*="border:1px solid #fecaca"] { border-color: #7f1d1d !important; }
+
+[data-theme="dark"] [style*="border:1px solid #c4b5fd"],
+[data-theme="dark"] [style*="border:1px solid #ddd6fe"] { border-color: #4c1d95 !important; }
+
+[data-theme="dark"] [style*="border:1px solid #fcd34d"],
+[data-theme="dark"] [style*="border:1px solid #fde047"],
+[data-theme="dark"] [style*="border:1px solid #fde68a"],
+[data-theme="dark"] [style*="border:1px solid #fed7aa"] { border-color: #78350f !important; }
+
+/* ── Erweitert: JS-gesetzte Farben (CSSOM normalisiert zu rgb → Attribut-Selektor greift nicht) */
+[data-theme="dark"] #maintenance-status-text { color: #94a3b8 !important; }
+
+/* Kurzmeldungen aus showMsg(). Die helle Fassung steht in style.css bei
+   .alert; hier nur der Dunkelmodus, mit denselben Werten wie .alert.error /
+   .alert.success weiter oben — eine Meldung soll nicht anders aussehen als
+   ein Banner mit derselben Aussage.
+
+   Anlass (28.07.2026): `.msg` war nirgends gestylt, eine Ablehnung stand als
+   Fließtext da. Es gab nur eine ID-Regel für #auto-topup-msg — die
+   Geschwisterfelder (#acct-msg, #lic-abo-msg, #rc-msg) waren ungedeckt.
+   Deshalb jetzt eine Regel am data-Attribut statt je Element. */
+[data-theme="dark"] .msg[data-state="ok"]  { background: #0a1f10; border-color: #166534; color: #4ade80; }
+[data-theme="dark"] .msg[data-state="err"] { background: #1f0a0a; border-color: #991b1b; color: #fca5a5; }
+
+/* Feldnahe Meldung (fieldMsg) und Schalter der Erklärtexte (initHintClamps).
+   Beide setzen nur data-Attribute bzw. Klassen, nie Farben aus JS. */
+[data-theme="dark"] .field-msg[data-state="err"] { color: #fca5a5; }
+[data-theme="dark"] .field-msg[data-state="ok"]  { color: #4ade80; }
+[data-theme="dark"] input[data-invalid="1"],
+[data-theme="dark"] select[data-invalid="1"],
+[data-theme="dark"] textarea[data-invalid="1"] { border-color: #991b1b; }
+[data-theme="dark"] .hint-toggle { color: #7dd3fc; }
+[data-theme="dark"] .hint-toggle:hover { color: #bae6fd; }
+[data-theme="dark"] .feld-gruppe > summary { color: #7dd3fc; }
+[data-theme="dark"] .feld-gruppe > summary:hover { color: #bae6fd; }
+
+/* #auto-topup-msg wird per JS in einen String gerendert (siehe
+   settings_connect.html) und trägt deshalb keine Klasse. Bis die Stelle auf
+   class="msg" umgestellt ist, bleibt die ID-Regel als Ergänzung stehen —
+   sie färbt nur den Text, weil das Feld dort bewusst schmal bleibt. */
+#auto-topup-msg[data-state="ok"]  { color: #166534; }
+#auto-topup-msg[data-state="err"] { color: #dc2626; }
+[data-theme="dark"] #auto-topup-msg[data-state="ok"]  { color: #4ade80; }
+[data-theme="dark"] #auto-topup-msg[data-state="err"] { color: #fca5a5; }
+
+/* ── Postfächer: Fair-Use-Zähler ─────────────────────────────────────────── */
+/* #fu-badge wird in refreshFairUse() per style.cssText gesetzt (CSSOM → rgb),
+   daher ID-Regeln statt [style*]. Die drei Zustände werden über den Textinhalt
+   nicht unterscheidbar — deshalb data-fu-state, das refreshFairUse() mitsetzt. */
+[data-theme="dark"] #fu-badge[data-fu-state="exceeded"] {
+  background: #1f0a0a !important;
+  color: #fca5a5 !important;
+}
+[data-theme="dark"] #fu-badge[data-fu-state="licensed"] {
+  background: #0a1f10 !important;
+  color: #4ade80 !important;
+}
+[data-theme="dark"] #fu-badge[data-fu-state="community"] {
+  background: #394159 !important;
+  color: #94a3b8 !important;
+}
+/* Fortschrittsbalken-Spur (background:#e2e8f0 wird schon oben getroffen, aber
+   dort zusammen mit color — hier gezielt nur der Track). */
+[data-theme="dark"] #fu-track { background: #495166 !important; }
+
+/* ── S/MIME-Seite ─────────────────────────────────────────────────────────── */
+/* Logo-Preview braucht im Light-Mode weißen Hintergrund (Logos für hellen Grund),
+   im Dark-Mode transparent — Logo bleibt sichtbar, kein weißer Kasten. */
+[data-theme="dark"] .portal-logo-preview { background: transparent !important; }
+
+/* S/MIME User-Card-Header (.user-hdr hat background:#f8fafc in style.css —
+   kein Inline-Attribut, daher greift der Attribut-Selektor nicht) */
+[data-theme="dark"] .user-hdr {
+  background: #262b3a !important;
+  border-bottom-color: #495166 !important;
+}
+
+/* ── Dashboard: Pool-Modal Tab-Buttons ───────────────────────────────────── */
+/* CSSOM-normalisiert: el.style.cssText → background:#f0f0f0 → rgb(…) → kein [style*] Match.
+   data-pool-active="1/0" wird per JS gesetzt um aktive/inaktive Tabs zu unterscheiden. */
+[data-theme="dark"] [data-pool-active="0"] {
+  background: #394159 !important;
+  color: #94a3b8 !important;
+}
+[data-theme="dark"] [data-pool-active="1"] {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+/* ── Settings: Notifikations- und Admin-Dropdown ─────────────────────────── */
+/* Dropdown-Items werden per createElement + style.cssText gesetzt (CSSOM-normalisiert).
+   Die äußere Dropdown-Box hat static-HTML background:#fff → Attribut-Selektor greift.
+   Die inneren Items brauchen explizite ID-Selektor-Regeln. */
+[data-theme="dark"] #notif-dropdown > div,
+[data-theme="dark"] #admin-dropdown > div {
+  background: #1c2030 !important;
+  color: #94a3b8 !important;
+  border-color: #495166 !important;
+}
+[data-theme="dark"] #notif-dropdown > div:hover,
+[data-theme="dark"] #admin-dropdown > div:hover {
+  background: #394159 !important;
+}
+
+/* ── Theme-Toggle-Button ─────────────────────────────────────────────────── */
+#theme-toggle {
+  background: none; border: none;
+  color: rgba(255,255,255,0.75);
+  cursor: pointer; font-size: 16px; line-height: 1;
+  padding: 4px 6px; border-radius: 4px; flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+#theme-toggle:hover { color: #fff; background: rgba(255,255,255,0.12); }
+
+/* Admin-Autovervollständigung (Klasse statt Inline — Attribut-Selektor greift nicht) */
+[data-theme="dark"] .admin-suggest-item { border-bottom-color: #495166 !important; }
+[data-theme="dark"] .admin-suggest-item:hover { background: #394159 !important; }
+
+/* Rechtsdokumente in Dialogen (Klasse statt Inline — siehe style.css) */
+[data-theme="dark"] .legal-view       { color: #cbd5e1 !important; }
+[data-theme="dark"] .legal-view h2,
+[data-theme="dark"] .legal-view h3,
+[data-theme="dark"] .legal-view h4    { color: #e2e8f0 !important; }
+[data-theme="dark"] .legal-view strong { color: #f1f5f9 !important; }
+
+/* ── JS-berührte Inline-Hintergründe ─────────────────────────────────────────
+ *
+ * Die Sammelregeln oben greifen über [style*="background:#hex"] — also über den
+ * TEXT des style-Attributs. Sobald JavaScript irgendeine Eigenschaft desselben
+ * Elements setzt (schon `el.style.display = ''` genügt), schreibt der Browser
+ * das gesamte Attribut neu und serialisiert Farben als `rgb(…)`. Der
+ * Attributselektor findet die Hex-Schreibweise dann nicht mehr, und das Element
+ * bleibt im Dunkelmodus hell.
+ *
+ * Aufgefallen am 27.07.2026 am Verlängerungskasten der Lizenz: heller Kasten
+ * mit hellem Text. Ausgerechnet dort stand im Template der Kommentar „Farben
+ * statisch im Attribut (Dark-Mode-Regel 2)" — die Farbe war statisch, aber
+ * `licRenewLoad()` schaltet die Sichtbarkeit desselben Elements.
+ *
+ * Diese Regeln sprechen die IDs an und tragen deshalb unabhängig davon, wie das
+ * Attribut gerade serialisiert ist. tools/darkcheck.py prüft die Liste.
+ * Zielfarben wie in den Sammelregeln oben.                                   */
+
+[data-theme="dark"] #upd-target-version,
+[data-theme="dark"] #obs-rd-detail,
+[data-theme="dark"] #health-inline-output,
+[data-theme="dark"] #audit-inline-pre,
+[data-theme="dark"] #fu-info-box,
+[data-theme="dark"] #admin-dropdown,
+[data-theme="dark"] #notif-dropdown,
+[data-theme="dark"] #cert-domain-record,
+[data-theme="dark"] #dc-domain-record,
+[data-theme="dark"] #lic-renew-box,
+[data-theme="dark"] #poolRecommendation,
+[data-theme="dark"] #kv-create-section {
+  background: #14171f !important;
+  border-color: #2a2d3e !important;
+}
+
+[data-theme="dark"] #cert-info-box,
+[data-theme="dark"] #admin-selected,
+[data-theme="dark"] #step-app-pool-status {
+  background: #0a1827 !important;
+  border-color: #1e3a5f !important;
+}
+
+[data-theme="dark"] #reconsent-bar,
+[data-theme="dark"] #kv-arm-box,
+[data-theme="dark"] #kv-existing-vault-hint,
+[data-theme="dark"] #login-required {
+  background: #1a1200 !important;
+  border-color: #3d2f00 !important;
+}
+
+[data-theme="dark"] #block-picker {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="dark"] #preview-box {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="dark"] [id^="col-picker-"] {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+/* Laufende Bestellung bei einer Zertifizierungsstelle.
+   Der Zustand steht als data-Attribut am Element — die Farben werden NICHT in
+   JavaScript gesetzt, weil der Browser sie dort zu rgb() normalisiert und die
+   Attribut-Selektoren dieser Datei dann nicht mehr greifen. Vorbild:
+   #fu-badge[data-fu-state], [data-pool-active]. */
+[data-theme="dark"] .hub-order                        { background:#111c2e; border-color:#1e3a5f; color:#93c5fd; }
+[data-theme="dark"] .hub-order[data-zustand="ok"]     { background:#0f2018; border-color:#14532d; color:#86efac; }
+[data-theme="dark"] .hub-order[data-zustand="fehler"] { background:#241416; border-color:#7f1d1d; color:#fca5a5; }
+[data-theme="dark"] .hub-order[data-zustand="unklar"] { background:#241d10; border-color:#78350f; color:#fcd34d; }
+
+/* Sammelbestellung: Ergebnis der Kostenvorschau. Zustand als data-Attribut,
+   weil JS-gesetzte Farben zu rgb() normalisiert würden und die Selektoren
+   dieser Datei dann nicht mehr greifen. Vorbild: .hub-order[data-zustand]. */
+[data-theme="dark"] .sammel-ergebnis                        { background:#111c2e; border-color:#1e3a5f; color:#93c5fd; }
+[data-theme="dark"] .sammel-ergebnis[data-zustand="warnung"] { background:#241d10; border-color:#78350f; color:#fcd34d; }
+[data-theme="dark"] .sammel-ergebnis[data-zustand="bereit"]  { background:#0f2018; border-color:#14532d; color:#86efac; }
+[data-theme="dark"] #sammel-liste                            { border-color:#2a2d3e; }
+[data-theme="dark"] .sammel-lauf                             { background:#111c2e; border-color:#1e3a5f; color:#93c5fd; }
+[data-theme="dark"] .sammel-lauf[data-zustand="PAUSIERT"]    { background:#241d10; border-color:#78350f; color:#fcd34d; }
+[data-theme="dark"] .sammel-lauf[data-zustand="FERTIG"]      { background:#0f2018; border-color:#14532d; color:#86efac; }
+[data-theme="dark"] .sammel-lauf[data-zustand="ABGEBROCHEN"] { background:#1a1d29; border-color:#2a2d3e; color:#94a3b8; }
+[data-theme="dark"] .sammel-balken                           { background:#2a2d3e; }
+
+/* Ungespeicherte Änderungen (common.js: speicherWache) */
+[data-theme="dark"] .speicher-hinweis[data-zustand="offen"]  { color: #fcd34d; }
+[data-theme="dark"] .speicher-hinweis[data-zustand="fertig"] { color: #86efac; }
+[data-theme="dark"] .speicher-hinweis[data-zustand="fehler"] { color: #fca5a5; }
+
+/* Mitlaufende Leiste für offene Änderungen (common.js) */
+[data-theme="dark"] .speicher-leiste { background:#241d10; border-color:#78350f; color:#fcd34d; }
+
+/* ── SMTP-Relay (v1.8.4) ──────────────────────────────────────────────────
+   #lern-aktiv trägt seinen Hintergrund als Inline-Attribut, wird aber per JS
+   ein- und ausgeblendet. Sobald JS `style.display` anfasst, serialisiert der
+   Browser das gesamte style-Attribut neu — der Attributselektor
+   [style*="#fffbeb"] greift danach nicht mehr, und der Kasten leuchtete im
+   Dunkelmodus hell auf. Deshalb eine ID-Regel (Dark-Mode-Regel 2).
+
+   Die gesperrt-Kennzeichnung läuft über ein data-Attribut aus demselben Grund:
+   Die Zeile entsteht in JS. */
+/* Werte NICHT selbst gewählt, sondern von #cert-katalog-stoerung übernommen —
+   demselben Fall (gelber Hinweiskasten, per JS eingeblendet). Ein eigener
+   Farbton hätte hier zwei Kästen gleicher Bedeutung verschieden aussehen
+   lassen, und niemand hätte je nachgesehen, warum. */
+[data-theme="dark"] #lern-aktiv {
+    background: #1a1200 !important;
+    border-color: #92400e !important;
+}
+[data-theme="dark"] #lern-aktiv,
+[data-theme="dark"] #lern-restzeit,
+[data-theme="dark"] #lern-bereiche-aktiv { color: #fcd34d !important; }
+
+[data-theme="dark"] tr[data-relay-gesperrt="1"] code { color: #fca5a5 !important; }
+
+/* Das Banner in base.html erscheint auf jeder Seite, solange der Lernmodus
+   läuft. Statisches HTML-Attribut, aber eine eigene Regel ist billiger als die
+   Frage, ob der Attributselektor eine Farbkombination trifft, die auch
+   anderswo vorkommt. */
+[data-theme="dark"] #lernmodus-banner {
+    background: #1a1200 !important;
+    border-bottom-color: #92400e !important;
+    color: #fcd34d !important;
+}
+[data-theme="dark"] #lernmodus-banner a { color: #fcd34d !important; }
+
+/* Die TLS-Spalte der Geräteliste entsteht in JavaScript, ihr Zustand steht
+   deshalb in `data-relay-tls` statt in einer Inline-Farbe (Dark-Mode-Regel 2).
+   „Klartext" ist keine Störung — es ist der erwartete Zustand eines alten
+   Druckers — aber es soll auffallen, wenn man die Liste überfliegt. */
+tr td[data-relay-tls="nein"]  { color: #b45309; font-size: 12px; }
+tr td[data-relay-tls="ja"]    { color: #15803d; }
+[data-theme="dark"] tr td[data-relay-tls="nein"] { color: #fcd34d !important; }
+[data-theme="dark"] tr td[data-relay-tls="ja"]   { color: #86efac !important; }
+
+/* Gegenstück zu `.muted` in style.css (2026-08-25 nachgetragen). */
+[data-theme="dark"] .muted { color: #94a3b8; }
+
+/* Statusmeldung der Zertifizierungsstelle — dieselbe Gestalt wie .hub-order
+   (2026-08-25 vereinheitlicht). */
+[data-theme="dark"] .acme-status                        { background:#111c2e; border-color:#1e3a5f; color:#93c5fd; }
+[data-theme="dark"] .acme-status[data-zustand="ok"]     { background:#0f2018; border-color:#14532d; color:#86efac; }
+[data-theme="dark"] .acme-status[data-zustand="fehler"] { background:#241416; border-color:#7f1d1d; color:#fca5a5; }
+[data-theme="dark"] .acme-status[data-zustand="unklar"] { background:#241d10; border-color:#78350f; color:#fcd34d; }
+[data-theme="dark"] .acme-status pre { background:rgba(255,255,255,.06); }
+
+[data-theme="dark"] .vorschlag-kopf   { background: #1e293b; border-bottom-color: #334155; }
+[data-theme="dark"] .vorschlag-zeile { border-bottom-color: #334155; }
+[data-theme="dark"] .vorschlag-zeile:hover        { background: #1e3a5f; }
+[data-theme="dark"] .empfaenger-zeile { border-bottom-color: #334155; }
+[data-theme="dark"] .js-trenner      { border-top-color: #334155; }
+[data-theme="dark"] .js-aufklappteil { border-top-color: #334155; }
+[data-theme="dark"] .step-status[data-zustand="ok"] { background: #14532d; color: #86efac; }
+
+[data-theme="dark"] .erweitert-schalter label { color: #94a3b8; }

@@ -1,0 +1,27 @@
+# Abhängigkeiten des EXO SMTP Relay — EXAKT gepinnt, aus demselben Grund wie im
+# grossen Gateway: reproduzierbar, was der Betreiber bekommt.
+#
+# Die Fassungen sind die des Gateways (requirements.lock vom 09.08.2026), damit
+# beide Dienste auf demselben, erprobten Unterbau laufen.
+
+# ── Mailverarbeitung ─────────────────────────────────────────────────────────
+aiosmtpd==1.4.6
+
+# ── Kryptografie (TLS-Zertifikat, Auth-Zertifikat, PKCS#12) ─────────────────
+cryptography==49.0.0
+
+# ── Web-UI ───────────────────────────────────────────────────────────────────
+fastapi==0.139.0
+uvicorn==0.51.0
+jinja2==3.1.6
+itsdangerous==2.2.0
+python-multipart==0.0.32
+
+# ── Einrichtung über Microsoft Graph (App-Registrierung, Zertifikat-Upload) ──
+httpx==0.28.1
+
+# ── Windows ──────────────────────────────────────────────────────────────────
+# tzdata: Windows hat keine IANA-Zonendatenbank; ohne das Paket fiele
+# `zoneinfo` still auf UTC zurück. pywin32: der Dienstwrapper (windows/service.py).
+tzdata==2025.2; sys_platform == "win32"
+pywin32==311; sys_platform == "win32"

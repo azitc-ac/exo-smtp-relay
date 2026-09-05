@@ -1,0 +1,60 @@
+# Fortlaufende Prüfung bei jedem Push und Pull Request — Tests, Spiegelprüfung,
+# Container-Build. Läuft auch, wenn dieser Baum später in ein eigenes
+# Repository gehoben wird: nichts hier setzt das Gateway voraus.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Tests und Prüfskripte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.lock -r tests/requirements.txt
+      - name: Tests
+        run: pytest tests/ -v
+      - name: Spiegelprüfung
+        run: python tools/driftcheck.py
+
+  windows:
+    name: Tests unter Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.lock -r tests/requirements.txt
+      - name: Tests
+        run: pytest tests/ -v
+      - name: PowerShell 5.1 parst die Skripte
+        shell: powershell
+        run: |
+          foreach ($s in (Get-ChildItem app\scripts\*.ps1, windows\*.ps1)) {
+            $fehler = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($s.FullName, [ref]$null, [ref]$fehler) | Out-Null
+            if ($fehler.Count -gt 0) { $fehler | ForEach-Object { Write-Host $_.ToString() }; throw "Parse-Fehler in $($s.Name)" }
+            Write-Host "OK $($s.Name)"
+          }
+
+  build:
+    name: Container baut
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker build
+        run: docker build -t exo-smtp-relay:ci .

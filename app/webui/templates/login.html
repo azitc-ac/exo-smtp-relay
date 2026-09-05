@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:420px;margin:60px auto">
+  <div style="margin-bottom:24px;text-align:center">
+    <img src="/static/login-logo.svg?v={{ version }}" alt="{{ gateway_name }}"
+         style="width:260px;height:260px;display:inline-block;max-width:100%">
+  </div>
+  <div class="settings-card">
+    <h2 style="margin-top:0;margin-bottom:20px;text-align:center">Anmelden</h2>
+    {% if error %}<div class="alert error" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+    <div class="settings-row" style="margin-bottom:8px">
+      <label for="local-user">Benutzername</label>
+      <input type="text" id="local-user" style="width:200px" autocomplete="username" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="settings-row" style="margin-bottom:12px">
+      <label for="local-pw">Passwort</label>
+      <input type="password" id="local-pw" style="width:200px" autocomplete="current-password" onkeydown="if(event.key==='Enter')localLogin()">
+    </div>
+    <div id="local-error" class="alert error" style="display:none;margin-bottom:8px"></div>
+    <button type="button" class="btn primary" style="width:100%" onclick="localLogin()">Anmelden</button>
+    <p class="hint" style="text-align:center;margin-top:12px">Beim ersten Start: <code>admin</code> / <code>admin</code> — danach bitte ändern.</p>
+  </div>
+</div>
+<script>
+async function localLogin() {
+  var u = document.getElementById('local-user').value;
+  var p = document.getElementById('local-pw').value;
+  var errEl = document.getElementById('local-error');
+  errEl.style.display = 'none';
+  var resp = await fetch('/auth/local', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: u, password: p}),
+  });
+  if (resp.ok) {
+    var next = new URLSearchParams(window.location.search).get('next') || '/';
+    window.location.href = next;
+  } else {
+    var d = await resp.json().catch(function() { return {}; });
+    errEl.textContent = d.detail || 'Anmeldung fehlgeschlagen';
+    errEl.style.display = 'block';
+  }
+}
+document.getElementById('local-user').focus();
+</script>
+{% endblock %}

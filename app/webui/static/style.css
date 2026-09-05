@@ -1,0 +1,1267 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    background: #f4f6f9;
+    color: #333;
+    padding-top: 48px;
+}
+
+/* Nav */
+nav {
+    background: #0078d4;
+    color: #fff;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    min-height: 48px;
+}
+.nav-brand {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #fff;
+    padding-right: 16px;
+    flex-shrink: 0;
+    text-decoration: none;
+}
+.nav-brand:hover { opacity: 0.85; }
+.nav-version {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.65;
+    margin-left: 5px;
+}
+.nav-links {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex: 1;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+nav ul { list-style: none; display: flex; gap: 2px; }
+nav a {
+    color: rgba(255,255,255,0.85);
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: background 0.15s;
+    white-space: nowrap;
+    display: block;
+    font-size: 13px;
+}
+nav a:hover { background: rgba(255,255,255,0.15); }
+nav a.active { background: rgba(255,255,255,0.25); color: #fff; font-weight: 600; }
+nav a.nav-planned { opacity: 0.45; cursor: default; }
+nav a.nav-planned:hover { background: none; }
+.nav-sub-tab.nav-planned { opacity: 0.4; cursor: default; color: #94a3b8; }
+.nav-sub-tab.nav-planned:hover { color: #94a3b8; }
+.nav-planned-badge { font-size: 9px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; background: rgba(255,255,255,0.25); border-radius: 3px; padding: 1px 4px; margin-left: 4px; vertical-align: middle; }
+.nav-sub-tab .nav-planned-badge { background: #e2e8f0; color: #94a3b8; }
+
+/* Sub-tabs (Signaturen: Vorlagen / Vorschau) */
+.nav-sub-tabs {
+    list-style: none;
+    display: flex;
+    gap: 0;
+    padding: 0;
+    margin: 0 0 24px;
+    border-bottom: 2px solid #e2e8f0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+
+    /* ⚠️ Die Wischgeste darf die SEITE nicht mitbewegen.
+     *
+     * ANLASS (2026-08-25), Nutzer am Telefon: „auf dem Handy mit Wischgeste
+     * [passiert eine] vertikale Änderung, derzeit schwankt es hoch und runter,
+     * unnötig, denn darüber/darunter gibt es nichts."
+     *
+     * Zwei verschiedene Ursachen, deshalb zwei Eigenschaften:
+     *
+     * `touch-action: pan-x` — der Browser entscheidet beim Ansetzen des
+     *   Fingers, welche Achse die Geste bedient. Ein leicht schräger Wisch
+     *   wurde als senkrecht gewertet und rollte die Seite. Mit `pan-x` ist auf
+     *   diesem Streifen nur die waagerechte Achse zugelassen; die Geste bleibt
+     *   damit vorhersagbar, statt vom Winkel der ersten Pixel abzuhängen.
+     *
+     * `overscroll-behavior: contain` — am Ende der Leiste reichte der Browser
+     *   das Rollen an die Seite weiter (Scroll-Chaining). Genau das erzeugte
+     *   den Ruck nach unten, wenn man über den letzten Reiter hinauswischt.
+     *   `contain` hält es in der Leiste und unterbindet nebenbei
+     *   Pull-to-refresh, das an dieser Stelle nur stört. */
+    touch-action: pan-x;
+    overscroll-behavior: contain;
+
+    /* ⚠️ OHNE DIESE ZWEI ZEILEN ROLLT DIE GANZE SEITE MIT.
+     *
+     * ANLASS (2026-08-26), Nutzer am iPhone mit Bildschirmfoto: „warum kann ich
+     * auf Einstellungen allgemein weit über den rechten Rand hinaus scrollen?
+     * Gähnende Leere dort". Im Bild stand der vierte Reiter links angeschnitten
+     * — die Leiste war also MIT der Seite gewandert. Rollte sie in sich, bliebe
+     * sie an ihrem Platz.
+     *
+     * Ein Flex-Container hat `min-width: auto`, und das bedeutet: mindestens so
+     * breit wie sein Inhalt. Acht Reiter brauchen rund 920px. Diese Mindestbreite
+     * reicht der Container an `main` weiter, obwohl er `overflow-x: auto` hat —
+     * das Rollen wirkt nach innen, die Mindestbreite nach aussen. `main` wird
+     * damit 920px breit, die Karten bleiben schmal, und rechts steht Leere.
+     *
+     * `min-width: 0` nimmt die Weitergabe zurück, `max-width: 100%` deckelt
+     * zusätzlich gegen jeden anderen Weg dorthin.
+     *
+     * ⚠️ Warum es in der Messung nicht auffiel: Gemessen wurde in Chromium
+     * (`documentElement.scrollWidth - innerWidth = 0` auf allen sieben Seiten).
+     * Chromium begrenzt hier von sich aus, WebKit nicht — und auf dem iPhone
+     * läuft WebKit, auch in jedem anderen Browser. Eine Messung in der falschen
+     * Engine ist kein Beleg für die richtige. */
+    min-width: 0;
+    max-width: 100%;
+}
+.nav-sub-tabs::-webkit-scrollbar { display: none; }
+
+/* ⚠️ EINE ROLLBARE LEISTE, DER MAN DAS ROLLEN NICHT ANSIEHT, IST EINE SACKGASSE
+ *
+ * ANLASS (2026-08-25): Der Nutzer auf Windows/Edge — „der Menüpunkt Einrichtung
+ * ist rechts abgeschnitten". Gemessen: Die Leiste braucht mit acht Reitern
+ * 1095px, sichtbar sind 912px. Mit SIEBEN Reitern fehlten bereits 50px; der
+ * Relay-Reiter hat den Befund vergrössert, nicht verursacht.
+ *
+ * Die Rollleiste ist absichtlich versteckt (oben), damit die Leiste auf dem
+ * Telefon sauber aussieht — dort wischt man. Auf dem Desktop gibt es diese
+ * Geste nicht, und ein halb abgeschnittener Reiter sieht nicht nach „hier geht
+ * es weiter" aus, sondern nach einem Fehler.
+ *
+ * Der Verlauf über `mask-image` statt eines überlagerten Farbkastens: Er
+ * braucht KEINE Hintergrundfarbe und ist damit im Dunkelmodus von selbst
+ * richtig. Ein Kasten mit `background: #f4f6f9` hätte eine zweite Stelle
+ * gebraucht, die bei jeder Themenänderung mitzupflegen wäre.
+ *
+ * `data-rollen` setzt `_leistenRollhinweis()` in base.html. */
+.nav-sub-tabs[data-rollen="rechts"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+}
+.nav-sub-tabs[data-rollen="links"] {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
+            mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
+}
+.nav-sub-tabs[data-rollen="beides"] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 44px,
+                                        #000 calc(100% - 44px), transparent);
+            mask-image: linear-gradient(to right, transparent, #000 44px,
+                                        #000 calc(100% - 44px), transparent);
+}
+.nav-sub-tab {
+    display: block;
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    color: #64748b;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+}
+.nav-sub-tab:hover { color: #2563eb; }
+.nav-sub-tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+/* Hamburger toggle — hidden on wide screens */
+.nav-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 10px 6px;
+    margin-left: auto;
+    flex-direction: column;
+    gap: 5px;
+    flex-shrink: 0;
+}
+.nav-toggle span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: rgba(255,255,255,0.9);
+    border-radius: 2px;
+}
+.nav-toggle:hover span { background: #fff; }
+
+@media (max-width: 600px) {
+    .nav-toggle { display: flex; }
+    /* Der Markenname trug `flex-shrink:0` und `nowrap`. Bei einem langen
+       Gateway-Namen ("EXO Signature Gateway RASPI") schob er alles dahinter
+       ueber den rechten Rand: Theme-Umschalter und Kontomenue lagen bei 393px
+       Breite ausserhalb des Bildschirms, und die Leiste scrollt nicht — beide
+       waren auf dem Telefon nicht erreichbar, auch nicht ueber das
+       Hamburger-Menue, das nur die Seitenlinks aufnimmt.
+       Der Name darf jetzt schrumpfen und wird abgeschnitten; die
+       Bedienelemente haben Vorrang. Die Fassungsnummer entfaellt mobil, sie
+       steht ohnehin unter Einstellungen. */
+    .nav-brand {
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-right: 8px;
+    }
+    .nav-version { display: none; }
+    .nav-links {
+        display: none;
+        position: absolute;
+        top: 48px;
+        left: 0;
+        right: 0;
+        background: #0068c0;
+        padding: 6px 8px 10px;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+        border-top: 1px solid rgba(255,255,255,0.15);
+    }
+    .nav-links.open { display: block; }
+    nav ul { flex-direction: column; gap: 2px; }
+    nav a { padding: 10px 12px; font-size: 14px; border-radius: 6px; }
+    /* Einzeilig und wischbar statt umgebrochen.
+     *
+     * Hier stand `flex-wrap: wrap` — auf einem Telefon ergab das drei Zeilen
+     * (bei 320px vier), und die Unterreiter nahmen mehr Platz ein als der
+     * Inhalt darunter. Gemessen am 24.08.2026: 393px → 3 Zeilen, 320px → 4.
+     *
+     * Die Grundregel weiter oben kann das bereits (overflow-x, nowrap,
+     * -webkit-overflow-scrolling, versteckter Scrollbalken) — sie wurde hier
+     * nur überschrieben. Es genügt also, die Überschreibung wegzulassen.
+     *
+     * Ein `flex-shrink: 0` auf den Einträgen stand hier zwischenzeitlich mit
+     * der Begründung, Flexbox stauche sie sonst. Die Gegenprobe zeigte, dass
+     * es nichts ändert: Die automatische Mindestbreite von Flex-Kindern
+     * (`min-width: auto`) verhindert das Schrumpfen unter die Inhaltsbreite
+     * bereits. Wieder entfernt — eine Regel, die nichts tut, erklärt beim
+     * nächsten Lesen das Falsche. */
+    .nav-sub-tab { padding: 8px 12px; font-size: 13px; }
+}
+
+/* Main */
+/* ⚠️ `overflow-x: clip` ist ein NETZ, keine Behebung.
+ *
+ * ANLASS (2026-08-26): Auf dem iPhone liess sich die Seite weit nach rechts
+ * rollen, wo nichts stand — und dort war KEINE Bedienung mehr möglich, weil
+ * alles Anklickbare links ausserhalb des Bildes lag. Der Nutzer: „Ich kann
+ * nicht mal mehr das Hauptmenü anklicken. Sonst auch null Interaktion
+ * möglich."
+ *
+ * Die Ursache lag bei der Reiterleiste und ist dort behoben (min-width: 0).
+ * Diese Zeile fängt den NÄCHSTEN Fall ab: Jedes künftige Element, das zu breit
+ * gerät, wird hier abgeschnitten, statt die Seite unbedienbar zu machen. Der
+ * Preis ist gering — alles absichtlich Breite (Reiterleiste, Tabellen) rollt
+ * in seinem eigenen Bereich und ist davon nicht betroffen.
+ *
+ * `clip` und nicht `hidden`: `hidden` erzeugt einen Rollkontext und bricht
+ * damit `position: sticky` bei Nachkommen — die feste Kopfzeile der
+ * Postfachtabelle hängt daran. `clip` schneidet nur ab. */
+main { max-width: 960px; margin: 32px auto; padding: 0 24px; overflow-x: clip; }
+
+/* Seiten, die Daten NEBENEINANDER zeigen, duerfen breiter werden.
+ *
+ * 960px waren fuer alles die Grenze. Die Postfachtabelle braucht mit ihren
+ * zehn Spalten rund 1020px — sie lief damit auf JEDEM Desktop waagerecht
+ * ueber, unabhaengig von der Bildschirmbreite, und im Baukasten blieben fuer
+ * Bausteinliste und Vorschau nebeneinander zu wenig Platz.
+ *
+ * Bewusst NICHT global angehoben: Fliesstext ueber 1400px Zeilenlaenge ist
+ * kaum noch zu lesen — das Auge findet den Zeilenanfang nicht wieder.
+ * Deshalb setzt jede Seite selbst `{% block main_klasse %}weit{% endblock %}`.
+ *
+ * Erst ab 1100px, damit auf schmalen Geraeten alles bleibt, wie es war. */
+@media (min-width: 1100px) {
+    main.weit { max-width: 1600px; }
+}
+
+/* Breite Tabelle mit eigenem Rollbereich.
+ *
+ * Die Tabelle bekommt einen eigenen Ausschnitt in Fensterhoehe. Das loest ein
+ * konkretes Aergernis — der waagerechte Rollbalken sass unter der LETZTEN
+ * Zeile. Bei einer langen Postfachliste musste man erst ganz nach unten rollen,
+ * um ihn ueberhaupt zu erreichen; ohne Wischgeste gab es keinen anderen Weg.
+ * Im eigenen Ausschnitt sitzt er immer am unteren Rand des Sichtbaren.
+ *
+ * Die Kopfzeile bleibt dabei stehen — bei zehn Spalten ist eine Ankreuzung
+ * ohne Ueberschrift nicht zu deuten. Der Trennstrich liegt als `inset`-Schatten
+ * IM Feld: ein `border-bottom` auf der Zeile wandert beim Rollen weg, weil
+ * nicht die Zeile klebt, sondern nur ihre Felder.
+ *
+ * ── Warum `pointer: fine` und nicht die Fensterbreite
+ *
+ * Zuerst stand hier `min-width: 1100px`. Damit fiel ein VERKLEINERTES Fenster
+ * am Rechner in die Handy-Behandlung — schmal, aber mit Maus, und dort ist der
+ * Rollbalken genauso schwer zu erreichen. Die Trennlinie verlaeuft nicht
+ * zwischen schmal und breit, sondern zwischen Maus und Finger: Auf einem
+ * Touchgeraet faengt ein verschachtelter Rollbereich die Wischgeste ab, mit
+ * einer Maus ist er ein Gewinn.
+ *
+ * Der zweite Zweig faengt Touch-Geraete mit sehr breitem Schirm ab; die
+ * Reihenfolge ist ein ODER, es genuegt eine der beiden Bedingungen.
+ *
+ * ⚠️ Ohne den eigenen Ausschnitt KANN die Kopfzeile gar nicht kleben:
+ * `overflow-x: auto` macht den Wrapper zum Rollbereich, und `position: sticky`
+ * bezieht sich dann auf IHN statt auf die Seite. Ein Wrapper ohne eigene Hoehe
+ * rollt senkrecht nicht — also klebt dort nichts. Beides gehoert deshalb in
+ * denselben Block und darf nicht getrennt werden. */
+.tabellen-rollbereich {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Aus demselben Grund wie bei `.nav-sub-tabs`: Die Mindestbreite der
+     * Tabelle darf nicht nach aussen durchschlagen. Sie ist dort mit
+     * `min-width` bewusst gesetzt — sie soll ROLLEN lassen, nicht die
+     * Seite verbreitern. */
+    min-width: 0;
+    max-width: 100%;
+}
+
+@media (pointer: fine), (min-width: 1100px) {
+    .tabellen-rollbereich {
+        /* Die HOEHE setzt JavaScript (tabellenHoeheAnpassen in mailboxes.html).
+         *
+         * Hier stand `max-height: calc(100vh - 240px)`. Die 240px waren
+         * geraten — tatsaechlich beginnt die Tabelle je nach Fenster 330 bis
+         * 380px unterhalb des Seitenanfangs. Der Ausschnitt ragte damit unten
+         * aus dem Bild, und genau dort sitzt der waagerechte Rollbalken: man
+         * musste die SEITE rollen, um ihn zu erreichen, und nahm dabei die
+         * feste Kopfzeile mit nach oben heraus. Im Browser gemessen bei
+         * 900x700: Unterkante bei 821 statt 700.
+         *
+         * In CSS ist der Abstand nicht auszudruecken — er haengt davon ab, was
+         * ueber der Tabelle steht (Reiter, Fair-Use-Hinweis, Filterzeile).
+         * Deshalb wird er gemessen. Faellt das Skript aus, bleibt es beim
+         * Verhalten von frueher: die Tabelle waechst und die Seite rollt.
+         *
+         * Bewusst OHNE `min-height`: eine Untergrenze schiebt die Unterkante in
+         * niedrigen Fenstern wieder aus dem Bild — und damit den waagerechten
+         * Rollbalken ausser Reichweite, also genau das zurueck, was behoben
+         * werden sollte. Zu wenig Platz behandelt das Skript stattdessen als
+         * Fall fuer das alte Verhalten. */
+        overflow: auto;
+    }
+    .tabellen-rollbereich thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fff;
+        box-shadow: inset 0 -2px 0 #e2e8f0;
+    }
+    /* ⚠️ Eine klebende Kopfzeile braucht einen DECKENDEN Hintergrund — sonst
+     * scheinen die Zeilen darunter hindurch. Das `#fff` oben passt zur
+     * Postfachtabelle, die keinen eigenen Kopfhintergrund hat.
+     *
+     * Eine `.config-table` hat einen (`#f1f5f9`), und die Regel oben ist
+     * spezifischer (0,1,2 gegen 0,1,1) — der graue Kopf verschwand dadurch,
+     * sobald die Tabelle in einem Rollbereich steht. Hier wird er
+     * zurueckgeholt, statt eine der beiden Regeln aufzuweichen. */
+    .tabellen-rollbereich .config-table thead th { background: #f1f5f9; }
+}
+
+/* Aufklapper fuer die Einstellungen eines Behaelter-Bausteins (Kasten,
+ * Zwei Spalten) im Signatur-Baukasten. Zugeklappt beginnt der INHALT des
+ * Behaelters direkt darunter, statt hinter neun Eingabezeilen. */
+.behaelter-einstellungen > summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+    padding: 5px 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    list-style: none;
+}
+.behaelter-einstellungen > summary::-webkit-details-marker { display: none; }
+.behaelter-einstellungen > summary::before { content: "\25B8\00a0"; }
+.behaelter-einstellungen[open] > summary::before { content: "\25BE\00a0"; }
+
+/* Baukasten: die Vorschau bleibt beim Rollen stehen.
+ *
+ * Eine Bausteinliste wird schnell laenger als ein Bildschirm — vor allem, wenn
+ * ein Kasten seine Kinder zeigt. Die Vorschau stand dann oben und war beim
+ * Arbeiten nicht mehr zu sehen, obwohl gerade sie den Sinn der Sache ausmacht.
+ *
+ * `top` haelt Abstand zur Kopfzeile, `max-height` sorgt dafuer, dass eine lange
+ * Signatur die Vorschau nicht ueber den Bildschirmrand hinausschiebt — sie
+ * bekommt dann ihren eigenen Rollbereich.
+ *
+ * Die Grenze ist die, an der die beiden Spalten TATSAECHLICH nebeneinander
+ * stehen: flex-basis 360 + 280 + 16 Abstand + 48 Innenabstand ~= 704px.
+ * Im Browser nachgemessen — bei 760px nebeneinander, bei 700px umgebrochen.
+ * 760 ist deshalb die sichere Untergrenze.
+ *
+ * Untereinander umgebrochen waere eine klebende Vorschau schaedlich: sie wuerde
+ * die Liste verdecken statt sie zu ergaenzen. `pointer: fine` haelt zusaetzlich
+ * Touchgeraete heraus, wo ein verschachtelter Rollbereich die Wischgeste
+ * abfaengt — dieselbe Ueberlegung wie bei der Postfachtabelle.
+ *
+ * Die breitere Liste bleibt an den GROSSEN Schirm gebunden: sie verteilt nur
+ * vorhandenen Platz und hat mit dem Kleben nichts zu tun. */
+@media (pointer: fine) and (min-width: 760px), (min-width: 1100px) {
+    .baukasten-vorschau {
+        position: sticky;
+        top: 16px;
+        max-height: calc(100vh - 48px);
+        overflow: auto;
+    }
+}
+
+@media (min-width: 1100px) {
+    .baukasten-liste { max-width: 560px !important; }
+}
+
+/* Vorschau in Telefonbreite (Umschalter im Baukasten).
+   375px ist die Breite, die ein Telefon im Hochformat fuer den
+   Nachrichtentext laesst — der Rahmen wird begrenzt, NICHT skaliert:
+   Eine verkleinerte Darstellung zeigte eine Ansicht, die es auf keinem
+   Geraet gibt. Zustand als data-Attribut, weil JavaScript ihn setzt
+   (Dark-Mode-Regel 2). */
+#preview-box[data-vorschau-breite="schmal"] {
+    max-width: 375px;
+}
+
+@media (max-width: 600px) {
+    main { margin: 12px auto; padding: 0 10px; }
+    h1 { font-size: 18px; margin-bottom: 16px; }
+    .preview-form { flex-direction: column; align-items: flex-start; }
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    /* Override inline width styles that cause horizontal overflow */
+    select, input[type="text"], input[type="email"], input[type="url"],
+    input[type="password"], input[type="number"], textarea {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box;
+    }
+    /* …aber nicht für ABSICHTLICH kurze Felder.
+     *
+     * Die Regel oben ist grob: sie trifft auch ein dreistelliges Betragsfeld
+     * und macht es bildschirmbreit. Danach passen Einheit und Knopf nicht mehr
+     * daneben und rutschen in eigene Zeilen — aus „[25] € [Aufladen]" wird ein
+     * dreizeiliger Block. Am 27.07.2026 im Guthaben-Abschnitt aufgefallen.
+     *
+     * `.eng` markiert Felder, deren Kürze gewollt ist (Beträge, Anzahlen,
+     * Portnummern). Sie behalten ihre Breite und bleiben in einer Zeile. */
+    input.eng, select.eng {
+        width: auto !important;
+        min-width: 4.5em;
+    }
+}
+@media (max-width: 380px) {
+    .stats-grid { grid-template-columns: 1fr; }
+}
+h1 { font-size: 22px; font-weight: 600; margin-bottom: 24px; }
+h2 { font-size: 16px; font-weight: 600; margin: 24px 0 12px; }
+h3 { font-size: 13px; font-weight: 600; margin: 16px 0 8px; color: #555; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+.stat-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    border-top: 4px solid #0078d4;
+}
+.stat-card.warn { border-top-color: #f59e0b; }
+.stat-card.error { border-top-color: #ef4444; }
+.stat-value { font-size: 36px; font-weight: 700; color: #0078d4; }
+.stat-card.warn .stat-value { color: #f59e0b; }
+.stat-card.error .stat-value { color: #ef4444; }
+.stat-label { margin-top: 6px; color: #666; font-size: 13px; }
+
+/* Alerts */
+.alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+}
+.alert.success { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.alert.error   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.alert.warn    { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+/* Kurzmeldungen aus showMsg() — EINE Regel für alle, nicht je Element.
+ *
+ * Anlass (28.07.2026): eine Ablehnung („Den aktuellen Fassungen wurde noch
+ * nicht zugestimmt") stand als unformatierter Fließtext da und ging unter.
+ * Grund: `.msg` war NIRGENDS gestylt; nur #auto-topup-msg hatte eine eigene
+ * ID-Regel. Jedes weitere Meldungsfeld war damit unsichtbar mitbetroffen.
+ *
+ * showMsg() setzt ausschliesslich data-state (Regel 2: keine Farben aus JS).
+ * Deshalb hängt das Aussehen hier am Attribut — jedes Element, das showMsg()
+ * nutzt, ist damit automatisch versorgt. Selbe Optik wie .alert, damit
+ * Meldung und Banner nicht verschieden aussehen.
+ */
+.msg[data-state] {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+}
+.msg[data-state="ok"]  { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.msg[data-state="err"] { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+/* Feldnahe Meldung aus fieldMsg() — steht direkt hinter dem Eingabefeld.
+ * Bewusst schlichter als .msg: sie sitzt im Formularfluss und soll die
+ * Feldanordnung nicht auseinanderreissen. */
+.field-msg { display: none; font-size: 12px; margin: 4px 0 0; }
+.field-msg[data-state="err"] { color: #991b1b; }
+.field-msg[data-state="ok"]  { color: #166534; }
+input[data-invalid="1"], select[data-invalid="1"], textarea[data-invalid="1"] {
+    border-color: #dc2626;
+}
+
+/* Lange Erklärtexte: zwei Zeilen, Rest per Schalter (initHintClamps()).
+ * -webkit-line-clamp ist trotz des Präfixes in allen aktuellen Browsern
+ * umgesetzt; fällt es aus, steht schlicht der ganze Text da — kein Verlust. */
+/* ⚠️ Alle .hint, nicht nur p und div: Auf den Einstellungsseiten stehen
+ * Hinweise regelmässig als `span.hint` mit display:block. Solange hier `p` und
+ * `div` aufgezählt waren, bekam ein solcher span zwar eine Bewertung im
+ * JavaScript, aber nie eine Zeilenbegrenzung — die Messung „läuft über?" fiel
+ * dadurch immer negativ aus, und der Schalter erschien nie. Welche Elemente
+ * gemeint sind, entscheidet das JavaScript (inline bleibt aussen vor). */
+.hint[data-clamp="zu"] {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.hint-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 2px 0 8px;
+    font-size: 12px;
+    color: #0369a1;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.hint-toggle:hover { color: #0284c7; }
+
+/* Einklappbare Formulargruppe. Für Abschnitte, die die Ausnahme sind und nicht
+ * der Regelfall — etwa der Rechnungskauf. <details> statt eigener Schalter:
+ * Auf- und Zuklappen macht der Browser, ohne JS und ohne Zustand zu pflegen. */
+.feld-gruppe > summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: #0369a1;
+    padding: 2px 0;
+    list-style: revert;
+}
+.feld-gruppe > summary:hover { color: #0284c7; }
+
+/* Forms / Editor */
+.editor-section { margin-bottom: 20px; }
+label { display: block; margin-bottom: 6px; font-weight: 500; }
+textarea {
+    width: 100%;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fafafa;
+    resize: vertical;
+    line-height: 1.5;
+}
+textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 2px rgba(0,120,212,0.15); }
+
+input[type="email"], input[type="text"], input[type="url"] {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    width: 320px;
+    max-width: 100%;
+}
+input:focus { outline: none; border-color: #0078d4; }
+
+.preview-form { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
+.preview-form label { margin: 0; white-space: nowrap; }
+
+/* Buttons */
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    border: none;
+    display: inline-block;
+}
+.btn.primary { background: #0078d4; color: #fff; }
+.btn.primary:hover { background: #106ebe; }
+.btn.secondary { background: #e5e7eb; color: #333; }
+.btn.secondary:hover { background: #d1d5db; }
+.btn.danger { background: #dc2626; color: #fff; }
+.btn.danger:hover { background: #b91c1c; }
+
+/* Dialog-Card (Modal-Inhalt) */
+.dlg-card {
+    background: #fff;
+    border-radius: 8px;
+}
+
+/* Info-Box — leicht abgesetzte Untersektion innerhalb einer Card */
+.info-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 14px;
+}
+
+/* Verbindungs-/Status-Badges */
+.conn-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+.conn-ok    { background: #dcfce7; color: #166534; }
+.conn-wait  { background: #fef3c7; color: #92400e; }
+
+/* Passwortfeld mit Augen-Button */
+.pw-wrap { position: relative; display: inline-block; }
+.pw-wrap input { padding-right: 30px !important; box-sizing: border-box; }
+.pw-eye {
+    position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; padding: 2px;
+    color: #bbb; line-height: 1; user-select: none; -webkit-user-select: none; font-size: 14px;
+}
+.pw-eye:focus { outline: none; }
+
+/* Preview */
+.preview-frame {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 24px;
+    margin-bottom: 16px;
+}
+
+/* Code block */
+.code-block {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Config table */
+.config-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0; }
+.config-table th { background: #f1f5f9; text-align: left; padding: 10px 16px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
+.config-table td { padding: 10px 16px; border-top: 1px solid #f0f0f0; }
+.config-table tr:hover td { background: #f8fafc; }
+.config-table code { background: #eef2f7; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+/* Hint */
+.hint { color: #666; font-size: 12px; margin-top: 4px; }
+
+/* Gedämpfter Text OHNE Grössenänderung — der Unterschied zu `.hint`, das
+   zusätzlich auf 12px geht und einen Abstand nach oben setzt.
+   ⚠️ 25 Stellen benutzten `.muted`, ohne dass es die Klasse gab: „Wird
+   geladen…", Zusätze wie „— kostenpflichtig", Schrittangaben. Sie erschienen
+   alle in normaler Textfarbe. Gefunden von tools/cssklassencheck.py. */
+.muted { color: #64748b; }
+.hint code { background: #eef2f7; padding: 2px 6px; border-radius: 4px; }
+
+/* S/MIME user card header */
+.user-hdr {
+    background: #f8fafc;
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 6px 6px 0 0;
+    flex-wrap: wrap;
+}
+.user-hdr-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.user-hdr-actions {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+@media (max-width: 600px) {
+    .user-hdr-actions { width: 100%; }
+}
+
+/* Settings */
+.settings-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+.settings-card h2 { margin: 0 0 16px; font-size: 15px; color: #0078d4; }
+.portal-logo-preview { background: #fff; }
+.settings-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+/* ⚠️ DIREKTES Kind (`>`), nicht irgendein Nachfahre.
+ *
+ * Ohne den Kindkombinator trifft die Regel JEDES Label, das erstes Kind seines
+ * Elternteils ist — auch die Kontrollkaestchen in `.settings-control`. Und die
+ * ist `flex-direction: column`: Dort wurde aus der 200px-Basis eine HOEHE, und
+ * zwischen den Kaestchen klafften 200px Leere. Vom Nutzer mit Bildschirmfoto
+ * gemeldet, nachdem die Regel eine Stunde live war.
+ *
+ * Mit `min-width` (der Fassung davor) fiel das nicht auf: Eine Mindestbreite
+ * wirkt in einer Spalte nicht als Hoehe. Der Wechsel auf `flex` hat die Regel
+ * damit von harmlos-weitreichend zu schaedlich-weitreichend gemacht. */
+/* ── ZWEI FORMEN EINER EINSTELLUNGSZEILE ─────────────────────────────────────
+ *
+ * ANLASS (2026-08-25), Nutzer mit Bildschirmfoto: „schau dir mal die
+ * einstellungen->Signatur seite an bei 960 px. kraut und rueben!" — und
+ * treffend dazu: „ich fuerchte, ich ueberfordere dich mit wuenschen zum layout
+ * die eine sache fixen, aber an anderer stelle neue loecher reissen. Koennen
+ * wir das bitte systematisch angehen".
+ *
+ * Er hat recht: Es gab keine Regel, gegen die sich pruefen liess. Es gibt jetzt
+ * genau ZWEI Formen, und `tools/zeilencheck.py` setzt sie durch.
+ *
+ *   SCHALTER   [x] Beschriftung [Zusatzfeld]
+ *              Beginnt mit dem Kaestchen und nimmt die GANZE Zeile. Der Text
+ *              steht daneben, nicht in einer Spalte — 18 von 23 Beschriftungen
+ *              sind laenger als 34 Zeichen und brachen in einer 200px-Spalte
+ *              auf drei bis vier Zeilen um.
+ *
+ *   FELD       Beschriftung | Eingabe
+ *              Beschriftung in fester Spalte, damit die Eingaben untereinander
+ *              fluchten. 81 Zeilen im Bestand haben diese Form.
+ *
+ * Ein Erklaertext gehoert UNTER die Zeile (`p.hint`), nicht in die
+ * Kontrollspalte. Eine Ueberschrift ist ein `h3`, keine Zeile mit leerer
+ * Gegenseite. */
+.settings-row > label.checkbox-label:first-child,
+.settings-row > label.checkbox-label:first-child ~ * {
+    /* Der Schalter braucht kein Spaltenkorsett: `flex: 1 1 auto` laesst ihm die
+     * Zeile, `min-width: 0` erlaubt den Umbruch INNERHALB des Textes statt am
+     * Rand der Spalte. */
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.settings-row > label:first-child {
+    /* ⚠️ `flex: 0 0 200px` statt `min-width` + `flex-shrink: 0`.
+     *
+     * ANLASS (2026-08-25), Nutzer: „Welche Ereignisse sollen gemeldet werden?
+     * ist zu lang. alle checkboxen daneben sind nach rechts versetzt gegenüber
+     * den übrigen checkboxen … am besten zu langen text umbrechen."
+     *
+     * Gemessen: Diese Beschriftung war 350px breit, andere 138–185px. Ein
+     * Flex-Element mit `min-width` und `flex-shrink: 0` schrumpft nicht unter
+     * seine INHALTSBREITE — es wächst also mit dem längsten Text, und die
+     * Spalte daneben rutscht mit. Bei 350px reichte der Platz nicht mehr, und
+     * der Inhalt sprang unter die Beschriftung.
+     *
+     * Eine feste Basis bricht den Text stattdessen um. Alle Zeilen fluchten
+     * damit, unabhängig von der Länge der Beschriftung. */
+    flex: 0 0 200px;
+    font-weight: 500;
+    padding-top: 6px;
+}
+/* `flex: 1 1 0` + `min-width: 0` — sonst bricht die Zeile grundlos um.
+   Ohne beides bestimmt der laengste Erklaertext dieser Spalte ihre Breite
+   (Flex-Basis ist der Inhalt, und der Text umbricht von sich aus nicht).
+   Beschriftung plus diese Breite ueberschritten dann den Rahmen, und
+   `flex-wrap` am Elternteil schob das Eingabefeld unter die Beschriftung —
+   obwohl daneben reichlich Platz war. Betraf sieben Stellen auf drei Seiten.
+   Unter 600px stellt die Medienabfrage weiter unten ohnehin auf Spalten um. */
+.settings-control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+.checkbox-label {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    font-weight: 400 !important;
+    padding-top: 0 !important;
+    min-width: unset !important;
+    cursor: pointer;
+}
+input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: #0078d4;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+select {
+    padding: 7px 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+    min-width: 140px;
+}
+select:focus { outline: none; border-color: #0078d4; }
+input[type="number"] {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    width: 100px;
+}
+
+/* Key-value table */
+.kv-table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+.kv-table th {
+    text-align: left; padding: 6px 8px;
+    font-size: 11px; text-transform: uppercase;
+    color: #888; font-weight: 600; letter-spacing: 0.04em;
+}
+.kv-table td { padding: 4px 6px 4px 0; }
+.kv-table input { width: 100%; }
+
+/* Small button */
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* Hinweis auf einen Bereich, der gebaut, aber nie im Betrieb erprobt wurde.
+   Bewusst KEINE Sperre und kein Warndreieck: Wer die Funktion braucht, soll
+   sie benutzen koennen — er soll nur wissen, woran er ist. Farben aus der
+   freigegebenen Palette (gelb/Warnung), Dark-Mode-Regel in dark-mode.css. */
+.preview-hinweis {
+    font-size: 12px;
+    line-height: 1.55;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 8px 11px;
+    font-weight: 400;
+}
+.preview-hinweis a { color: #b45309; }
+
+@media (max-width: 600px) {
+    .settings-row { flex-direction: column; }
+    /* ⚠️ `flex-basis` gilt auf der HAUPTACHSE. Sobald die Zeile hier auf
+       Spalten umstellt, wäre die 200px-Basis aus der Grundregel eine HÖHE —
+       jede Beschriftung bekäme einen 200px hohen Kasten unter sich. Gemessen
+       bei 393px, bevor es jemand zu sehen bekam. `flex: 0 0 auto` nimmt die
+       Basis zurück und behält „nicht wachsen, nicht schrumpfen". */
+    .settings-row > label:first-child { flex: 0 0 auto; padding-top: 0; }
+}
+
+/* ── Log viewer ────────────────────────────────────────────────────────────── */
+.log-wrap {
+    background: #0d1117;
+    border-radius: 8px;
+    border: 1px solid #30363d;
+    min-height: 300px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+.log-pre {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #c9d1d9;
+    padding: 12px 16px;
+    margin: 0;
+    white-space: pre;
+    min-height: 100%;
+}
+.log-pre .log-error    { color: #ff7b72; }
+.log-pre .log-critical { color: #ff7b72; font-weight: 700; }
+.log-pre .log-warn     { color: #e3b341; }
+.log-pre .log-debug    { color: #8b949e; }
+.log-status {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+.log-status.live       { background: #dcfce7; color: #16a34a; }
+.log-status.connecting { background: #fef3c7; color: #b45309; }
+
+/* ── Setup Wizard ──────────────────────────────────────────────────────────── */
+.wizard-step {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+.wizard-step.done {
+    border-left: 4px solid #22c55e;
+}
+.wizard-step:not(.done) {
+    border-left: 4px solid #e0e0e0;
+}
+
+.step-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: #f8fafc;
+    border-bottom: 1px solid #f0f0f0;
+    flex-wrap: wrap;
+}
+.wizard-step.done .step-header {
+    background: #f0fdf4;
+}
+
+/* Wächst mit dem Inhalt: min-width + border-radius = halbe Höhe ergibt bei
+   kurzem Text ("1", "↩") einen exakten Kreis, bei längerem ("KEY VAULT",
+   "Security") eine Pille — statt den Text aus einem festen 28px-Kreis zu
+   drängen. Deshalb min-width statt width und box-sizing: border-box. */
+.step-badge {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 9px;
+    box-sizing: border-box;
+    border-radius: 14px;
+    background: #0078d4;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.wizard-step.done .step-badge {
+    background: #22c55e;
+}
+
+.step-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #222;
+    flex: 1;
+}
+
+.step-status {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.step-status.done    { background: #dcfce7; color: #16a34a; }
+.step-status.pending { background: #fef3c7; color: #b45309; }
+.step-status.waiting { background: #f1f5f9; color: #64748b; }
+
+.step-body {
+    padding: 16px 20px 20px;
+}
+.step-body .hint { color: #666; font-size: 13px; }
+.step-body ul { color: #555; font-size: 13px; }
+.step-body .alert { margin-bottom: 0; }
+
+/* password strength nag */
+input[type="password"] {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    width: 260px;
+    max-width: 100%;
+}
+input[type="password"]:focus { outline: none; border-color: #0078d4; }
+
+/* Email address in user card — truncate with ellipsis rather than overflow */
+.user-hdr-info strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.user-hdr-info span { flex-shrink: 0; }
+
+/* Pill toggle buttons (log controls) */
+.btn-toggle {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid #d1d5db;
+    background: #f3f4f6;
+    color: #555;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+.btn-toggle.active {
+    background: #0078d4;
+    color: #fff;
+    border-color: #0078d4;
+}
+.btn-toggle:hover:not(.active) { background: #e5e7eb; }
+
+/* Mini copy-to-clipboard button (Entra-style icon next to a value) */
+.copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    color: #2563eb;
+    cursor: pointer;
+    border-radius: 4px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.copy-btn:hover { background: #eff6ff; }
+.copy-btn.copied { color: #16a34a; }
+
+/* Knöpfe am Rand eines Eingabefelds (Kopieren/Leeren). Sie liegen IM Feldrahmen
+   oben rechts, damit sie zum Feld gehören und keine Zeile Höhe kosten. Dezent,
+   bis die Maus in die Nähe kommt — sonst konkurrieren sie mit dem Inhalt. */
+.feld-werkzeuge { position: relative; }
+.feld-werkzeuge > textarea { display: block; width: 100%; }
+.feld-knoepfe {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    display: flex;
+    gap: 2px;
+    opacity: .45;
+    transition: opacity .12s;
+    z-index: 2;
+}
+.feld-werkzeuge:hover .feld-knoepfe,
+.feld-knoepfe:focus-within { opacity: 1; }
+.feld-knoepfe .copy-btn,
+.feld-knoepfe .clear-btn { background: #fff; }
+.clear-btn {
+    border: 0;
+    background: none;
+    padding: 3px 5px;
+    cursor: pointer;
+    color: #6b7280;
+    border-radius: 4px;
+    line-height: 0;
+}
+.clear-btn:hover { background: #fef2f2; color: #dc2626; }
+.clear-btn.copied { color: #b45309; }
+
+/* Über einem dunklen Codeblock muss der Knopf die Farbe des Blocks tragen —
+   sonst leuchtet ein weisser Fleck in der dunklen Fläche, und "dezent" ist er
+   nur noch dem Namen nach. Der Codeblock ist in beiden Modi dunkel, deshalb
+   steht das hier und nicht in dark-mode.css. */
+.feld-werkzeuge:has(> .code-block) .copy-btn,
+.feld-werkzeuge:has(> .code-block) .clear-btn {
+    background: #1e1e1e;
+    border-color: #3a3a3a;
+    color: #9ca3af;
+}
+.feld-werkzeuge:has(> .code-block) .copy-btn:hover,
+.feld-werkzeuge:has(> .code-block) .clear-btn:hover { background: #2d2d2d; color: #e5e7eb; }
+.feld-werkzeuge:has(> .code-block) .copy-btn.copied { color: #4ade80; }
+
+/* Mobile overrides that must come after component definitions to win the cascade */
+@media (max-width: 600px) {
+    .settings-card { padding: 14px 12px; }
+    .config-table { font-size: 12px; }
+    .config-table th, .config-table td { padding: 8px 10px; }
+    .nav-online-text { display: none; }
+}
+
+/* Admin-Autovervollständigung (JS-erzeugte Einträge) — Farben gehören hierher,
+   nicht in JS: style.background aus JS bricht die Dark-Mode-Selektoren. */
+.admin-suggest-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f8fafc;
+    font-size: 13px;
+}
+.admin-suggest-item:hover { background: #eff6ff; }
+
+/* Rechtsdokumente in Dialogen. white-space und Textfarbe MÜSSEN hier stehen und
+   dürfen nicht per JS gesetzt werden: el.style.* lässt den Browser das gesamte
+   style-Attribut zu rgb() normalisieren, wodurch die Dark-Mode-Attributselektoren
+   nicht mehr greifen (CLAUDE.md, Regel 2). Umschaltung daher über .md. */
+.legal-view      { white-space: pre-wrap; color: #334155; }
+.legal-view.md   { white-space: normal; }
+.legal-view.md p { margin: 0 0 10px; }
+
+/* ── Ungespeicherte Änderungen (common.js: speicherWache) ────────────────────
+   Farben ausschliesslich hier und über data-zustand — in JS gesetzte Farben
+   normalisiert der Browser zu rgb(), und dark-mode.css greift dann nicht mehr.
+
+   Bewusst kein Rot fuer „offen": Rot heisst in dieser Oberflaeche Fehler, und
+   eine noch nicht gespeicherte Eingabe ist kein Fehler, sondern eine offene
+   Handlung. Bernstein ist die Farbe fuer „da liegt noch etwas an". */
+.speicher-hinweis {
+  font-size: 12px;
+  margin-left: 8px;
+  white-space: nowrap;
+  /* ⚠️ ZWEI Ausrichtungen, weil der Hinweis in ZWEI Umgebungen steht.
+   *
+   * `vertical-align` gilt im Fliesstext: Ohne sie sitzt der Hinweis auf der
+   * Schriftlinie des Knopfes und wirkt nach oben verrutscht — der Knopf ist
+   * innen gepolstert, der Text daneben nicht.
+   *
+   * `align-self` gilt im Flex-Kasten (`.actions`), und dort ist
+   * `vertical-align` wirkungslos. Ohne sie STRECKT die Vorgabe `stretch` den
+   * Hinweis auf die volle Knopfhöhe: Der Kasten ist dann 32px hoch, der Text
+   * darin klebt oben — genau der „zu hohe" Sitz, den der Nutzer gemeldet hat.
+   * Gemessen: Kasten 32px gegen 14px beim richtig ausgerichteten Nachbarn. */
+  vertical-align: middle;
+  align-self: center;
+  display: inline-block;
+}
+.speicher-hinweis[data-zustand="offen"]  { color: #b45309; font-weight: 600; }
+.speicher-hinweis[data-zustand="fertig"] { color: #166534; }
+.speicher-hinweis[data-zustand="fehler"] { color: #dc2626; }
+
+/* ── Kompakte Zertifikatsliste (S/MIME) ──────────────────────────────────────
+ *
+ * Drei Zustaende je Postfachzeile, gesteuert ueber KLASSEN am Container:
+ *
+ *   (ohne)        nur die Kopfzeile
+ *   .zeigt-zert   + Zertifikate
+ *   .zeigt-lc     + Lifecycle-Einstellungen (deren Aufklapper selbst ist dann
+ *                  ebenfalls erst sichtbar — vorher stand seine Zeile
+ *                  „Lifecycle / Auto-Enroll-Einstellungen" auch im kompakten
+ *                  Zustand da und machte ihn wieder unruhig)
+ *
+ * ⚠️ Klassen statt `style.display` aus JavaScript: Das `<details>` traegt seine
+ * Rahmenfarbe im style-Attribut. Sobald JS dort `display` setzt, serialisiert
+ * der Browser das ganze Attribut neu, und die Dark-Mode-Selektoren auf den
+ * Farbwert greifen nicht mehr (Dark-Mode-Regel 2). Mit Klassen bleibt das
+ * Attribut unangetastet. */
+.smime-user .zert-block,
+.smime-user .lifecycle-section { display: none; }
+.smime-user.zeigt-zert .zert-block { display: block; }
+.smime-user.zeigt-lc .lifecycle-section { display: block; }
+
+/* Der „…"-Knopf am Ende einer Postfachzeile (S/MIME). Schmaler als ein
+   gewoehnlicher Knopf, weil er nur drei Punkte traegt — mit der Standardbreite
+   saehe er aus wie eine leere Schaltflaeche. */
+.zeile-mehr {
+    padding-left: 8px;
+    padding-right: 8px;
+    letter-spacing: 1px;
+    line-height: 1;
+}
+
+/* Ein ausgegrauter Speichern-Knopf ist eine Aussage: es gibt nichts zu sichern.
+   Deshalb deutlich sichtbar abgesetzt, nicht nur eine Nuance blasser. */
+.btn:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+/* ── Mitlaufende Leiste für offene Änderungen (common.js) ────────────────────
+   Zwischen einem geänderten Feld und seinem Knopf lagen auf einem Telefon bis
+   zu zwei Bildschirmhöhen. Die Leiste holt den Knopf zum Benutzer, ohne den am
+   Abschnitt zu ersetzen — dort bleibt die Zuordnung sichtbar. */
+.speicher-leiste {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+}
+.speicher-leiste[hidden] { display: none; }
+.speicher-leiste-text { font-weight: 600; }
+
+@media (min-width: 720px) {
+  /* Auf breiten Anzeigen genügt eine schmale Leiste am rechten Rand — quer
+     über die ganze Breite wirkt sie wie eine Fehlermeldung. */
+  .speicher-leiste { left: auto; min-width: 340px; }
+}
+
+/* Vorschlagsliste der Empfänger-Suche, Trenner und Aufklappteile.
+   Alles hier stand bis 2026-08-25 als `style.cssText` im JavaScript. Der
+   Browser normalisiert solche Werte zu `rgb(…)`; die Dark-Mode-Regeln greifen
+   über den TEXT des style-Attributs und liefen deshalb ins Leere — helle
+   Flächen und Trennstriche blieben im Dunkelmodus hell. */
+.vorschlag-kopf {
+    padding: 4px 10px; font-size: 10px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: .05em;
+    background: #f8fafc; border-bottom: 1px solid #f0f0f0;
+}
+.vorschlag-zeile {
+    padding: 7px 12px; font-size: 13px; cursor: pointer;
+    border-bottom: 1px solid #f8fafc;
+}
+.vorschlag-zeile:hover { background: #eff6ff; }
+.empfaenger-zeile {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 2px; border-bottom: 1px solid #f0f0f0; font-size: 13px;
+}
+.js-trenner { border: none; border-top: 1px solid #e2e8f0; margin: 3px 0; }
+.js-aufklappteil { padding: 8px; border-top: 1px solid #e2e8f0; font-size: 12px; }
+
+/* Erfolgsstand einer Einrichtungsstufe. Farbe hier statt im JavaScript —
+   selber Grund. */
+.step-status[data-zustand="ok"] { background: #dcfce7; color: #166534; }
+
+/* Seitenweiter Schalter „Erweiterte Einstellungen", ÜBER der ersten Karte.
+   Rechtsbündig, damit er die Überschriften nicht stört, und mit Abstand nach
+   unten statt nach oben — er gehört optisch zur Karte darunter. */
+.erweitert-schalter {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 8px;
+    font-size: 11px;
+}
+.erweitert-schalter label {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #64748b;
+    /* Auf einem Telefon ist das Kästchen sonst 11px klein — der Text gibt ihm
+       die Höhe, aber die Trefferfläche bleibt der Rahmen des Labels. */
+    padding: 4px 2px;
+}
+.erweitert-schalter input { margin: 0; }

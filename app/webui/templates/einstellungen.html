@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Einstellungen</h1>
+<p class="hint" style="max-width:720px;margin:0 0 16px">Alles, was der Assistent unter <a href="/einrichtung">Einrichtung</a> automatisch setzt, lässt sich hier von Hand ändern.</p>
+
+<!-- ── Relay ─────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="relay">
+  <h2 style="margin-top:0">Relay</h2>
+  <div class="settings-row">
+    <label for="SMTP_RELAY_ENABLED">Relay eingeschaltet</label>
+    <input type="checkbox" id="SMTP_RELAY_ENABLED" {% if s.SMTP_RELAY_ENABLED %}checked{% endif %}>
+    <span class="hint">Abgeschaltet weist der Dienst jede Einlieferung ab — die Geräteliste bleibt erhalten.</span>
+  </div>
+  <div class="settings-row">
+    <label for="GATEWAY_NAME">Name</label>
+    <input type="text" id="GATEWAY_NAME" value="{{ s.GATEWAY_NAME }}" style="width:260px">
+    <span class="hint">Erscheint in der Oberfläche und im Namen des Inbound-Connectors.</span>
+  </div>
+  <div class="settings-row">
+    <label for="PUBLIC_HOSTNAME">Hostname</label>
+    <input type="text" id="PUBLIC_HOSTNAME" value="{{ s.PUBLIC_HOSTNAME }}" placeholder="relay.firma.de" style="width:260px">
+    <span class="hint">Name, unter dem Exchange Online diesen Dienst kennt — steht im TLS-Zertifikat und im Connector.</span>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="relay-btn" data-wache="SMTP_RELAY_ENABLED,GATEWAY_NAME,PUBLIC_HOSTNAME"
+            onclick="speichern('relay-btn', ['SMTP_RELAY_ENABLED','GATEWAY_NAME','PUBLIC_HOSTNAME'])">Speichern</button>
+  </div>
+</div>
+
+<!-- ── Rückweg ───────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="rueckweg">
+  <h2 style="margin-top:0">Rückweg zu Exchange Online</h2>
+  <p style="font-size:13px;color:#555;margin:0 0 14px">
+    Angenommene Post wird unverändert an Exchange Online übergeben. Der
+    <strong>Smarthost</strong> auf Port 25 ist der Regelfall: Exchange erkennt den
+    Dienst über den Inbound-Connector und nimmt Post für beliebige Absender der
+    eigenen Domänen an. <strong>Port 587 mit Konto</strong> ist die Ausnahme für
+    Standorte ohne ausgehenden Port 25 — Exchange schreibt den Absender dann auf das
+    Konto um, sofern es kein „Senden als" für die Geräteadresse hat.
+  </p>
+  <div class="settings-row">
+    <label>Weg</label>
+    <label style="display:inline-flex;gap:6px;align-items:center;margin-right:14px"><input type="radio" name="modus" value="smarthost" id="modus-smarthost" {% if s.EXO_SUBMIT_MODE != 'submit' %}checked{% endif %} onchange="modusZeigen()"> Smarthost, Port 25</label>
+    <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="modus" value="submit" id="modus-submit" {% if s.EXO_SUBMIT_MODE == 'submit' %}checked{% endif %} onchange="modusZeigen()"> Port 587 mit Konto</label>
+  </div>
+  <div id="teil-smarthost">
+    <div class="settings-row">
+      <label for="EXO_SMARTHOST">Smarthost</label>
+      <input type="text" id="EXO_SMARTHOST" value="{{ s.EXO_SMARTHOST }}" placeholder="firma-de.mail.protection.outlook.com" style="width:320px">
+      <span class="hint">Der MX des Tenants: <code>&lt;domäne-mit-bindestrichen&gt;.mail.protection.outlook.com</code>.</span>
+    </div>
+    <div class="settings-row">
+      <label for="EXO_PORT">Port</label>
+      <input type="number" id="EXO_PORT" value="{{ s.EXO_PORT }}" style="width:90px">
+    </div>
+  </div>
+  <div id="teil-submit" style="display:none">
+    <div class="settings-row">
+      <label for="SUBMIT_HOST">Server</label>
+      <input type="text" id="SUBMIT_HOST" value="{{ s.SUBMIT_HOST }}" style="width:260px">
+      <input type="number" id="SUBMIT_PORT" value="{{ s.SUBMIT_PORT }}" style="width:90px;margin-left:8px">
+    </div>
+    <div class="settings-row">
+      <label for="SUBMIT_USER">Konto</label>
+      <input type="text" id="SUBMIT_USER" value="{{ s.SUBMIT_USER }}" placeholder="relay@firma.de" style="width:260px" autocomplete="off">
+    </div>
+    <div class="settings-row">
+      <label for="SUBMIT_PASSWORD">Passwort</label>
+      <input type="password" id="SUBMIT_PASSWORD" value="{{ s.SUBMIT_PASSWORD }}" style="width:260px" autocomplete="new-password">
+      <span class="hint">SMTP AUTH muss am Konto freigeschaltet sein (Exchange Online: „Authentifiziertes SMTP").</span>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="rueckweg-btn"
+            data-wache="modus-smarthost,modus-submit,EXO_SMARTHOST,EXO_PORT,SUBMIT_HOST,SUBMIT_PORT,SUBMIT_USER,SUBMIT_PASSWORD"
+            onclick="rueckwegSpeichern()">Speichern</button>
+    <button class="btn secondary" onclick="testen(this, '/api/smarthost/test', 'rueckweg-result')">Verbindung testen</button>
+    <span id="rueckweg-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+</div>
+
+<!-- ── Tenant und App-Registrierung ──────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="tenant">
+  <h2 style="margin-top:0">Exchange Online — Anmeldung als Anwendung</h2>
+  <p style="font-size:13px;color:#555;margin:0 0 14px">
+    Der Dienst holt die Postfachliste per PowerShell aus Exchange Online und legt
+    dort den Inbound-Connector an. Dafür braucht er eine App-Registrierung in Entra
+    mit der Anwendungsberechtigung <code>Exchange.ManageAsApp</code> (Office 365
+    Exchange Online), der Rolle <em>Exchange-Administrator</em> und dem unten
+    erzeugten Zertifikat als Anmeldenachweis.
+  </p>
+  <div class="settings-row">
+    <label for="TENANT_DOMAIN">Tenant-Domäne</label>
+    <input type="text" id="TENANT_DOMAIN" value="{{ s.TENANT_DOMAIN }}" placeholder="firma.onmicrosoft.com" style="width:260px">
+  </div>
+  <div class="settings-row">
+    <label for="CLIENT_ID">App-ID (Client-ID)</label>
+    <input type="text" id="CLIENT_ID" value="{{ s.CLIENT_ID }}" placeholder="00000000-0000-0000-0000-000000000000" style="width:320px">
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="tenant-btn" data-wache="TENANT_DOMAIN,CLIENT_ID"
+            onclick="speichern('tenant-btn', ['TENANT_DOMAIN','CLIENT_ID'])">Speichern</button>
+  </div>
+
+  <h3 style="margin-top:20px">Auth-Zertifikat</h3>
+  <div id="auth-info" style="font-size:13px;margin-bottom:10px">
+    {% if auth.vorhanden and not auth.fehler %}
+      Vorhanden — Thumbprint <code>{{ auth.thumbprint }}</code>, gültig bis {{ auth.not_after[:10] }}.
+    {% elif auth.fehler %}
+      <span data-state="err">Datei vorhanden, aber unlesbar: {{ auth.fehler }}</span>
+    {% else %}
+      <span data-state="err">Noch kein Auth-Zertifikat.</span>
+    {% endif %}
+  </div>
+  <div class="actions" style="flex-wrap:wrap;gap:8px">
+    <button class="btn secondary" onclick="authErzeugen(this)">{% if auth.vorhanden %}Neu erzeugen{% else %}Erzeugen{% endif %}</button>
+    <a class="btn secondary" href="/api/auth-cert/public.cer" {% if not auth.vorhanden %}style="pointer-events:none;opacity:.5"{% endif %}>Öffentlichen Teil (.cer) herunterladen</a>
+    <label class="btn secondary" style="cursor:pointer">PFX importieren
+      <input type="file" id="auth-pfx" accept=".pfx,.p12" style="display:none" onchange="authImport(this)"></label>
+    <input type="password" id="auth-pfx-pw" placeholder="PFX-Passwort (falls gesetzt)" style="width:200px" autocomplete="off">
+  </div>
+  <p class="hint">Die <code>.cer</code>-Datei in Entra unter <em>App-Registrierung → Zertifikate &amp; Geheimnisse</em> hochladen. Wer das grosse Gateway betreibt, kann dessen <code>auth.pfx</code> und App-ID hier übernehmen.</p>
+  <div id="auth-result" style="display:none;margin-top:10px"></div>
+
+  <h3 style="margin-top:20px">Prüfen</h3>
+  <div class="actions" style="flex-wrap:wrap;gap:8px">
+    <button class="btn secondary" onclick="testen(this, '/api/exo/modul', 'exo-result')">PowerShell-Modul prüfen</button>
+    <button class="btn secondary" onclick="testen(this, '/api/exo/verbindung', 'exo-result')">Anmeldung testen</button>
+    <span id="exo-result" style="font-size:12px"></span>
+  </div>
+  <p class="hint">PowerShell: <code>{{ pwsh }}</code>. Unter Linux ist <code>pwsh</code> nötig; unter Windows genügt die eingebaute PowerShell 5.1 mit <code>Install-Module ExchangeOnlineManagement</code>.</p>
+</div>
+
+<!-- ── Adressquelle ──────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="adressen">
+  <h2 style="margin-top:0">Adressquelle</h2>
+  <p style="font-size:13px;color:#555;margin:0 0 14px">
+    Das Relay braucht die Postfachadressen des Tenants: Die Absenderdomäne muss
+    eine eigene sein, und „nur interne Ziele" wird gegen die <em>Adressen</em>
+    geprüft — eine unbekannte Adresse der eigenen Domäne ergäbe einen
+    Unzustellbarkeitsbericht nach aussen. Ohne bekannte Adressen weist der Dienst
+    jede Einlieferung vorübergehend ab.
+  </p>
+  <div id="adressen-zustand" style="font-size:13px;margin-bottom:10px">
+    {{ exo.postfaecher }} Postfächer aus Exchange Online{% if exo.handeintraege %} + {{ exo.handeintraege }} von Hand{% endif %}
+    {% if exo.letzter_erfolg %}· Stand {{ exo.letzter_erfolg }}{% endif %}
+    {% if exo.letzter_fehler %}· <span data-state="err">{{ exo.letzter_fehler }}</span>{% endif %}
+    {% if not exo.abfrage_moeglich %}· <span class="hint" style="display:inline">{{ exo.abfrage_hinweis }}</span>{% endif %}
+  </div>
+  <div class="settings-row">
+    <label for="EXO_ABFRAGE_AN">Stündlich abrufen</label>
+    <input type="checkbox" id="EXO_ABFRAGE_AN" {% if s.EXO_ABFRAGE_AN %}checked{% endif %}>
+    <button class="btn secondary btn-sm" onclick="abfragen(this)">Jetzt abrufen</button>
+  </div>
+  <div class="settings-row">
+    <label for="ADRESSEN_ZUSAETZLICH">Adressen von Hand</label>
+    <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="buchhaltung@firma.de, scanner@firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
+    <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn keine App-Registrierung gewünscht ist. Ihre Domänen gelten als eigene.</span>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="adressen-btn" data-wache="EXO_ABFRAGE_AN,ADRESSEN_ZUSAETZLICH"
+            onclick="speichern('adressen-btn', ['EXO_ABFRAGE_AN','ADRESSEN_ZUSAETZLICH'])">Speichern</button>
+    <span id="adressen-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+</div>
+
+<!-- ── Connector ─────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="connector">
+  <h2 style="margin-top:0">Inbound-Connector in Exchange Online</h2>
+  <p style="font-size:13px;color:#555;margin:0 0 14px">
+    Exchange Online nimmt Post vom Relay nur über einen Inbound-Connector an. Er
+    erkennt den Dienst entweder am <strong>TLS-Zertifikat</strong> (nur mit einem
+    Zertifikat einer öffentlichen CA) oder an der <strong>öffentlichen IP</strong>
+    (feste Adresse nötig — mit selbstsigniertem Zertifikat der einzige Weg).
+  </p>
+  <div class="settings-row">
+    <label for="conn-ips">Öffentliche IP(s)</label>
+    <input type="text" id="conn-ips" placeholder="203.0.113.10" style="width:320px">
+    <span class="hint">Leer lassen für die Zertifikatsvariante mit dem Hostnamen oben.</span>
+  </div>
+  <div class="actions" style="flex-wrap:wrap;gap:8px">
+    <button class="btn primary" onclick="connectorEinrichten(this)">Connector anlegen / nachziehen</button>
+    <button class="btn secondary" onclick="connectorPruefen(this)">Prüfen</button>
+    <span id="conn-result" style="font-size:12px"></span>
+  </div>
+  <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:260px;overflow:auto;font-size:11px"></pre>
+  <p class="hint">Wer den Connector lieber selbst anlegt: <code>app/scripts/setup_relay_connector.ps1</code> läuft auch auf einem Windows-Rechner mit PowerShell 5.1.</p>
+</div>
+
+<!-- ── TLS ───────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="tls">
+  <h2 style="margin-top:0">TLS-Zertifikat des Listeners</h2>
+  <div style="font-size:13px;margin-bottom:10px">
+    {% if tls.vorhanden and not tls.fehler %}
+      <code>{{ tls.hostnames|join(', ') }}</code> · gültig bis {{ tls.not_after[:10] }} ·
+      {% if tls.selbstsigniert %}selbstsigniert{% else %}Aussteller: {{ tls.aussteller }}{% endif %}
+    {% elif tls.fehler %}<span data-state="err">{{ tls.fehler }}</span>
+    {% else %}<span data-state="err">Kein Zertifikat — der Listener bietet kein STARTTLS an.</span>{% endif %}
+  </div>
+  <div class="actions" style="flex-wrap:wrap;gap:8px">
+    <button class="btn secondary" onclick="tlsSelbst(this)">Selbstsigniert neu erzeugen</button>
+    <label class="btn secondary" style="cursor:pointer">PFX importieren
+      <input type="file" id="tls-pfx" accept=".pfx,.p12" style="display:none" onchange="tlsImport(this)"></label>
+    <input type="password" id="tls-pfx-pw" placeholder="PFX-Passwort" style="width:160px" autocomplete="off">
+    <label style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="tls-uebergehen"> Hostnamen-Prüfung übergehen</label>
+  </div>
+  <div id="tls-result" style="display:none;margin-top:10px"></div>
+  <p class="hint">Ein neues Zertifikat wirkt nach einem Neustart des Dienstes. Es dient zugleich als Client-Zertifikat gegenüber dem Smarthost.</p>
+</div>
+
+<!-- ── Passwort ──────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="passwort">
+  <h2 style="margin-top:0">Anmeldung</h2>
+  <div class="settings-row">
+    <label for="WEBUI_USERNAME">Benutzername</label>
+    <input type="text" id="WEBUI_USERNAME" value="{{ s.WEBUI_USERNAME }}" style="width:200px" autocomplete="off">
+    <button class="btn secondary btn-sm" id="user-btn" data-wache="WEBUI_USERNAME" onclick="speichern('user-btn', ['WEBUI_USERNAME'])">Speichern</button>
+  </div>
+  <div class="settings-row">
+    <label for="pw-alt">Aktuelles Passwort</label>
+    <input type="password" id="pw-alt" style="width:200px" autocomplete="current-password">
+  </div>
+  <div class="settings-row">
+    <label for="pw-neu">Neues Passwort</label>
+    <input type="password" id="pw-neu" style="width:200px" autocomplete="new-password">
+    <span class="hint">Mindestens 10 Zeichen.</span>
+  </div>
+  <div class="actions">
+    <button class="btn primary" onclick="passwortAendern(this)">Passwort ändern</button>
+    <span id="pw-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+</div>
+
+<!-- ── Betrieb ───────────────────────────────────────────────────────────── -->
+<div class="settings-card" id="betrieb">
+  <h2 style="margin-top:0">Betrieb</h2>
+  <div class="settings-row">
+    <label for="LOG_LEVEL">Protokollstufe</label>
+    <select id="LOG_LEVEL">
+      {% for l in ('DEBUG','INFO','WARNING','ERROR') %}<option {% if s.LOG_LEVEL == l %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="settings-row">
+    <label for="LOG_RETENTION_DAYS">Aufbewahrung (Tage)</label>
+    <input type="number" id="LOG_RETENTION_DAYS" value="{{ s.LOG_RETENTION_DAYS }}" min="1" style="width:90px">
+    <span class="hint">Für Protokolldateien und das Mail-Protokoll.</span>
+  </div>
+  <div class="settings-row">
+    <label for="LOG_TIMEZONE">Zeitzone</label>
+    <input type="text" id="LOG_TIMEZONE" value="{{ s.LOG_TIMEZONE }}" style="width:200px">
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="betrieb-btn" data-wache="LOG_LEVEL,LOG_RETENTION_DAYS,LOG_TIMEZONE"
+            onclick="speichern('betrieb-btn', ['LOG_LEVEL','LOG_RETENTION_DAYS','LOG_TIMEZONE'])">Speichern</button>
+  </div>
+  <p class="hint" style="margin-top:12px">Datenverzeichnis: <code>{{ data_dir }}</code> · SMTP-Port: <code>{{ smtp_port }}</code> · Version {{ version }}</p>
+</div>
+
+<script>
+function wert(id) {
+  const el = document.getElementById(id);
+  if (!el) return undefined;
+  if (el.type === 'checkbox') return el.checked;
+  return el.value;
+}
+async function speichern(knopfId, ids) {
+  const daten = {};
+  ids.forEach(function (id) { daten[id] = wert(id); });
+  const r = await postJSON('/api/einstellungen', daten);
+  wacheFertig(knopfId, r.ok, r.ok ? undefined : (r.error || 'nicht gespeichert'));
+}
+function modusZeigen() {
+  const submit = document.getElementById('modus-submit').checked;
+  document.getElementById('teil-smarthost').style.display = submit ? 'none' : '';
+  document.getElementById('teil-submit').style.display = submit ? '' : 'none';
+}
+async function rueckwegSpeichern() {
+  const daten = {
+    EXO_SUBMIT_MODE: document.getElementById('modus-submit').checked ? 'submit' : 'smarthost',
+    EXO_SMARTHOST: wert('EXO_SMARTHOST'), EXO_PORT: wert('EXO_PORT'),
+    SUBMIT_HOST: wert('SUBMIT_HOST'), SUBMIT_PORT: wert('SUBMIT_PORT'),
+    SUBMIT_USER: wert('SUBMIT_USER'), SUBMIT_PASSWORD: wert('SUBMIT_PASSWORD'),
+  };
+  const r = await postJSON('/api/einstellungen', daten);
+  wacheFertig('rueckweg-btn', r.ok, r.ok ? undefined : (r.error || 'nicht gespeichert'));
+}
+async function testen(btn, url, ergebnisId) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'läuft …';
+  const r = await postJSON(url, {});
+  btn.disabled = false; btn.textContent = alt;
+  showMsg(ergebnisId, r.text || r.error || (r.ok ? 'OK' : 'Fehler'), !!r.ok);
+}
+async function abfragen(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'fragt ab …';
+  const r = await postJSON('/api/exo/abfragen', {});
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('adressen-result', r.ok ? r.anzahl + ' Postfächer geladen' : (r.letzter_fehler || r.error || 'Abfrage fehlgeschlagen'), !!r.ok);
+  if (r.ok) setTimeout(function () { location.reload(); }, 1200);
+}
+async function authErzeugen(btn) {
+  if (!confirm('Neues Auth-Zertifikat erzeugen? Das alte gilt danach nicht mehr — der öffentliche Teil muss erneut in Entra hochgeladen werden.')) return;
+  btn.disabled = true;
+  const r = await postJSON('/api/auth-cert/erzeugen', {});
+  btn.disabled = false;
+  const box = document.getElementById('auth-result');
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler')); return; }
+  showAlert(box, 'success', 'Erzeugt — Thumbprint <code>' + esc(r.thumbprint) + '</code>. Jetzt den öffentlichen Teil herunterladen und in Entra hochladen.');
+  setTimeout(function () { location.reload(); }, 2500);
+}
+async function hochladen(url, datei, felder, box) {
+  const fd = new FormData();
+  fd.append('datei', datei);
+  Object.keys(felder).forEach(function (k) { fd.append(k, felder[k]); });
+  try {
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const d = await resp.json().catch(function () { return {}; });
+    if (!resp.ok || !d.ok) { showAlert(box, 'error', esc(d.error || ('HTTP ' + resp.status))); return null; }
+    return d;
+  } catch (e) {
+    showAlert(box, 'error', 'Netzwerkfehler' + ursache(e, 'einstellungen:hochladen'));
+    return null;
+  }
+}
+async function authImport(input) {
+  if (!input.files.length) return;
+  const box = document.getElementById('auth-result');
+  const d = await hochladen('/api/auth-cert/import', input.files[0],
+                            { passwort: document.getElementById('auth-pfx-pw').value }, box);
+  if (!d) return;
+  showAlert(box, 'success', 'Importiert — Thumbprint <code>' + esc(d.thumbprint) + '</code>.');
+  setTimeout(function () { location.reload(); }, 1500);
+}
+async function tlsSelbst(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/tls/selbstsigniert', { hostname: wert('PUBLIC_HOSTNAME') });
+  btn.disabled = false;
+  const box = document.getElementById('tls-result');
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler')); return; }
+  showAlert(box, 'success', 'Erzeugt für <code>' + esc((r.hostnames || []).join(', ')) + '</code> — wirkt nach Neustart des Dienstes.');
+}
+async function tlsImport(input) {
+  if (!input.files.length) return;
+  const box = document.getElementById('tls-result');
+  const d = await hochladen('/api/tls/import', input.files[0], {
+    passwort: document.getElementById('tls-pfx-pw').value,
+    hostname: wert('PUBLIC_HOSTNAME'),
+    uebergehen: document.getElementById('tls-uebergehen').checked ? '1' : '',
+  }, box);
+  if (!d) return;
+  showAlert(box, d.warnung ? 'warn' : 'success',
+    'Importiert: <code>' + esc((d.hostnames || []).join(', ')) + '</code>, gültig bis ' + esc((d.not_after || '').slice(0, 10))
+    + (d.warnung ? '<br>' + esc(d.warnung) : '') + ' — wirkt nach Neustart des Dienstes.');
+}
+async function connectorEinrichten(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'läuft (bis zu einer Minute) …';
+  const r = await postJSON('/api/exo/connector', { hostname: wert('PUBLIC_HOSTNAME'), sender_ips: document.getElementById('conn-ips').value });
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('conn-result', r.ok ? 'Connector eingerichtet' : 'fehlgeschlagen', !!r.ok);
+  const pre = document.getElementById('conn-output');
+  pre.textContent = r.output || r.error || '';
+  pre.style.display = pre.textContent ? '' : 'none';
+}
+async function connectorPruefen(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'prüft …';
+  const r = await getJSON('/api/exo/connector');
+  btn.disabled = false; btn.textContent = alt;
+  const pre = document.getElementById('conn-output');
+  if (r.ok && r.vorhanden) {
+    showMsg('conn-result', 'Connector vorhanden' + (r.connector.Enabled ? '' : ' (deaktiviert)'), !!r.connector.Enabled);
+    pre.textContent = JSON.stringify(r.connector, null, 2); pre.style.display = '';
+  } else {
+    showMsg('conn-result', r.text || r.error || 'Fehler', false);
+    pre.style.display = 'none';
+  }
+}
+async function passwortAendern(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/password', { current: document.getElementById('pw-alt').value, new: document.getElementById('pw-neu').value });
+  btn.disabled = false;
+  showMsg('pw-result', r.ok ? 'geändert' : (r.error || 'Fehler'), !!r.ok);
+  if (r.ok) { document.getElementById('pw-alt').value = ''; document.getElementById('pw-neu').value = ''; setTimeout(function () { location.reload(); }, 1000); }
+}
+modusZeigen();
+</script>
+{% endblock %}

@@ -1,0 +1,4 @@
+# Nur für die Testsuite — nicht im Abbild. httpx braucht der TestClient von
+# Starlette; die Anwendung selbst spricht kein HTTP nach draussen.
+pytest==9.1.1
+httpx==0.28.1
