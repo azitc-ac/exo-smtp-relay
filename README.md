@@ -162,13 +162,34 @@ Einstellungen über die Umgebung (nur Startwerte, danach gilt `settings.json`):
 
 Die Regeln (`smtp_relay.py`), die Geräteliste (`relay_hosts.py`) und einige
 Bausteine sind **geprüfte Kopien** aus dem Gateway — kein gemeinsames Paket,
-damit jeder Dienst für sich installierbar bleibt. `tools/driftcheck.py`
-vergleicht die SHA-256 beider Bäume; die Testsuite ruft es auf, sobald das
-Gateway daneben liegt. Wer eine der Dateien ändert, ändert beide.
-
-Was das Relay bewusst **nicht** hat: Signaturen, S/MIME, ACME, Graph, Microsoft-
-Login, Hub-Anbindung. Wer das braucht, betreibt das Gateway — dessen Relay ist
+damit jeder Dienst für sich installierbar bleibt. Was das Relay bewusst
+**nicht** hat: Signaturen, S/MIME, ACME, Graph im Betrieb, Microsoft-Login,
+Hub-Anbindung. Wer das braucht, betreibt das Gateway — dessen Relay ist
 dasselbe.
+
+### Spiegelung — so kommen Änderungen aus dem Gateway herüber
+
+Nichts kommt von allein. Drei Werkzeuge halten die Kopien gleich:
+
+| Werkzeug | Was es tut |
+|---|---|
+| `tools/driftcheck.py` | **Meldet** Abweichungen der zehn gespiegelten Dateien (SHA-256), wenn das Gateway daneben liegt (`../EXO-Signature-Gateway`). Läuft in der Testsuite mit. |
+| `tools/spiegel_holen.py` | **Zeigt** je abweichender Datei den letzten Gateway-Commit und **übernimmt** sie mit `--uebernehmen`. Kopiert nur Gateway → Relay; ist die Datei im Relay neuer, meldet es das und lässt sie stehen. |
+| `.github/workflows/spiegel.yml` | **Nächtlich**: checkt das öffentliche Gateway aus, vergleicht, und öffnet bei Abweichung einen Pull Request mit den aktualisierten Kopien samt Testergebnis. Kein Secret nötig. |
+
+Damit der Workflow den PR anlegen darf, muss in den Repo-Einstellungen unter
+*Settings → Actions → General → Workflow permissions* der Haken „Allow GitHub
+Actions to create and approve pull requests" gesetzt sein. Ohne ihn bleibt der
+Lauf bei der Abweichung stehen und zeigt sie nur.
+
+Was **nicht** gespiegelt wird und im Relay eigens gebaut werden muss: der
+Handler, das Dashboard, die Einrichtung, die Einstellungen. Ein neues Feature,
+das im Gateway die Verdrahtung oder die Oberfläche berührt, kommt hier nicht
+von selbst an — nur seine Regeln, wenn sie in `smtp_relay.py` oder
+`relay_hosts.py` liegen.
+
+Die Gegenrichtung (Änderung im Relay-Kern → Gateway) ist Handarbeit im
+Gateway-Repo; `spiegel_holen.py` weist darauf hin.
 
 ### Herkunft
 
@@ -184,7 +205,8 @@ in diesem eigenen Repository.
 ```bash
 pip install -r app/requirements.lock -r tests/requirements.txt
 pytest tests/ -v
-python tools/driftcheck.py          # Spiegelung gegen das Gateway
+python tools/driftcheck.py          # Spiegelung gegen das Gateway prüfen
+python tools/spiegel_holen.py       # Abweichungen zeigen, --uebernehmen kopiert
 cd app && DATA_DIR=../data SMTP_PORT=2525 WEBUI_PORT=8080 python main.py
 ```
 

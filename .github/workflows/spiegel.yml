@@ -1,0 +1,98 @@
+# Nächtlicher Abgleich der gespiegelten Dateien mit dem EXO Signature Gateway.
+#
+# Die Regeln des Relays (smtp_relay.py, relay_hosts.py, …) sind geprüfte Kopien
+# aus dem Gateway. Ändert das Gateway eine davon, fällt das lokal beim nächsten
+# Testlauf auf — aber nur, wenn beide Klone nebeneinander liegen. Dieser Lauf
+# sorgt dafür, dass es auch ohne das auffällt: Er checkt das (öffentliche)
+# Gateway aus, vergleicht, und öffnet bei einer Abweichung einen Pull Request
+# mit den aktualisierten Kopien. Der PR wird gelesen und gemergt, nie blind —
+# eine Regeländerung im Relay-Kern ist genau die Stelle, die man sehen will.
+#
+# Kein Secret nötig: Das Gateway-Repo ist öffentlich, der PR entsteht mit dem
+# eingebauten GITHUB_TOKEN. Voraussetzung in den Repo-Einstellungen:
+#   Settings → Actions → General → Workflow permissions →
+#   „Allow GitHub Actions to create and approve pull requests" anhaken.
+# Ohne den Haken schlägt nur der Schritt „Pull Request" fehl — die Abweichung
+# ist dann im Lauf sichtbar, aber ohne fertigen PR.
+name: Spiegelabgleich mit dem Gateway
+
+on:
+  schedule:
+    - cron: "17 3 * * *"       # täglich 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  spiegel:
+    name: Gespiegelte Dateien vergleichen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # spiegel_holen zeigt den letzten Commit je Datei
+
+      - name: Gateway auschecken (öffentlich)
+        uses: actions/checkout@v4
+        with:
+          repository: azitc-ac/EXO-Signature-Gateway
+          path: gateway
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Vergleichen
+        id: vergleich
+        run: |
+          set +e
+          python3 tools/spiegel_holen.py --gateway gateway | tee spiegel.txt
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Übernehmen
+        if: steps.vergleich.outputs.rc != '0'
+        run: python3 tools/spiegel_holen.py --gateway gateway --uebernehmen || true
+
+      # Die Tests des Relays müssen mit den neuen Kopien weiter grün sein —
+      # sonst gehört in den PR ein Hinweis, nicht nur die Datei.
+      - name: Tests mit den neuen Kopien
+        if: steps.vergleich.outputs.rc != '0'
+        id: tests
+        run: |
+          set +e
+          pip install -q -r app/requirements.lock -r tests/requirements.txt
+          pytest tests/ -q 2>&1 | tail -20 | tee tests.txt
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Pull Request
+        if: steps.vergleich.outputs.rc != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          rm -rf gateway
+          if git diff --quiet; then
+            echo "Nichts übernommen (Relay ist neuer oder Datei fehlt) — siehe spiegel.txt"; exit 0
+          fi
+          ZWEIG="spiegel/gateway"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$ZWEIG"
+          git add -A app tools
+          git commit -m "Spiegel: gespiegelte Dateien aus dem Gateway übernommen ($(date -u +%F))"
+          git push -f origin "$ZWEIG"
+          KOERPER=$(printf 'Automatischer Abgleich mit azitc-ac/EXO-Signature-Gateway.\n\n```\n%s\n```\n\nTests mit den neuen Kopien: %s\n\n```\n%s\n```\n\nBitte lesen, was herüberkommt — eine Regeländerung im Relay-Kern gehört vor dem Merge verstanden.' \
+            "$(cat spiegel.txt)" "$([ "${{ steps.tests.outputs.rc }}" = "0" ] && echo grün || echo ROT)" "$(cat tests.txt 2>/dev/null)")
+          if gh pr list --head "$ZWEIG" --state open --json number --jq '.[0].number' | grep -q .; then
+            NUMMER=$(gh pr list --head "$ZWEIG" --state open --json number --jq '.[0].number')
+            gh pr edit "$NUMMER" --body "$KOERPER"
+            echo "PR #$NUMMER aktualisiert"
+          else
+            gh pr create --head "$ZWEIG" --base main \
+              --title "Spiegel: Änderungen aus dem Gateway übernehmen" --body "$KOERPER"
+          fi

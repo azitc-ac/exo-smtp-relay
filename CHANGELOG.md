@@ -1,5 +1,14 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.1 — 2026-09-05 — Spiegelabgleich mit dem Gateway
+
+- `tools/spiegel_holen.py`: zeigt je gespiegelter Datei, was im Gateway
+  anders ist (letzter Commit), und übernimmt sie mit `--uebernehmen` — nur in
+  Richtung Gateway → Relay, nie über eine Relay-Änderung hinweg.
+- `.github/workflows/spiegel.yml`: nächtlicher Abgleich gegen das öffentliche
+  Gateway-Repo; bei Abweichung ein Pull Request mit den Kopien und dem
+  Testergebnis. Ohne Secret.
+
 ## 0.2.0 — 2026-09-05 — Einrichtungsassistent und Dashboard
 
 - **Einrichtung** in sechs Schritten wie beim Gateway: Passwort, Hostname
