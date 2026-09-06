@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Einstellungen</h1>
-<p class="hint" style="max-width:720px;margin:0 0 16px">Alles, was der Assistent unter <a href="/einrichtung">Einrichtung</a> automatisch setzt, lässt sich hier von Hand ändern.</p>
+<p class="hint" style="max-width:720px;margin:0 0 16px">Alles, was der Assistent unter <a href="/einrichtung">Einrichtung</a> automatisch setzt, änderst du hier von Hand.</p>
 
 <!-- ── Relay ─────────────────────────────────────────────────────────────── -->
 <div class="settings-card" style="margin-bottom:20px" id="relay">
@@ -119,7 +119,7 @@
       <input type="file" id="auth-pfx" accept=".pfx,.p12" style="display:none" onchange="authImport(this)"></label>
     <input type="password" id="auth-pfx-pw" placeholder="PFX-Passwort (falls gesetzt)" style="width:200px" autocomplete="off">
   </div>
-  <p class="hint">Die <code>.cer</code>-Datei in Entra unter <em>App-Registrierung → Zertifikate &amp; Geheimnisse</em> hochladen. Wer das grosse Gateway betreibt, kann dessen <code>auth.pfx</code> und App-ID hier übernehmen.</p>
+  <p class="hint">Lade die <code>.cer</code>-Datei in Entra unter <em>App-Registrierung → Zertifikate &amp; Geheimnisse</em> hoch. Betreibst du das grosse Gateway, kannst du dessen <code>auth.pfx</code> und App-ID hier übernehmen.</p>
   <div id="auth-result" style="display:none;margin-top:10px"></div>
 
   <h3 style="margin-top:20px">Prüfen</h3>
@@ -155,7 +155,7 @@
   <div class="settings-row">
     <label for="ADRESSEN_ZUSAETZLICH">Adressen von Hand</label>
     <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="buchhaltung@firma.de, scanner@firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
-    <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn keine App-Registrierung gewünscht ist. Ihre Domänen gelten als eigene.</span>
+    <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn du keine App-Registrierung willst. Ihre Domänen gelten als deine eigenen.</span>
   </div>
   <div class="actions">
     <button class="btn primary" id="adressen-btn" data-wache="EXO_ABFRAGE_AN,ADRESSEN_ZUSAETZLICH"
@@ -184,7 +184,7 @@
     <span id="conn-result" style="font-size:12px"></span>
   </div>
   <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:260px;overflow:auto;font-size:11px"></pre>
-  <p class="hint">Wer den Connector lieber selbst anlegt: <code>app/scripts/setup_relay_connector.ps1</code> läuft auch auf einem Windows-Rechner mit PowerShell 5.1.</p>
+  <p class="hint">Legst du den Connector lieber selbst an: <code>app/scripts/setup_relay_connector.ps1</code> läuft auch auf einem Windows-Rechner mit PowerShell 5.1.</p>
 </div>
 
 <!-- ── TLS ───────────────────────────────────────────────────────────────── -->

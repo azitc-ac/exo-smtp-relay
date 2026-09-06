@@ -2,9 +2,9 @@
 {% block content %}
 <h1>Einrichtung</h1>
 <p class="hint" style="max-width:720px;margin:0 0 18px">
-  Sechs Schritte, dann liefern die Geräte. Jeder Schritt zeigt, ob er erledigt ist;
-  alles, was hier automatisch gesetzt wird, lässt sich später unter
-  <a href="/einstellungen">Einstellungen</a> ändern.
+  Sechs Schritte, dann liefern deine Geräte. Jeder Schritt zeigt dir, ob er erledigt ist;
+  alles, was hier automatisch gesetzt wird, änderst du später unter
+  <a href="/einstellungen">Einstellungen</a>.
 </p>
 
 {% if auth_error %}
@@ -102,8 +102,8 @@
     <div style="font-size:13px">
       <p class="hint" style="margin-bottom:8px">
         Für die Anmeldung braucht es eine kleine App-Registrierung als Public Client.
-        <strong>Wer das EXO Signature Gateway betreibt, trägt hier die Client-ID von dessen
-        „… Login"-App ein</strong> und ergänzt dort die Rückadresse unten. Sonst so anlegen:
+        <strong>Betreibst du das EXO Signature Gateway, trag hier die Client-ID von dessen
+        „… Login"-App ein</strong> und ergänze dort die Rückadresse unten. Sonst leg sie so an:
       </p>
       <ol style="margin:0 0 10px 16px;line-height:1.9">
         <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Entra Admin Center → App-Registrierungen</a> → <strong>Neue Registrierung</strong></li>
@@ -186,10 +186,10 @@
   </div>
   <div class="step-body">
     <p class="hint" style="margin:0 0 10px">
-      Nur eingetragene Geräte dürfen einliefern. Wer nicht alle kennt, startet den
-      <strong>Lernmodus</strong>: Ein Bereich wird für höchstens zwei Stunden freigegeben,
-      und jedes Gerät, das darin gültig einliefert, wird eingetragen. Dann an jedem Gerät
-      einen Testdruck oder Testscan auslösen. Geräte einstellen auf: Server
+      Nur eingetragene Geräte dürfen einliefern. Kennst du nicht alle, starte den
+      <strong>Lernmodus</strong>: Du gibst einen Bereich für höchstens zwei Stunden frei,
+      und jedes Gerät, das darin gültig einliefert, wird eingetragen. Löse dann an jedem
+      Gerät einen Testdruck oder Testscan aus. Stell die Geräte ein auf: Server
       <code>{{ e.hostname or '<IP dieses Dienstes>' }}</code>, Port <code>{{ e.smtp_port }}</code>,
       keine Anmeldung, STARTTLS wenn möglich.
     </p>
@@ -213,7 +213,7 @@
     {% if e.setup_complete %}<span class="step-status done">Abgeschlossen</span>{% else %}<span class="step-status pending">Ausstehend</span>{% endif %}
   </div>
   <div class="step-body">
-    <p class="hint" style="margin:0 0 10px">Danach führt die Startseite zum Dashboard. Alles Weitere — Rückweg, Zertifikate, Adressen — unter Einstellungen.</p>
+    <p class="hint" style="margin:0 0 10px">Danach führt dich die Startseite zum Dashboard. Alles Weitere — Rückweg, Zertifikate, Adressen — findest du unter Einstellungen.</p>
     <div class="actions">
       <button class="btn primary" onclick="abschliessen(this)" {% if e.setup_complete %}disabled{% endif %}>Einrichtung abschliessen</button>
       <span id="abschluss-result" style="font-size:12px;margin-left:8px"></span>
