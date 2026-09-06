@@ -1,5 +1,9 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.2 — 2026-09-07 — Spiegelabgleich: dark-mode.css
+
+- `app/webui/static/dark-mode.css` an das Gateway angeglichen (ID-Regel für einen per JS eingeblendeten Hinweiskasten).
+
 ## 0.2.1 — 2026-09-05 — Spiegelabgleich mit dem Gateway
 
 - `tools/spiegel_holen.py`: zeigt je gespiegelter Datei, was im Gateway

@@ -627,6 +627,15 @@
 
 [data-theme="dark"] tr[data-relay-gesperrt="1"] code { color: #fca5a5 !important; }
 
+/* ── Bypass-Wächter (v1.8.81) ─────────────────────────────────────────────
+   #watchdog-token-box ist derselbe Fall wie #lern-aktiv: gelber Hinweiskasten,
+   per JS eingeblendet → der [style*="#fffbeb"]-Selektor greift nach der
+   Neuserialisierung nicht mehr. Werte von dort übernommen. */
+[data-theme="dark"] #watchdog-token-box {
+    background: #1a1200 !important;
+    border-color: #92400e !important;
+}
+
 /* Das Banner in base.html erscheint auf jeder Seite, solange der Lernmodus
    läuft. Statisches HTML-Attribut, aber eine eigene Regel ist billiger als die
    Frage, ob der Attributselektor eine Farbkombination trifft, die auch
