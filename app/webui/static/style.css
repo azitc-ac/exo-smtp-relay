@@ -1245,6 +1245,11 @@ input[type="password"]:focus { outline: none; border-color: #0078d4; }
    selber Grund. */
 .step-status[data-zustand="ok"] { background: #dcfce7; color: #166534; }
 
+/* Wächter-Installer: Azure-Zugriffskasten wechselt bei Verbindung von
+   Warn-Gelb (Inline-Vorgabe) auf ruhiges Blau — über data-* statt JS-Farbe
+   (Dark-Mode-Regel 2). !important schlägt den Inline-Hintergrund. */
+#wd-arm-box[data-wd-arm="ok"] { background: #eff6ff !important; border-color: #bfdbfe !important; }
+
 /* Seitenweiter Schalter „Erweiterte Einstellungen", ÜBER der ersten Karte.
    Rechtsbündig, damit er die Überschriften nicht stört, und mit Abstand nach
    unten statt nach oben — er gehört optisch zur Karte darunter. */

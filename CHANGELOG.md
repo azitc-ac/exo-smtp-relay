@@ -1,5 +1,12 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.3 — 2026-09-08 — Spiegelabgleich: dark-mode.css + style.css
+
+- `app/webui/static/dark-mode.css` und `app/webui/static/style.css` an das
+  Gateway angeglichen. Neu im Gateway sind ID-Regeln und ein data-Attribut-Zustand
+  für Kästen des Wächter-Installers; die Regeln sind im Relay ungenutzt, die
+  Spiegelung verlangt aber Byte-Gleichheit.
+
 ## 0.2.2 — 2026-09-07 — Spiegelabgleich: dark-mode.css
 
 - `app/webui/static/dark-mode.css` an das Gateway angeglichen (ID-Regel für einen per JS eingeblendeten Hinweiskasten).

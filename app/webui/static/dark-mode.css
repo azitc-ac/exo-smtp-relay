@@ -545,17 +545,26 @@
 
 [data-theme="dark"] #cert-info-box,
 [data-theme="dark"] #admin-selected,
-[data-theme="dark"] #step-app-pool-status {
+[data-theme="dark"] #step-app-pool-status,
+[data-theme="dark"] #wd-installer,
+[data-theme="dark"] #wd-rg-new {
   background: #0a1827 !important;
   border-color: #1e3a5f !important;
 }
 
 [data-theme="dark"] #reconsent-bar,
 [data-theme="dark"] #kv-arm-box,
+[data-theme="dark"] #wd-arm-box,
 [data-theme="dark"] #kv-existing-vault-hint,
 [data-theme="dark"] #login-required {
   background: #1a1200 !important;
   border-color: #3d2f00 !important;
+}
+
+/* Wächter-Installer: verbundener Zustand blau-dunkel (schlägt das Warn-Gelb). */
+[data-theme="dark"] #wd-arm-box[data-wd-arm="ok"] {
+  background: #0a1827 !important;
+  border-color: #1e3a5f !important;
 }
 
 [data-theme="dark"] #block-picker {
