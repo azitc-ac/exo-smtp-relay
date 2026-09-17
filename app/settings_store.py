@@ -50,7 +50,9 @@ DEFAULTS: dict = {
     "SUBMIT_HOST": "smtp.office365.com",
     "SUBMIT_PORT": 587,
     "SUBMIT_USER": "",
-    "SUBMIT_PASSWORD": "",
+    "SUBMIT_PASSWORD": "",          # Basic Auth fallback, wenn kein OAuth2
+    "SUBMIT_CLIENT_ID": "",         # Optional: OAuth2 mit SMTP.SendAsApp
+    "SUBMIT_CLIENT_SECRET": "",     # für dedizierte App-Registrierung
     "REINJECT_MODE": "smtp",        # FEST — siehe Modulkopf
 
     # ── Tenant und Adressquelle ──────────────────────────────────────────────
@@ -75,6 +77,7 @@ SECRET_KEYS = frozenset({
     "ADMIN_PASSWORD_HASH",
     "SESSION_SECRET",
     "SUBMIT_PASSWORD",
+    "SUBMIT_CLIENT_SECRET",
 })
 
 # Schlüssel, die nie über die Oberfläche geändert werden dürfen.
