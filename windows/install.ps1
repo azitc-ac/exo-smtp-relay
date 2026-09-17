@@ -65,7 +65,7 @@ if (-not (Test-Path (Join-Path $quelle "app\main.py"))) {
     throw "app\main.py nicht gefunden unter $quelle - das Skript gehoert nach windows\ im Anwendungsbaum."
 }
 
-# -- Python finden ------------------------------------------------------------------
+# -- Python finden oder installieren ------------------------------------------------
 Write-Step "Suche Python 3.11+"
 if ($PythonExe -eq "") {
     $kandidaten = @()
@@ -83,8 +83,50 @@ if ($PythonExe -eq "") {
         } catch { }
     }
 }
+
 if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
-    throw "Kein Python 3.11+ gefunden. Bitte von https://www.python.org/downloads/windows/ installieren (Haken 'Add python.exe to PATH') oder -PythonExe angeben."
+    Write-Warn "Python 3.11+ nicht gefunden."
+    $antwort = Read-Host "Jetzt herunterladen und installieren? (j/n)"
+    if ($antwort -match "^[jJyY]") {
+        Write-Step "Lade Python 3.11 herunter"
+        $pythonZip = "$env:TEMP\python-3.11-windows.zip"
+        $pythonMsi = "$env:TEMP\python-3.11-amd64.exe"
+
+        # Nutzer zur Python.org-Seite führen oder automatisch MSI runterladen
+        # Hier: directed install von der aktuellsten stabilen Version
+        $url = "https://www.python.org/ftp/python/3.11.11/python-3.11.11-amd64.exe"
+
+        try {
+            Write-Host "    Lade herunter: $url" -ForegroundColor Gray
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $url -OutFile $pythonMsi -ErrorAction Stop
+
+            Write-Step "Installiere Python 3.11"
+            & $pythonMsi /quiet InstallAllUsers=1 PrependPath=1 | Out-Null
+            Remove-Item $pythonMsi -ErrorAction SilentlyContinue
+
+            # Nach Installation neuerlich versuchen
+            $py = Get-Command py -ErrorAction SilentlyContinue
+            if ($py) {
+                $PythonExe = (& $py.Source @("-3", "-c", "import sys; print(sys.executable)")).Trim()
+            }
+            if ($PythonExe -and (Test-Path $PythonExe)) {
+                Write-Ok "Python installiert: $PythonExe"
+            } else {
+                throw "Python-Installation fehlgeschlagen oder nicht auffindbar"
+            }
+        } catch {
+            Write-Host ""
+            Write-Host "Automatischer Download fehlgeschlagen." -ForegroundColor Yellow
+            Write-Host "Bitte von https://www.python.org/downloads/windows/ installieren:" -ForegroundColor Yellow
+            Write-Host "  * Python 3.11 oder neuer wählen" -ForegroundColor Yellow
+            Write-Host "  * Haken bei 'Add python.exe to PATH' setzen" -ForegroundColor Yellow
+            Write-Host "  * Installation abschliessen und dann dieses Skript erneut ausführen" -ForegroundColor Yellow
+            throw "Python erforderlich. Siehe obige Anleitung."
+        }
+    } else {
+        throw "Python 3.11+ erforderlich. Bitte von https://www.python.org/downloads/windows/ installieren (Haken 'Add python.exe to PATH')."
+    }
 }
 Write-Ok "Python: $PythonExe"
 

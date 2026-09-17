@@ -56,13 +56,27 @@ du verlierst nichts.
 |---|---|---|
 | **Inbound-Connector** (OnPremises) | Exchange nimmt Post vom Relay für beliebige Absender deiner Domänen an | ja |
 | **App-Registrierung** mit `Exchange.ManageAsApp` + Rolle *Exchange-Administrator* + Zertifikat | Postfachliste abrufen, Connector anlegen | empfohlen |
-| Ausgehend **Port 25** zum Smarthost `<domäne>.mail.protection.outlook.com` | Rückweg | ja, ausser Modus 587 |
+| Ausgehend **Port 25** zum Smarthost `<domäne>.mail.protection.outlook.com` (oder Port 587) | Rückweg zu Exchange | ja |
 
-Der Inbound-Connector erkennt dein Relay **am TLS-Zertifikat** (nur mit einem
-Zertifikat einer öffentlichen CA) **oder an deiner öffentlichen IP** (feste
-Adresse nötig — mit selbstsigniertem Zertifikat der einzige Weg). Beides richtet
-dir die Oberfläche ein. Willst du es selbst tun, nimm
-`app/scripts/setup_relay_connector.ps1`; das Skript läuft auf jedem
+### Rückweg: smarthost oder submit
+
+Der Relay kann die angenommene Post auf zwei Wegen an Exchange Online übergeben:
+
+**smarthost (Vorgabe)** — Port 25 + TLS-Zertifikat
+  - Der Inbound-Connector erkennt dein Relay am TLS-Zertifikat
+  - Zertifikat: öffentliche CA (teuer) **oder** IP-basiert mit selbstsigniertem (feste Adresse nötig)
+  - Braucht ausgehenden **Port 25** (blockiert in vielen Netzen)
+  - Dreier: `app/scripts/setup_relay_connector.ps1` richtet den Connector automatisch ein
+
+**submit** — Port 587 + Authentifizierung
+  - Für Standorte **ohne ausgehenden Port 25**
+  - Braucht ein **Dienstkonto** in deinem Tenant (kann auch der Gateway-Account sein)
+  - Konto muss SMTP AUTH-berechtigt sein und „Senden als" für die Geräte-Absender haben
+  - Achtung: Exchange schreibt den Absender auf das Dienstkonto um, sofern keine „Senden als"-Rechte
+  - In der Web-Oberfläche unter *Einstellungen → Rückweg* auf „submit" umschalten
+
+Der Inbound-Connector ist **in beiden Modi nötig** — er sagt Exchange, welche Adressen vom Relay kommen dürfen.
+Willst du ihn selbst einrichten, nutze `app/scripts/setup_relay_connector.ps1`; das Skript läuft auf jedem
 Windows-Rechner mit PowerShell 5.1 und dem Modul ExchangeOnlineManagement.
 
 Ohne App-Registrierung geht es auch: Trag die Postfachadressen von Hand unter
@@ -88,20 +102,25 @@ ExchangeOnlineManagement-Modul.
 
 ### Windows-Dienst
 
-Du brauchst Python 3.11 oder neuer (python.org, „Add python.exe to PATH").
+Öffne PowerShell **als Administrator** im entpackten Verzeichnis:
 
 ```powershell
-# als Administrator, im entpackten Verzeichnis
 .\windows\install.ps1
 ```
 
-Der Installer kopiert die Anwendung nach `C:\ProgramData\exo-smtp-relay`, legt
-eine venv an, registriert den Dienst **ExoSmtpRelay** (Autostart), öffnet die
-Firewall für Port 25 und den Web-Port und bietet dir die Installation des
-ExchangeOnlineManagement-Moduls an. Er läuft unter Windows PowerShell 5.1 und
-PowerShell 7. Entfernen kannst du alles mit `.\windows\uninstall.ps1`.
+Das Skript:
+- **Prüft Python 3.11+** — falls nicht vorhanden, bietet automatischen Download und Installation von python.org
+- Kopiert die Anwendung nach `C:\ProgramData\exo-smtp-relay`
+- Legt eine Python venv an und installiert Abhängigkeiten
+- Registriert den Dienst **ExoSmtpRelay** mit Autostart
+- Öffnet die Firewall für Port 25 (eingehend von Geräten) und den Web-Port
+- Bietet die Installation des PowerShell-Moduls **ExchangeOnlineManagement** an (optional, aber für den Einrichtungsassistenten nötig)
 
-Ist Port 25 belegt (IIS-SMTP, ein Virenscanner, ein anderes Relay), nennt dir
+Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7.
+
+**Deinstallation:** `.\windows\uninstall.ps1`
+
+**Hinweis:** Ist Port 25 bereits belegt (IIS-SMTP, Virenscanner, anderer Mail-Relay), nennt dir
 der Installer den Prozess. Der Dienst startet erst, wenn der Port frei ist.
 
 ### systemd (ohne Docker)
