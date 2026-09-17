@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>SMTP-Relay</h1>
+
+<p class="hint" style="max-width:720px;margin:0 0 16px">
+  Lässt Geräte und Anwendungen im eigenen Netz — Drucker, Scanner,
+  Fachanwendungen — ihre E-Mails über das Relay versenden. Nur Geräte
+  aus der Liste unten dürfen einliefern, alle anderen werden abgewiesen.
+</p>
+
+<div id="relay-warnung" style="display:none;margin-bottom:16px"></div>
+
+<!-- ── Lernmodus ─────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <h2 style="margin-top:0">Lernmodus</h2>
+  <p style="font-size:13px;color:#555;margin:0 0 14px">
+    Wenn du nicht alle Geräte-Adressen kennst: Der Lernmodus gibt einen IP-Bereich
+    <strong>zeitlich befristet</strong> frei und trägt jedes Gerät, das darin gültig
+    einliefert, automatisch in die Geräteliste ein. Löse anschließend an jedem Gerät
+    einmal einen Testversand aus.
+  </p>
+
+  <div id="lern-aktiv" style="display:none;background:#fffbeb;border:1px solid #fde68a;
+       border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-size:14px;color:#92400e;font-weight:700" id="lern-restzeit"></div>
+    <div style="font-size:12px;color:#92400e;margin-top:4px" id="lern-bereiche-aktiv"></div>
+    <button class="btn secondary" style="margin-top:10px" onclick="lernStoppen(this)">
+      Lernmodus jetzt beenden</button>
+  </div>
+
+  <div id="lern-formular">
+    <label for="lern-bereiche" style="font-size:12px;color:#555">Bereich</label>
+    <input type="text" id="lern-bereiche" style="width:100%;margin-top:3px"
+           placeholder="192.168.1.0/24  oder  172.16.16.10-172.16.17.20">
+    <p class="hint" style="margin:5px 0 0">
+      Ein Netz oder eine Spanne; mehrere durch Komma getrennt.
+    </p>
+
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
+      <div>
+        <label for="lern-minuten" style="font-size:12px;color:#555">Dauer (Minuten)</label><br>
+        <input type="number" id="lern-minuten" min="1" max="120" value="15"
+               style="width:110px;margin-top:3px">
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer;padding-bottom:6px">
+        <input type="checkbox" id="lern-extern">
+        <span style="font-size:13px">Gelernte Geräte dürfen auch nach aussen senden</span>
+      </label>
+    </div>
+    <p class="hint" style="margin:5px 0 0">Höchstens 120 Minuten.</p>
+
+    <div id="lern-result" style="display:none;margin-top:12px"></div>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn primary" onclick="lernStarten(this)">Lernmodus starten</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Geräte ────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Geräte</h2>
+    <span class="hint" id="geraete-anzahl"></span>
+    <button class="btn secondary btn-sm" style="margin-left:auto"
+            onclick="namenAufloesen(this)">Namen auflösen</button>
+  </div>
+  <div class="actions" style="margin:10px 0 0">
+    <button class="btn secondary" id="geraete-btn"
+            data-wache-container="#geraete-body"
+            data-wache-hinweis="geraete-result"
+            onclick="geraeteSpeichern()">Speichern</button>
+    <span id="geraete-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+  <p style="font-size:13px;color:#555;margin:10px 0 14px">
+    Nur die in der folgenden Liste eingetragenen Geräte dürfen Mails einliefern.
+    Die Spalten rechts zeigen das Sendeaufkommen der letzten 30/90/180/360 Tage —
+    ein alter Eintrag mit durchgehend 0 wird nicht mehr genutzt und kann entfernt
+    werden.
+  </p>
+
+  <div class="tabellen-rollbereich">
+    <table class="config-table" style="min-width:760px">
+      <thead>
+        <tr>
+          <th>Adresse</th><th>Name (DNS)</th><th>Kommentar</th>
+          <th style="text-align:right;font-weight:400">30d</th>
+          <th style="text-align:right;font-weight:400">90d</th>
+          <th style="text-align:right;font-weight:400">180d</th>
+          <th style="text-align:right;font-weight:400">360d</th>
+          <th>TLS</th><th>Intern/Extern</th><th>Gesperrt</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="geraete-body">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Abweisungen ────────────────────────────────────────────────────────── -->
+<div class="settings-card">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Abweisungen</h2>
+    <span class="hint" id="abw-anzahl"></span>
+    <button class="btn secondary btn-sm" style="margin-left:auto"
+            onclick="abwLadenAktuell()">Aktualisieren</button>
+  </div>
+  <p style="font-size:13px;color:#555;margin:10px 0 14px">
+    Einlieferungen, die abgewiesen wurden. Mit „Übernehmen" wird die IP-Adresse
+    als neues Gerät zur Liste hinzugefügt.
+  </p>
+  <div id="abw-leer" style="display:none;font-size:13px;color:#999;padding:20px;text-align:center">
+    Keine Abweisungen in der letzten Zeit.
+  </div>
+  <div class="tabellen-rollbereich" id="abw-bereich" style="display:none">
+    <table class="config-table" style="min-width:680px">
+      <thead>
+        <tr>
+          <th>Absender</th><th>Ziel</th><th>Grund</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="abw-body">
+      </tbody>
+    </table>
+  </div>
+  <div class="actions" style="margin-top:12px" id="abw-actions" style="display:none">
+    <button class="btn secondary btn-sm" onclick="abwLadenAktuell()">Aktualisieren</button>
+    <button class="btn secondary btn-sm" onclick="abwLeeren(this)">Alle löschen</button>
+  </div>
+</div>
+
+<style>
+  .tabellen-rollbereich {
+    overflow-x: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  .config-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .config-table thead {
+    background: #f9fafb;
+    border-bottom: 2px solid #ddd;
+  }
+  .config-table th {
+    padding: 10px 8px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+  }
+  .config-table td {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+  }
+  .config-table tbody tr:hover {
+    background: #f9fafb;
+  }
+  .config-table input, .config-table select {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+  }
+  .settings-card {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .settings-card h2 {
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  .hint {
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+  }
+  .btn {
+    padding: 8px 16px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .btn.primary {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
+  }
+  .btn.primary:hover {
+    background: #1d4ed8;
+  }
+  .btn.secondary {
+    background: #f3f4f6;
+    color: #333;
+    border-color: #d1d5db;
+  }
+  .btn.secondary:hover {
+    background: #e5e7eb;
+  }
+  .btn.btn-sm {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+</style>
+
+<script>
+  const FENSTER = {{ fenster | safe }};
+
+  async function lernStarten(btn) {
+    const bereiche = document.getElementById('lern-bereiche').value.trim();
+    const minuten = parseInt(document.getElementById('lern-minuten').value) || 15;
+    const extern = document.getElementById('lern-extern').checked;
+
+    if (!bereiche) {
+      alert('Bereich erforderlich');
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/relay/lernmodus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start: true,
+          bereiche: bereiche.split(',').map(b => b.trim()),
+          minuten, extern_vorgabe: extern
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('lern-formular').style.display = 'none';
+        zeigeLernStatus(data.lernmodus);
+      } else {
+        alert(data.error || 'Fehler');
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function lernStoppen(btn) {
+    btn.disabled = true;
+    fetch('/api/relay/lernmodus', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start: false })
+    }).then(r => r.json()).then(data => {
+      if (data.ok) {
+        document.getElementById('lern-aktiv').style.display = 'none';
+        document.getElementById('lern-formular').style.display = 'block';
+        ladeListe();
+      }
+    });
+  }
+
+  function zeigeLernStatus(zustand) {
+    if (zustand.aktiv) {
+      document.getElementById('lern-aktiv').style.display = 'block';
+      const sec = zustand.rest_sek;
+      const min = Math.floor(sec / 60);
+      const s = sec % 60;
+      document.getElementById('lern-restzeit').textContent =
+        `Aktiv: ${min}:${String(s).padStart(2, '0')} Minuten restlich`;
+      document.getElementById('lern-bereiche-aktiv').textContent =
+        `Bereiche: ${zustand.bereiche.join(', ')}`;
+    } else {
+      document.getElementById('lern-aktiv').style.display = 'none';
+      document.getElementById('lern-formular').style.display = 'block';
+    }
+  }
+
+  function namenAufloesen(btn) {
+    btn.disabled = true;
+    fetch('/api/relay/liste?namen=1')
+      .then(r => r.json())
+      .then(data => ladeListe(data))
+      .finally(() => btn.disabled = false);
+  }
+
+  async function ladeListe(data) {
+    if (!data) {
+      const res = await fetch('/api/relay/liste');
+      data = await res.json();
+    }
+
+    const tbody = document.getElementById('geraete-body');
+    tbody.innerHTML = '';
+
+    const geraete = data.geraete || [];
+    document.getElementById('geraete-anzahl').textContent = `${geraete.length} Gerät${geraete.length !== 1 ? 'e' : ''}`;
+
+    geraete.forEach(g => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" data-field="ip" value="${g.ip}" readonly></td>
+        <td><input type="text" data-field="dns" value="${g.dns || ''}"></td>
+        <td><input type="text" data-field="kommentar" value="${g.kommentar || ''}"></td>
+        <td style="text-align:right">${g.fenster['30d'] || 0}</td>
+        <td style="text-align:right">${g.fenster['90d'] || 0}</td>
+        <td style="text-align:right">${g.fenster['180d'] || 0}</td>
+        <td style="text-align:right">${g.fenster['360d'] || 0}</td>
+        <td>${g.tls || 'unbekannt'}</td>
+        <td>${g.intern}/${g.extern ? 'ja' : 'nein'}</td>
+        <td><input type="checkbox" data-field="gesperrt" ${g.gesperrt ? 'checked' : ''}></td>
+        <td><button class="btn btn-sm secondary" onclick="geraeteLoeschen('${g.ip}', this)">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // Abweisungen
+    const abw = data.abgewiesen || [];
+    document.getElementById('abw-anzahl').textContent = `${abw.length}`;
+    if (abw.length === 0) {
+      document.getElementById('abw-leer').style.display = 'block';
+      document.getElementById('abw-bereich').style.display = 'none';
+    } else {
+      document.getElementById('abw-leer').style.display = 'none';
+      document.getElementById('abw-bereich').style.display = 'block';
+      const abwBody = document.getElementById('abw-body');
+      abwBody.innerHTML = '';
+      abw.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${a.mail_from}</td>
+          <td>${a.rcpt_to}</td>
+          <td>${a.grund}</td>
+          <td><button class="btn btn-sm secondary" onclick="abwUebernehmen('${a.ip}', this)">Übernehmen</button></td>
+        `;
+        abwBody.appendChild(tr);
+      });
+    }
+
+    zeigeLernStatus(data.lernmodus);
+  }
+
+  async function geraeteSpeichern() {
+    const tbody = document.getElementById('geraete-body');
+    const rows = tbody.querySelectorAll('tr');
+
+    for (const tr of rows) {
+      const ip = tr.querySelector('[data-field="ip"]').value;
+      const daten = {};
+      tr.querySelectorAll('[data-field]').forEach(input => {
+        const field = input.getAttribute('data-field');
+        if (field !== 'ip') {
+          daten[field] = input.type === 'checkbox' ? input.checked : input.value;
+        }
+      });
+
+      await fetch('/api/relay/geraet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, ...daten })
+      });
+    }
+
+    document.getElementById('geraete-result').textContent = 'Gespeichert ✓';
+    setTimeout(() => document.getElementById('geraete-result').textContent = '', 3000);
+    ladeListe();
+  }
+
+  async function geraeteLoeschen(ip, btn) {
+    if (!confirm(`Gerät ${ip} wirklich löschen?`)) return;
+
+    const res = await fetch('/api/relay/geraet/loeschen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip })
+    });
+    const data = await res.json();
+    if (data.ok) ladeListe();
+  }
+
+  async function abwUebernehmen(ip, btn) {
+    const tbody = document.getElementById('geraete-body');
+    const exists = Array.from(tbody.querySelectorAll('tr'))
+      .some(tr => tr.querySelector('[data-field="ip"]').value === ip);
+
+    if (!exists) {
+      const res = await fetch('/api/relay/geraet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+      });
+      if (res.ok) ladeListe();
+    }
+  }
+
+  function abwLadenAktuell() {
+    ladeListe();
+  }
+
+  async function abwLeeren(btn) {
+    if (!confirm('Alle Abweisungen wirklich löschen?')) return;
+
+    btn.disabled = true;
+    const res = await fetch('/api/relay/abweisungen/leeren', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) ladeListe();
+    btn.disabled = false;
+  }
+
+  // Beim Laden
+  ladeListe();
+  setInterval(ladeListe, 5000);
+</script>
+{% endblock %}

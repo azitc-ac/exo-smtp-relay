@@ -26,6 +26,7 @@
             <ul>
                 {% if active != 'login' %}
                 <li><a href="/" class="{% if active == 'dashboard' %}active{% endif %}">Dashboard</a></li>
+                <li><a href="/relay" class="{% if active == 'relay' %}active{% endif %}">Relay</a></li>
                 <li><a href="/einrichtung" class="{% if active == 'einrichtung' %}active{% endif %}">Einrichtung</a></li>
                 <li><a href="/einstellungen" class="{% if active == 'einstellungen' %}active{% endif %}">Einstellungen</a></li>
                 <li><a href="/log" class="{% if active == 'log' %}active{% endif %}">Protokolle</a></li>
