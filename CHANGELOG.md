@@ -1,5 +1,22 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.5 — 2026-10-05 — Verwaltung auf eigener Seite „SMTP-Relay", Dashboard zeigt die Auswertung
+
+- **Neue Seite SMTP-Relay** (`/relay`, Menüpunkt *Relay*): Lernmodus, Geräteliste
+  (Kommentar, *Extern erlaubt*, Sperren, Löschen, von Hand hinzufügen, Namen
+  auflösen) und *Abgewiesen* (Übernehmen, Liste leeren) stehen jetzt dort.
+- **Dashboard**: Kennzahlen, das Aufkommen je Gerät (TLS/Klartext, intern/extern,
+  30/90/180/360 Tage) und die letzten Einlieferungen — nur zur Ansicht. Läuft der
+  Lernmodus oder wurden unbekannte Absender abgewiesen, weist ein Hinweis auf die
+  neue Seite.
+- Die Geräteliste lädt sich regelmässig neu, aber nicht, solange ein Kommentar
+  ungespeichert ist oder gerade getippt wird.
+- Für die Anmeldung per OAuth2 im submit-Modus (*SMTP.SendAsApp*) fehlte die
+  Bibliothek `msal` in den Abhängigkeiten; sie ist jetzt enthalten, in derselben
+  Fassung wie im Gateway.
+- Windows-Installer: Umlaute in Meldungen ersetzt, damit Windows PowerShell 5.1 sie
+  korrekt anzeigt.
+
 ## 0.2.4 — 2026-10-05 — Spiegelabgleich: style.css
 
 - `app/webui/static/style.css` an das Gateway angeglichen. Elemente mit dem Attribut

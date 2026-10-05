@@ -33,5 +33,11 @@ starlette==1.4.0
 typing_extensions==4.16.0
 typing-inspection==0.4.2
 uvicorn==0.51.0
+# OAuth2 (XOAUTH2) für den submit-Modus — msal samt Abhängigkeiten, Fassungen wie im Gateway.
+msal==1.37.0
+PyJWT==2.13.0
+requests==2.34.2
+charset-normalizer==3.4.9
+urllib3==2.7.0
 tzdata==2025.2; sys_platform == "win32"
 pywin32==311; sys_platform == "win32"

@@ -92,7 +92,7 @@ if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
         $pythonZip = "$env:TEMP\python-3.11-windows.zip"
         $pythonMsi = "$env:TEMP\python-3.11-amd64.exe"
 
-        # Nutzer zur Python.org-Seite führen oder automatisch MSI runterladen
+        # Nutzer zur Python.org-Seite fuehren oder automatisch MSI runterladen
         # Hier: directed install von der aktuellsten stabilen Version
         $url = "https://www.python.org/ftp/python/3.11.11/python-3.11.11-amd64.exe"
 
@@ -119,9 +119,9 @@ if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
             Write-Host ""
             Write-Host "Automatischer Download fehlgeschlagen." -ForegroundColor Yellow
             Write-Host "Bitte von https://www.python.org/downloads/windows/ installieren:" -ForegroundColor Yellow
-            Write-Host "  * Python 3.11 oder neuer wählen" -ForegroundColor Yellow
+            Write-Host "  * Python 3.11 oder neuer waehlen" -ForegroundColor Yellow
             Write-Host "  * Haken bei 'Add python.exe to PATH' setzen" -ForegroundColor Yellow
-            Write-Host "  * Installation abschliessen und dann dieses Skript erneut ausführen" -ForegroundColor Yellow
+            Write-Host "  * Installation abschliessen und dann dieses Skript erneut ausfuehren" -ForegroundColor Yellow
             throw "Python erforderlich. Siehe obige Anleitung."
         }
     } else {

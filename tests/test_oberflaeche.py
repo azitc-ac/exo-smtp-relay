@@ -97,7 +97,34 @@ def test_seiten_nach_anmeldung(client):
         r = client.get(pfad)
         assert r.status_code == 200, pfad
         assert "<nav" in r.text
-    assert client.get("/relay").status_code == 404, "die alte Geräteseite gibt es nicht mehr"
+    # Verwaltung (Lernmodus, Geräteliste, Abweisungen) lebt NUR auf /relay; das
+    # Dashboard zeigt die Auswertung und verweist dorthin. Bis v0.2.4 stand alles
+    # im Dashboard — eine zweite Verwaltungsseite daneben wäre ein zweiter Weg.
+    relay = client.get("/relay")
+    assert relay.status_code == 200
+    for merkmal in ('id="lern-formular"', 'id="geraete-btn"', 'id="abgewiesen-body"', 'id="neu-ip"'):
+        assert merkmal in relay.text, f"/relay: {merkmal} fehlt"
+    dash = client.get("/").text
+    for merkmal in ('id="lern-formular"', 'id="geraete-btn"', 'id="abgewiesen-body"',
+                    'id="neu-ip"', "lernStarten", "geraetLoeschen"):
+        assert merkmal not in dash, f"Dashboard verwaltet wieder selbst: {merkmal}"
+    assert 'href="/relay"' in dash, "Dashboard verweist nicht auf die Verwaltung"
+
+
+def test_vorlagen_setzen_nur_maskiert_ein():
+    """`${…}` in einem Template-Literal landet per innerHTML ungeprüft in der Seite.
+    Werte aus Einlieferungen (Absender, Grund, DNS-Name aus dem Reverse-Lookup)
+    sind von aussen steuerbar → nur über esc()/escAttr(). Eine frühere /relay-
+    Fassung setzte sie roh ein (gespeichertes XSS in der Admin-Sitzung)."""
+    import re
+    from pathlib import Path
+    vorlagen = Path(__file__).resolve().parent.parent / "app" / "webui" / "templates"
+    roh = [f"{p.name}:{i}: {z.strip()[:80]}"
+           for p in vorlagen.glob("*.html")
+           for i, z in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+           for m in re.finditer(r"\$\{([^}]*)\}", z)
+           if not re.match(r"\s*(esc|escAttr)\(", m.group(1))]
+    assert not roh, "unmaskierte Einsetzung: " + "; ".join(roh)
 
 
 def test_falsches_passwort_wird_gedrosselt(client):

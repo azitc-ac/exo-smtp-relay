@@ -19,6 +19,9 @@ python-multipart==0.0.32
 
 # ── Einrichtung über Microsoft Graph (App-Registrierung, Zertifikat-Upload) ──
 httpx==0.28.1
+# OAuth2 (XOAUTH2) für die Sendeidentitäten im submit-Modus (smarthost.py,
+# SMTP.SendAsApp). Fassung wie im Gateway.
+msal==1.37.0
 
 # ── Windows ──────────────────────────────────────────────────────────────────
 # tzdata: Windows hat keine IANA-Zonendatenbank; ohne das Paket fiele
