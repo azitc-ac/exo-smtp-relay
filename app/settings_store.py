@@ -162,6 +162,13 @@ def update(patch: dict) -> None:
         _data.update({k: _coerce(k, v) for k, v in patch.items()
                       if k in DEFAULTS and k not in FIXED_KEYS})
         _save()
+        neuer_host = _data.get("PUBLIC_HOSTNAME") if "PUBLIC_HOSTNAME" in patch else None
+    if neuer_host:
+        try:
+            import startmenue                                  # nur Windows, sonst ein No-op
+            startmenue.aktualisieren(neuer_host)
+        except Exception as exc:                               # noqa: BLE001
+            log.warning("Startmenü-Link: %s", exc)
 
 
 def _save() -> None:

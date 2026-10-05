@@ -258,7 +258,10 @@ if ($belegtWeb) {
 Write-Step "Startmenue-Eintrag"
 $startmenue = [Environment]::GetFolderPath("CommonPrograms")
 $verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
-Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://localhost:$WebPort/")
+# Rechnername statt localhost: das TLS-Zertifikat des Dienstes traegt nur den Hostnamen, nie "localhost".
+try { $rechnername = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $rechnername = "" }
+if (-not $rechnername) { $rechnername = "localhost" }
+Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")
 Write-Ok "$verknuepfung"
 
 Write-Step "Starte Dienst"
@@ -268,6 +271,6 @@ $dienst = Get-Service -Name "ExoSmtpRelay"
 Write-Ok "Status: $($dienst.Status)"
 
 Write-Host ""
-Write-Host "Fertig. Weboberflaeche: https://localhost:$WebPort  (admin / admin - bitte aendern; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
+Write-Host "Fertig. Weboberflaeche: https://${rechnername}:$WebPort  (admin / admin - bitte aendern; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
 Write-Host "Protokoll: $InstallDir\data\logs\app.log"
 Write-Host "Entfernen: .\uninstall.ps1"
