@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import stat
+import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -161,6 +162,11 @@ def harden_tree(root: Path | str, globs: tuple[str, ...] = SECRET_GLOBS) -> dict
     """
     root = Path(root)
     if not root.is_dir():
+        return {"files": 0, "dirs": 0}
+    if sys.platform == "win32":
+        # NTFS kennt keine Unix-Modi: st_mode meldet immer "offen", chmod aendert nichts. Den Schutz
+        # liefern die ACLs auf data\ (install.ps1: nur SYSTEM und Administratoren). Ohne diese
+        # Abkuerzung warnte der Dienst bei jedem Start umsonst.
         return {"files": 0, "dirs": 0}
     changed_files = 0
     # Elternverzeichnis JEDER gefundenen Geheimnisdatei, nicht nur der geänderten.
