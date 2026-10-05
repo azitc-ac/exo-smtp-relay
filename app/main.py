@@ -222,7 +222,18 @@ async def _run_smtp() -> None:
         scheduler.stop()
 
 
+class _ProactorRauschen(logging.Filter):
+    """Windows (Proactor): ein Client, der die Verbindung hart schliesst (Browser, Scanner,
+    Portscan), erzeugt beim Aufraeumen einen ERROR mit Traceback - ohne Folgen fuer den Dienst."""
+
+    def filter(self, satz: logging.LogRecord) -> bool:
+        ausnahme = satz.exc_info[1] if satz.exc_info else None
+        return not (isinstance(ausnahme, ConnectionResetError)
+                    and "_call_connection_lost" in satz.getMessage())
+
+
 def main() -> None:
+    logging.getLogger("asyncio").addFilter(_ProactorRauschen())
     settings_store.init(config._ENV_SEEDS)
     log_manager.setup(retention_days=int(settings_store.get("LOG_RETENTION_DAYS") or 30),
                       tz_name=settings_store.get("LOG_TIMEZONE") or "UTC")
