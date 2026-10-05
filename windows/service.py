@@ -28,6 +28,14 @@ WURZEL = Path(__file__).resolve().parent.parent
 APP = WURZEL / "app"
 DATA = WURZEL / "data"
 LOGDATEI = DATA / "logs" / "service.log"
+VENV = WURZEL / "venv"
+
+# pythonservice.exe bettet den Basis-Interpreter ein und ignoriert pyvenv.cfg:
+# die Pakete der venv (pywin32, servicemanager, ...) liegen sonst nicht im Suchpfad.
+for _pfad in (VENV / "Lib" / "site-packages", VENV / "Lib" / "site-packages" / "win32",
+              VENV / "Lib" / "site-packages" / "win32" / "lib"):
+    if _pfad.is_dir() and str(_pfad) not in sys.path:
+        sys.path.append(str(_pfad))
 
 try:
     import servicemanager
@@ -67,10 +75,11 @@ class RelayService(win32serviceutil.ServiceFramework):
         umgebung = dict(os.environ)
         umgebung.setdefault("DATA_DIR", str(DATA))
         umgebung.setdefault("PYTHONUNBUFFERED", "1")
-        # Dieselbe Python-Fassung wie der Dienst selbst (die venv).
+        # Im Dienst ist sys.executable pythonservice.exe - der Kindprozess nimmt die venv.
         ausgabe = open(LOGDATEI, "ab")
+        python = VENV / "Scripts" / "python.exe"
         return subprocess.Popen(
-            [sys.executable, str(APP / "main.py")], cwd=str(APP), env=umgebung,
+            [str(python if python.exists() else sys.executable), str(APP / "main.py")], cwd=str(APP), env=umgebung,
             stdout=ausgabe, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 

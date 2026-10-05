@@ -38,7 +38,7 @@ def _letzter_commit(repo: Path, rel: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", str(repo), "log", "-1", "--format=%cs %h %s", "--", rel],
-            capture_output=True, text=True, timeout=20).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20).stdout.strip()
         return out or "(kein Commit bekannt)"
     except Exception:                                         # noqa: BLE001
         return "(git nicht verfügbar)"
@@ -48,7 +48,7 @@ def _datum(repo: Path, rel: str) -> str:
     try:
         return subprocess.run(
             ["git", "-C", str(repo), "log", "-1", "--format=%cI", "--", rel],
-            capture_output=True, text=True, timeout=20).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20).stdout.strip()
     except Exception:                                         # noqa: BLE001
         return ""
 

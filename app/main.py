@@ -135,6 +135,18 @@ class _LenientController(Controller):
     def factory(self):
         return _LenientSMTP(self.handler, **self.SMTP_kwargs)
 
+    def _trigger_server(self):
+        # aiosmtpd verbindet sich zur Bereitschaftspruefung mit dem Bind-Namen. Unter
+        # Windows ist 0.0.0.0 als Verbindungsziel ungueltig (WinError 10049) -
+        # dann stuerzt der Start ab. Fuer die Pruefung genuegt Loopback.
+        gebunden = self.hostname
+        if gebunden in ("0.0.0.0", "::"):
+            self.hostname = "127.0.0.1" if gebunden == "0.0.0.0" else "::1"
+        try:
+            super()._trigger_server()
+        finally:
+            self.hostname = gebunden
+
 
 def _build_tls_context() -> ssl.SSLContext | None:
     cert, key = Path(config.SMTP_TLS_CERT), Path(config.SMTP_TLS_KEY)
