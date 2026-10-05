@@ -24,7 +24,7 @@
     Pfad zu python.exe. Ohne Angabe wird "py -3" bzw. "python" gesucht.
 
 .PARAMETER WebPort
-    Port der Weboberflaeche. Vorgabe: 8080
+    Port der Weboberflaeche. Vorgabe: 8443
 
 .PARAMETER SkipFirewall
     Keine Firewall-Regeln anlegen.
@@ -43,7 +43,7 @@
 param(
     [string]$InstallDir = "C:\ProgramData\exo-smtp-relay",
     [string]$PythonExe = "",
-    [int]$WebPort = 8080,
+    [int]$WebPort = 8443,
     [switch]$SkipFirewall,
     [switch]$SkipExoModule,
     [switch]$Unattended
@@ -221,7 +221,7 @@ if ($dienst) {
 # findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
 $sp = Join-Path $venv "Lib\site-packages"
 $dienstUmgebung = @("PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
-if ($WebPort -ne 8080) { $dienstUmgebung += "WEBUI_PORT=$WebPort" }
+$dienstUmgebung += "WEBUI_PORT=$WebPort"
 New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -Name "Environment" `
     -PropertyType MultiString -Value $dienstUmgebung -Force | Out-Null
 Write-Ok "Dienst registriert (Autostart)"
@@ -246,7 +246,21 @@ if ($belegt) {
     Write-Warn "Port 25 ist bereits belegt (Prozess: $($prozess.ProcessName)). Der Dienst kann nicht starten, bis er frei ist."
 }
 
+# -- Web-Port frei? ------------------------------------------------------------------
+$belegtWeb = Get-NetTCPConnection -LocalPort $WebPort -State Listen -ErrorAction SilentlyContinue
+if ($belegtWeb) {
+    $prozessWeb = Get-Process -Id $belegtWeb[0].OwningProcess -ErrorAction SilentlyContinue
+    Write-Warn "Web-Port $WebPort ist bereits belegt (Prozess: $($prozessWeb.ProcessName)). Anderen Port waehlen: .\install.ps1 -WebPort <Port>"
+}
+
 # -- Starten ------------------------------------------------------------------------
+# -- Startmenue-Eintrag (alle Benutzer): oeffnet die Weboberflaeche ---------------
+Write-Step "Startmenue-Eintrag"
+$startmenue = [Environment]::GetFolderPath("CommonPrograms")
+$verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
+Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://localhost:$WebPort/")
+Write-Ok "$verknuepfung"
+
 Write-Step "Starte Dienst"
 Start-Service -Name "ExoSmtpRelay"
 Start-Sleep -Seconds 3
@@ -254,6 +268,6 @@ $dienst = Get-Service -Name "ExoSmtpRelay"
 Write-Ok "Status: $($dienst.Status)"
 
 Write-Host ""
-Write-Host "Fertig. Weboberflaeche: https://localhost:$WebPort  (admin / admin - bitte aendern)" -ForegroundColor Green
+Write-Host "Fertig. Weboberflaeche: https://localhost:$WebPort  (admin / admin - bitte aendern; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
 Write-Host "Protokoll: $InstallDir\data\logs\app.log"
 Write-Host "Entfernen: .\uninstall.ps1"

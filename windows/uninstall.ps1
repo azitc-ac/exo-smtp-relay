@@ -48,6 +48,10 @@ if ($dienst) {
     Write-Ok "Kein Dienst ExoSmtpRelay registriert"
 }
 
+Write-Step "Startmenue-Eintrag"
+Remove-Item -Path (Join-Path ([Environment]::GetFolderPath("CommonPrograms")) "EXO SMTP Relay.url") -ErrorAction SilentlyContinue
+Write-Ok "entfernt"
+
 Write-Step "Firewall-Regeln"
 Get-NetFirewallRule -DisplayName "EXO SMTP Relay - *" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Write-Ok "entfernt"
