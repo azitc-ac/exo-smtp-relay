@@ -257,6 +257,9 @@ def main() -> None:
     mail_audit.init_db()
     mail_audit.prune_old_events(int(settings_store.get("LOG_RETENTION_DAYS") or 90))
 
+    import startmenue                                          # nur Windows; fuehrt den Link nach (z. B. nach einer Neuinstallation)
+    startmenue.aktualisieren(settings_store.get("PUBLIC_HOSTNAME") or "")
+
     import tls_cert
     try:
         st = tls_cert.sicherstellen(settings_store.get("PUBLIC_HOSTNAME") or "")
