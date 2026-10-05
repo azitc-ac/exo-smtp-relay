@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.4 — 2026-10-05 — Spiegelabgleich: style.css
+
+- `app/webui/static/style.css` an das Gateway angeglichen. Elemente mit dem Attribut
+  `hidden` bleiben jetzt verborgen, auch wenn eine Stilregel (etwa für Knöpfe) ein
+  `display` setzt. Die bisherige Sonderregel für die Speicherleiste geht darin auf.
+  Im Relay ändert das kein bestehendes Verhalten: Keine Seite schaltet ein Element
+  zugleich über `hidden` und über einen Inline-Stil.
+
 ## 0.2.3 — 2026-09-08 — Spiegelabgleich: dark-mode.css + style.css
 
 - `app/webui/static/dark-mode.css` und `app/webui/static/style.css` an das

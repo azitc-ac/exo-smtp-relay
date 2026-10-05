@@ -268,6 +268,14 @@ nav a.nav-planned:hover { background: none; }
  * Postfachtabelle hängt daran. `clip` schneidet nur ab. */
 main { max-width: 960px; margin: 32px auto; padding: 0 24px; overflow-x: clip; }
 
+/* `hidden` heisst unsichtbar — auch für Elemente, deren Klasse ein `display`
+ * setzt. Die Browser-Vorgabe für [hidden] ist eine schwache UA-Regel; jede
+ * Klassenregel mit `display` (z.B. `.btn { display: inline-flex }`) überstimmt
+ * sie, und das Element bleibt sichtbar. Vorher einzeln für `.speicher-leiste`
+ * geflickt, dann ein zweites Mal im Berechtigungs-Baustein — jetzt einmal für
+ * alle. Gespiegelt ins Relay (dort gilt dieselbe Datei). */
+[hidden] { display: none !important; }
+
 /* Seiten, die Daten NEBENEINANDER zeigen, duerfen breiter werden.
  *
  * 960px waren fuer alles die Grenze. Die Postfachtabelle braucht mit ihren
@@ -1210,7 +1218,6 @@ input[type="password"]:focus { outline: none; border-color: #0078d4; }
   color: #92400e;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
 }
-.speicher-leiste[hidden] { display: none; }
 .speicher-leiste-text { font-weight: 600; }
 
 @media (min-width: 720px) {
