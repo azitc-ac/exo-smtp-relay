@@ -49,7 +49,7 @@ def zustand() -> dict:
         "bootstrap_client_id": s.get("BOOTSTRAP_CLIENT_ID") or "",
         "bootstrap_redirect_uris": s.get("BOOTSTRAP_REDIRECT_URIS") or [],
         "sso_redirect_uri": setup_wizard.sso_redirect_uri(),
-        "localhost_redirect_uri": setup_wizard.localhost_redirect_uri(),
+        "localhost_redirect_uri": setup_wizard.aktuelle_localhost_uri(),
         "azure_app_created": bool(s.get("AZURE_APP_CREATED")),
         "tenant_domain": s.get("TENANT_DOMAIN") or "",
         "tenant_id": s.get("TENANT_ID") or "",
@@ -123,7 +123,7 @@ def _setup_redirect_uri(localhost: bool) -> str:
     https_uri = setup_wizard.sso_redirect_uri()
     if not localhost and https_uri and https_uri in (settings_store.get("BOOTSTRAP_REDIRECT_URIS") or []):
         return https_uri
-    return setup_wizard.localhost_redirect_uri()
+    return setup_wizard.aktuelle_localhost_uri()
 
 
 @router.get("/auth/start")
@@ -199,7 +199,7 @@ async def api_setup_auth_paste(request: Request, user: str = Depends(_require_ad
     code, state = params.get("code", [""])[0], params.get("state", [""])[0]
     if not code or not state:
         raise HTTPException(400, "Die Adresse enthält keinen Code. Bitte die vollständige Adresse aus "
-                                 f"der Adressleiste kopieren (beginnt mit {setup_wizard.localhost_redirect_uri()}?code=…).")
+                                 f"der Adressleiste kopieren (beginnt mit {setup_wizard.aktuelle_localhost_uri()}?code=…).")
     try:
         ergebnis = await _nach_login(code, state)
     except _SitzungAbgelaufen as exc:

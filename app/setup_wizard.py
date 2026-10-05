@@ -10,7 +10,8 @@ Sieht nach einem Klick aus, tut im Hintergrund fünf Dinge (aus dem Gateway
   3. Zustimmung erteilen und die Rolle Exchange-Administrator zuweisen.
   4. Auth-Zertifikat erzeugen (`auth_cert.py`) und den öffentlichen Teil an die
      App-Registrierung hängen.
-  5. Die Rückadresse dieses Dienstes an der Login-App nachtragen, damit der
+  5. Die Login-App selbst anlegen (oder wiederverwenden), falls noch keine Client-ID
+     gesetzt ist, und die Rückadresse dieses Dienstes dort nachtragen, damit der
      nächste Login ohne Copy-Paste läuft.
 
 Alle Aufrufe sind idempotent: Ein zweiter Lauf (etwa nach einem Fehler) ändert
@@ -147,10 +148,56 @@ def localhost_redirect_uri() -> str:
     return f"http://localhost:{config.WEBUI_PORT}/auth/callback"
 
 
+def fallback_redirect_uri() -> str:
+    """Rückadresse für den allerersten Login über Microsofts Graph-CLI-App (noch keine
+    eigene Login-App). Deren Registrierung kennt nur `http://localhost` ohne Pfad — Port
+    wird bei Loopback ignoriert, ein Pfad wie /auth/callback führt zu AADSTS50011."""
+    return "http://localhost"
+
+
+def aktuelle_localhost_uri() -> str:
+    """Die Localhost-Rückadresse, die der Copy-Paste-Weg gerade benutzt."""
+    if (settings_store.get("BOOTSTRAP_CLIENT_ID") or "").strip():
+        return localhost_redirect_uri()
+    return fallback_redirect_uri()
+
+
+async def ensure_login_app(token: str) -> str:
+    """Login-App (Public Client) anlegen oder wiederverwenden und ihre Client-ID merken.
+
+    Ist schon eine Client-ID gesetzt (eigene App, oder die des Gateways), bleibt sie.
+    Henne-Ei: Das Token für diesen Aufruf stammt aus dem ersten Login über die
+    Graph-CLI-App; ab jetzt meldet sich der Dienst über seine eigene App an."""
+    gesetzt = (settings_store.get("BOOTSTRAP_CLIENT_ID") or "").strip()
+    if gesetzt:
+        return gesetzt
+    name = f"{settings_store.get('GATEWAY_NAME') or 'EXO SMTP Relay'} Login"
+    uris = [localhost_redirect_uri()]
+    if sso_redirect_uri():
+        uris.append(sso_redirect_uri())
+    vorhanden = await _gh("get", f"{GRAPH}/applications?$filter=displayName eq '{_odata(name)}'"
+                                 "&$select=id,appId", token)
+    apps = vorhanden.get("value", [])
+    if apps:
+        app_id = apps[0]["appId"]
+        log.info("Login-App wiederverwendet: appId=%s", app_id)
+    else:
+        app = await _gh("post", f"{GRAPH}/applications", token, json={
+            "displayName": name, "signInAudience": "AzureADMyOrg",
+            "isFallbackPublicClient": True, "publicClient": {"redirectUris": uris}})
+        app_id = app["appId"]
+        log.info("Login-App angelegt: appId=%s", app_id)
+    sp = await _gh("get", f"{GRAPH}/servicePrincipals?$filter=appId eq '{app_id}'&$select=id", token)
+    if not sp.get("value"):
+        await _gh("post", f"{GRAPH}/servicePrincipals", token, json={"appId": app_id})
+    settings_store.update({"BOOTSTRAP_CLIENT_ID": app_id})
+    return app_id
+
+
 async def patch_bootstrap_redirect_uri(token: str) -> None:
     bootstrap = (settings_store.get("BOOTSTRAP_CLIENT_ID") or "").strip()
     uri = sso_redirect_uri()
-    if not bootstrap or not uri:
+    if not bootstrap:
         return
     try:
         resp = await _gh("get", f"{GRAPH}/applications?$filter=appId eq '{bootstrap}'"
@@ -160,11 +207,12 @@ async def patch_bootstrap_redirect_uri(token: str) -> None:
             log.warning("Login-App %s nicht im Verzeichnis gefunden", bootstrap)
             return
         uris = list(apps[0].get("publicClient", {}).get("redirectUris", []))
-        if uri not in uris:
-            uris.append(uri)
+        fehlend = [u for u in (localhost_redirect_uri(), uri) if u and u not in uris]
+        if fehlend:
+            uris.extend(fehlend)
             await _gh("patch", f"{GRAPH}/applications/{apps[0]['id']}", token,
                       json={"publicClient": {"redirectUris": uris}})
-            log.info("Rückadresse %s an der Login-App nachgetragen", uri)
+            log.info("Rückadresse(n) %s an der Login-App nachgetragen", ", ".join(fehlend))
         settings_store.update({"BOOTSTRAP_REDIRECT_URIS": uris})
     except Exception as exc:                                  # noqa: BLE001
         log.warning("Login-App nicht nachgetragen: %s", exc)
@@ -193,5 +241,10 @@ async def run_post_auth_setup(token: str) -> dict:
         log.error("Auth-Zertifikat: %s", exc)
         ergebnis["auth_cert_error"] = str(exc)
 
+    try:
+        ergebnis["login_app_id"] = await ensure_login_app(token)
+    except Exception as exc:                                  # noqa: BLE001
+        log.warning("Login-App nicht angelegt (Client-ID von Hand eintragen): %s", exc)
+        ergebnis["login_app_error"] = str(exc)
     await patch_bootstrap_redirect_uri(token)
     return ergebnis

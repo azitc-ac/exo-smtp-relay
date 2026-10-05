@@ -93,17 +93,19 @@
     {% else %}
     <p style="font-size:13px;margin:0 0 12px">
       Einmal als Entra-Administrator anmelden — danach legt der Dienst
-      <strong>automatisch</strong> die App-Registrierung an (nur <code>Exchange.ManageAsApp</code>),
+      <strong>automatisch</strong> die Login-App und die App-Registrierung an (nur <code>Exchange.ManageAsApp</code>),
       erteilt die Zustimmung, weist die Rolle Exchange-Administrator zu, erzeugt das
       Auth-Zertifikat und lädt es hoch. Tenant und Smarthost werden dabei erkannt.
     </p>
 
-    <p style="font-weight:600;font-size:13px;margin:0 0 6px">1 · Login-App {% if e.bootstrap_client_id %}<span style="color:#16a34a">✓ konfiguriert</span>{% endif %}</p>
-    <div style="font-size:13px">
+    <p style="font-weight:600;font-size:13px;margin:0 0 6px">1 · Login-App {% if e.bootstrap_client_id %}<span style="color:#16a34a">✓ {{ e.bootstrap_client_id }}</span>{% else %}<span style="color:#64748b;font-weight:400">wird automatisch angelegt</span>{% endif %}</p>
+    <details {% if e.bootstrap_client_id %}open{% endif %} style="margin-bottom:4px">
+    <summary style="cursor:pointer;font-size:13px;color:#64748b">Optional: eine vorhandene Login-App verwenden (z. B. die des Gateways) oder von Hand anlegen</summary>
+    <div style="font-size:13px;margin-top:8px">
       <p class="hint" style="margin-bottom:8px">
-        Für die Anmeldung braucht es eine kleine App-Registrierung als Public Client.
-        <strong>Betreibst du das EXO Signature Gateway, trag hier die Client-ID von dessen
-        „… Login"-App ein</strong> und ergänze dort die Rückadresse unten. Sonst leg sie so an:
+        Ohne Eintrag legt der Assistent nach dem ersten Login eine Login-App (Public Client) selbst an.
+        <strong>Betreibst du das EXO Signature Gateway, kannst du hier die Client-ID von dessen
+        „… Login"-App eintragen</strong> und dort die Rückadresse unten ergänzen. Von Hand anlegen:
       </p>
       <ol style="margin:0 0 10px 16px;line-height:1.9">
         <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Entra Admin Center → App-Registrierungen</a> → <strong>Neue Registrierung</strong></li>
@@ -120,12 +122,13 @@
       </div>
       <div class="actions"><button class="btn primary" id="bootstrap-btn" data-wache="bootstrap-client-id" onclick="bootstrapSpeichern()">Client-ID speichern</button></div>
     </div>
+    </details>
 
     <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="login-block">
       <p style="font-weight:600;font-size:13px;margin:0 0 6px">2 · Als Entra-Administrator anmelden</p>
       {% if not e.bootstrap_client_id %}
-      <div class="alert warn" style="margin-bottom:0">Erst die Login-App oben speichern.</div>
-      {% else %}
+      <p class="hint" style="margin-bottom:8px">Der erste Login läuft über Microsofts Graph-CLI-App. Danach legt der Assistent die Login-App des Relays selbst an, und weitere Logins brauchen kein Copy-Paste mehr.</p>
+      {% endif %}
       <ol style="margin:0 0 10px 16px;line-height:1.9;font-size:13px">
         <li><strong>Jetzt anmelden</strong> öffnet den Microsoft-Login in einem neuen Fenster (MFA wird unterstützt).</li>
         <li>Beim allerersten Mal landet der Browser auf <code>localhost</code> mit einer Fehlerseite — <em>das ist normal</em>: die komplette Adresse aus der Adressleiste unten einfügen. Ab dem zweiten Mal schliesst sich das Fenster von selbst.</li>
@@ -138,7 +141,6 @@
         <div id="paste-result" style="display:none;margin-top:8px"></div>
         <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste')">Einrichtung fortsetzen</button></div>
       </div>
-      {% endif %}
     </div>
     {% endif %}
     <p class="hint" style="margin-top:12px">Ohne Entra-Login: App-ID, Tenant und Zertifikat unter <a href="/einstellungen#tenant">Einstellungen</a> von Hand — oder ganz ohne App-Registrierung mit <a href="/einstellungen#adressen">Adressen von Hand</a>.</p>
