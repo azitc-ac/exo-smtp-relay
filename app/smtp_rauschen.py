@@ -53,6 +53,29 @@ HARMLOS: tuple[type[BaseException], ...] = (
 )
 
 
+def _harmlose_ursache(fehler: BaseException | None) -> BaseException | None:
+    """Die harmlose Ausnahme in der Kette, oder None.
+
+    ⚠️ aiosmtpd hüllt JEDEN Fehler beim STARTTLS-Handshake ein:
+    `raise TLSSetupException() from error` (smtp.py, smtp_STARTTLS, seit 1.4).
+    Im Protokoll kommt also nie `SSLError` an, sondern die Hülle — die
+    eigentliche Ursache steht in `__cause__`. Bis 06.10.2026 prüfte der Filter
+    nur die äusserste Ausnahme und griff deshalb bei genau dem Fall, für den er
+    gebaut war, NIE (Produktions-VM: 0 umgeformte Zeilen in 96 h, alle
+    Scanner-Abbrüche weiter als ERROR mit Traceback). Sein Test baute die
+    Ausnahme selbst und sah die Hülle nie.
+
+    Gefolgt wird nur `__cause__` (ausdrückliches `from`), höchstens fünf Glieder.
+    Eine Hülle um einen ECHTEN Fehler bleibt damit ein Fehler."""
+    for _ in range(5):
+        if fehler is None:
+            return None
+        if isinstance(fehler, HARMLOS):
+            return fehler
+        fehler = fehler.__cause__
+    return None
+
+
 class AbbruchLeiser(logging.Filter):
     """Stuft abgebrochene Fremdverbindungen auf INFO herab, ohne Traceback.
 
@@ -64,8 +87,8 @@ class AbbruchLeiser(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if MELDUNG not in str(record.msg):
             return True
-        fehler = record.exc_info[1] if record.exc_info else None
-        if not isinstance(fehler, HARMLOS):
+        fehler = _harmlose_ursache(record.exc_info[1] if record.exc_info else None)
+        if fehler is None:
             return True          # echter Fehler — unverändert weiterreichen
 
         gegenstelle = record.args[0] if record.args else "?"

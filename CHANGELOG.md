@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.6 — 2026-10-06 — Scanner-Abbrüche wirklich leiser
+
+- Abgebrochene TLS-Handshakes fremder Rechner (meist Port-Scanner) erscheinen jetzt
+  wie vorgesehen als einzeilige INFO-Meldung statt als ERROR mit Traceback. Der
+  Filter griff bisher nie, weil der SMTP-Baustein solche Abbrüche in einer eigenen
+  Hülle meldet und nur die Hülle geprüft wurde. Echte Fehler bleiben ERROR.
+  Gemeinsamer Baustein mit dem Gateway; Test jetzt auch hier, mit echtem Verkehr.
+
 ## 0.2.5 — 2026-10-05 — Verwaltung auf eigener Seite „SMTP-Relay", Dashboard zeigt die Auswertung
 
 - **Neue Seite SMTP-Relay** (`/relay`, Menüpunkt *Relay*): Lernmodus, Geräteliste
