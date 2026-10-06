@@ -104,7 +104,7 @@ class RelayHandler:
         # Adressen — dieselbe Frage, die `pruefe()` für die Zielgrenze stellt.
         import exo_mailboxes
         bekannt = exo_mailboxes.known_addresses()
-        extern = any((r or "").strip().lower() not in bekannt for r in recipients)
+        extern = any(not smtp_relay.ist_intern(r, bekannt) for r in recipients)
         subject, mid = "", ""
         try:
             msg = email.message_from_bytes(raw)

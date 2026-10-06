@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.7 — 2026-10-07 — Domäneneinträge in der Handliste
+
+- Unter *Adressen von Hand* gilt ein Eintrag wie `@firma.de` jetzt als ganze
+  Domäne: Jede Adresse dieser Domäne zählt als internes Ziel. Wer das Relay ohne
+  App-Registrierung betreibt, braucht damit eine Zeile je Domäne statt jeder
+  einzelnen Adresse samt Aliasen. Die Grenze ist etwas gröber — auch Adressen, die
+  es nicht gibt, gelten dann als intern; Exchange weist sie selbst ab. Sie gilt
+  nur, wo sie ausdrücklich eingetragen ist; die abgefragte Postfachliste bleibt
+  adressgenau.
+
 ## 0.2.6 — 2026-10-06 — Scanner-Abbrüche wirklich leiser
 
 - Abgebrochene TLS-Handshakes fremder Rechner (meist Port-Scanner) erscheinen jetzt

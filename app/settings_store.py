@@ -59,9 +59,11 @@ DEFAULTS: dict = {
     "TENANT_DOMAIN": "",            # firma.onmicrosoft.com
     "CLIENT_ID": "",                # App-Registrierung (Exchange.ManageAsApp)
     # Postfachadressen von Hand — für Betreiber ohne App-Registrierung oder als
-    # Ergänzung. ⚠️ Adressen, keine Domänen: `smtp_relay.pruefe()` (gespiegelt)
-    # beurteilt Ziele an den ADRESSEN, und die Absenderdomänen leiten sich
-    # daraus ab. Eine Domänenliste daneben wäre ein zweiter, laxerer Weg.
+    # Ergänzung. `smtp_relay.pruefe()` (gespiegelt) beurteilt Ziele an den
+    # ADRESSEN, die Absenderdomänen leiten sich daraus ab. Ein Eintrag `@domain`
+    # gilt seit 0.2.7 als ganze Domäne (`smtp_relay.ist_intern`) — bewusst IN
+    # dieser Liste statt einer eigenen Domänenliste daneben: ein Weg, und die
+    # gröbere Grenze ist sichtbar, weil sie einzeln eingetragen werden muss.
     "ADRESSEN_ZUSAETZLICH": [],
     "EXO_ABFRAGE_AN": True,         # Postfachliste stündlich per PowerShell holen
     "EXO_CONNECTOR_CREATED": False,
