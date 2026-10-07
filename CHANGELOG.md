@@ -12,8 +12,9 @@
   Änderungen am Connector holst du das Admin-Recht unter *Einrichtung → Rechte der
   App* kurz zurück.
 - **Exchange übernimmt das Herabstufen verzögert.** Die Entra-Rolle ist sofort
-  weg, Exchange liess die App aber noch über drei Stunden schreiben; eine Frist
-  nennt Microsoft nicht. Der Dienst misst deshalb nach dem Herabstufen stündlich
+  weg, Exchange liess die App aber noch über drei Stunden schreiben (in einer
+  stündlichen Messung: nach 202 Minuten noch Admin, nach 263 Minuten Leser); eine
+  Frist nennt Microsoft nicht. Der Dienst misst deshalb nach dem Herabstufen stündlich
   nach und zeigt unter *Rechte der App*, ob Exchange es übernommen hat und nach
   wie vielen Minuten. *Rechte jetzt messen* prüft den Stand sofort.
 - **Schlüssel der App: ein Jahr statt zehn, Erneuerung von selbst.** 30 Tage vor

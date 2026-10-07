@@ -37,7 +37,9 @@ später noch erfolgreich (`Set-Mailbox`, sofort zurückgesetzt), auch nach
 (der 30-Minuten-bis-2-Stunden-Cache in „RBAC for Applications" betrifft
 Graph/EWS-Rollen). Deshalb meldet `herabstufen()` keinen Vollzug, sondern
 `nachmessen()` prüft stündlich, bis die Schreibrechte wirklich weg sind, und
-hält fest, nach wie vielen Minuten (`RECHTE_WIRKSAM`).
+hält fest, nach wie vielen Minuten (`RECHTE_WIRKSAM`). Im selben Versuch, stündlich
+gemessen: nach 202 Minuten noch Admin, nach 263 Minuten Leser, ein echter
+`Set-Mailbox`-Aufruf abgelehnt. Eine einzelne Messung — keine zugesagte Frist.
 
 ⚠️ NUR FÜR EINE EIGENE APP. Über `auth_cert.importieren()` kann ein Betreiber
 die App des Signatur-Gateways mitbenutzen. Die braucht im Betrieb Schreibrechte
@@ -295,7 +297,7 @@ async def herabstufen(token: str | None = None) -> dict:
                            "RECHTE_WIRKSAM": {}})
     text = (f"Herabgestuft: Exchange-Administrator in Entra entfernt ({weg} Zuweisung"
             f"{'en' if weg != 1 else ''}), Lesen über „{gruppenname()}“. Exchange übernimmt das "
-            "verzögert — beobachtet wurden über drei Stunden. Der Dienst misst stündlich nach "
+            "verzögert — gemessen wurden drei bis viereinhalb Stunden. Der Dienst misst stündlich nach "
             "und zeigt hier, ab wann die Schreibrechte wirklich weg sind.")
     return _merke(True, text, "lesen")
 

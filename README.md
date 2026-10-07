@@ -99,7 +99,8 @@ Dort misst *Rechte jetzt messen* auch, was die App gerade wirklich darf.
 
 Exchange übernimmt das Herabstufen **nicht sofort**: Die Entra-Rolle ist sofort
 weg, Exchange lässt die App aber noch eine Weile schreiben. Gemessen wurden
-über drei Stunden; eine Frist nennt Microsoft nicht. Der Dienst misst deshalb
+zwischen drei und viereinhalb Stunden (nach 202 Minuten noch Schreibrechte, nach 263 Minuten nicht
+mehr); eine Frist nennt Microsoft nicht. Der Dienst misst deshalb
 stündlich nach und zeigt unter *Einrichtung → Rechte der App*, ab wann die
 Schreibrechte wirklich weg sind und nach wie vielen Minuten.
 
