@@ -26,6 +26,7 @@ import config
 import exo_mailboxes
 import exo_setup
 import pkce as pkce_mod
+import rechte
 import relay_hosts
 import settings_store
 import setup_wizard
@@ -56,6 +57,8 @@ def zustand() -> dict:
         "client_id": s.get("CLIENT_ID") or "",
         "smarthost": s.get("EXO_SMARTHOST") or "",
         "auth_cert": auth_cert.info(),
+        "auth_cert_lauf": s.get("AUTH_CERT_LAUF") or {},
+        "rechte": rechte.zustand(),
         "exo": exo_mailboxes.zustand(),
         "connector_created": bool(s.get("EXO_CONNECTOR_CREATED")),
         "geraete": len(geraete),
@@ -131,7 +134,10 @@ async def auth_start(request: Request, user: str = Depends(_require_admin)):
     """Anmeldeadresse als JSON — für den Knopf im Assistenten."""
     localhost = request.query_params.get("localhost") in ("1", "true")
     redirect_uri = _setup_redirect_uri(localhost)
-    _state, auth_url = pkce_mod.create_session(redirect_uri)
+    zweck = request.query_params.get("zweck") or "einrichtung"
+    if zweck not in pkce_mod.ZWECKE:
+        raise HTTPException(400, "Unbekannter Zweck")
+    _state, auth_url = pkce_mod.create_session(redirect_uri, zweck)
     return JSONResponse({"auth_url": auth_url, "redirect_uri": redirect_uri,
                          "paste": redirect_uri.startswith("http://localhost")})
 
@@ -160,8 +166,18 @@ async def _nach_login(code: str, state: str) -> dict:
     sitzung = pkce_mod.pop_session(state)
     if not sitzung:
         raise _SitzungAbgelaufen("Anmeldesitzung abgelaufen — bitte erneut auf „Jetzt anmelden“ klicken.")
-    token = (await pkce_mod.exchange_code(code, sitzung["verifier"], sitzung["redirect_uri"]))["access_token"]
-    ergebnis = await setup_wizard.run_post_auth_setup(token)
+    antwort = await pkce_mod.exchange_code(code, sitzung["verifier"], sitzung["redirect_uri"])
+    token, gueltig = antwort["access_token"], antwort.get("expires_in")
+    zweck = sitzung.get("zweck") or "einrichtung"
+    # Nur die Rechte ändern — keine neue App, kein neues Zertifikat.
+    if zweck == "herabstufen":
+        lauf = await rechte.herabstufen(token)
+        return {"rechte": lauf, "app_id": settings_store.get("CLIENT_ID")}
+    if zweck == "hochstufen":
+        rechte.merke_admin_token(token, gueltig)
+        lauf = await rechte.adminrolle_zuweisen(token)
+        return {"rechte": lauf, "app_id": settings_store.get("CLIENT_ID")}
+    ergebnis = await setup_wizard.run_post_auth_setup(token, gueltig)
     # Die Postfachliste gleich holen — im Hintergrund, der Login soll nicht darauf warten.
     asyncio.get_running_loop().run_in_executor(None, exo_mailboxes.list_mailboxes, True)
     return ergebnis
@@ -233,6 +249,37 @@ async def api_setup_connector(request: Request, user: str = Depends(_require_adm
         ips = [t.strip() for t in ips.split(",") if t.strip()]
     r = await asyncio.to_thread(exo_setup.connector_einrichten, hostname, ips)
     log.info("Inbound-Connector über den Assistenten durch %s: %s", user, "ok" if r.get("ok") else "fehlgeschlagen")
+    # Admin-Recht wird nur für den Connector gebraucht — gleich danach zurück auf
+    # Lesen. Ohne frische Admin-Anmeldung meldet `herabstufen` das sichtbar.
+    if r.get("ok") and rechte.eigene_app()[0]:
+        r["rechte"] = await rechte.herabstufen()
+    return JSONResponse(r)
+
+
+# ── Rechte der App ───────────────────────────────────────────────────────────
+
+@router.get("/api/setup/rechte")
+async def api_setup_rechte(user: str = Depends(_require_admin)):
+    return JSONResponse({"ok": True, **rechte.zustand()})
+
+
+@router.post("/api/setup/rechte/messen")
+async def api_setup_rechte_messen(user: str = Depends(_require_admin)):
+    m = await asyncio.to_thread(rechte.messen)
+    return JSONResponse({"ok": m["stufe"] in ("admin", "lesen"), **m})
+
+
+@router.post("/api/setup/rechte/herabstufen")
+async def api_setup_rechte_herabstufen(user: str = Depends(_require_admin)):
+    lauf = await rechte.herabstufen()
+    log.info("Herabstufen durch %s: %s", user, lauf.get("text"))
+    return JSONResponse({**lauf, "anmelden": not lauf["ok"] and rechte.admin_token() is None})
+
+
+@router.post("/api/auth-cert/erneuern")
+async def api_auth_cert_erneuern(user: str = Depends(_require_admin)):
+    r = await asyncio.to_thread(auth_cert.erneuern, True)
+    log.info("Auth-Zertifikat erneuern durch %s: %s", user, r.get("text"))
     return JSONResponse(r)
 
 

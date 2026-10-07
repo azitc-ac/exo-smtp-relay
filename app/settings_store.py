@@ -42,6 +42,18 @@ DEFAULTS: dict = {
     "BOOTSTRAP_REDIRECT_URIS": [],  # dort registrierte Rückadressen (nach erstem Login bekannt)
     "TENANT_ID": "",
     "AZURE_APP_CREATED": False,     # App-Registrierung samt Zertifikat steht
+    # ── Rechte und Schlüssel der App (rechte.py, auth_cert.erneuern; seit 0.2.8) ─
+    "APP_EIGEN": False,             # vom Assistenten angelegt — nur dann Rechte/Schlüssel anfassen
+    "APP_OBJECT_ID": "",            # Objekt-ID der App (addKey/removeKey)
+    "APP_SP_ID": "",                # Objekt-ID des Dienstprinzipals (Rollen, EXO)
+    "AUTH_KEY_ID": "",              # keyId des aktuellen Schlüssels in Entra (für removeKey)
+    "AUTH_KEY_ALT": {},             # noch auszutragender alter Schlüssel {key_id, seit, bis}
+    "AUTH_CERT_LAUF": {},           # letzter Erneuerungsversuch {zeit, ok, text}
+    "RECHTE_LAUF": {},              # letzte Rechteänderung {zeit, ok, text, stufe}
+    "RECHTE_LESEGRUPPE": "",        # Name der Rollengruppe „nur lesen" in Exchange
+    "RECHTE_HERABGESTUFT": "",      # Zeitpunkt des letzten Herabstufens
+    "RECHTE_MESSUNG": {},           # letzte Messung {zeit, stufe, text}
+    "RECHTE_WIRKSAM": {},           # erste Messung ohne Schreibrecht nach dem Herabstufen {zeit, minuten}
 
     # ── Rückweg zu Exchange Online ───────────────────────────────────────────
     "EXO_SMARTHOST": "",            # <tenant>.mail.protection.outlook.com

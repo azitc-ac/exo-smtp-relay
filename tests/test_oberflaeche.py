@@ -226,3 +226,20 @@ def test_vorlagen_javascript_nutzt_nur_bekannte_helfer():
               "wacheFertig", "wacheNeuMessen", "ursache"}
     fehlend = helfer - definiert
     assert not fehlend, fehlend
+
+
+def test_einrichtung_zeigt_ob_das_herabstufen_in_exchange_wirkt(client):
+    """Exchange übernimmt das Herabstufen verzögert (live 07.10.2026: über drei
+    Stunden). Die Seite darf deshalb nicht nur „herabgestuft" sagen."""
+    import settings_store
+    _anmelden(client)
+    settings_store.update({"SETUP_COMPLETE": True, "AZURE_APP_CREATED": True, "APP_EIGEN": True, "CLIENT_ID": "c",
+                           "APP_SP_ID": "s", "RECHTE_HERABGESTUFT": "2026-10-07T00:10:12Z",
+                           "RECHTE_MESSUNG": {"zeit": "2026-10-07T03:21:37Z", "stufe": "admin",
+                                              "text": "Schreibrechte vorhanden (Set-Mailbox)."}})
+    seite = client.get("/einrichtung").text
+    assert "noch nicht übernommen" in seite and "Schreibrechte vorhanden (Set-Mailbox)." in seite
+    settings_store.update({"RECHTE_WIRKSAM": {"zeit": "2026-10-07T05:00:00Z", "minuten": 290}})
+    seite = client.get("/einrichtung").text
+    assert "noch nicht übernommen" not in seite
+    assert "290 Minuten nach dem Herabstufen" in seite

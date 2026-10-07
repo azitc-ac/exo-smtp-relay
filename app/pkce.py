@@ -51,13 +51,22 @@ def generate_pkce_pair() -> tuple[str, str]:
     return verifier, _b64url(hashlib.sha256(verifier.encode()).digest())
 
 
-def create_session(redirect_uri: str) -> tuple[str, str]:
-    """Neue Sitzung → (state, Anmeldeadresse)."""
+ZWECKE = ("einrichtung", "herabstufen", "hochstufen")
+
+
+def create_session(redirect_uri: str, zweck: str = "einrichtung") -> tuple[str, str]:
+    """Neue Sitzung → (state, Anmeldeadresse).
+
+    `zweck` entscheidet, was nach der Anmeldung geschieht (`einrichtung._nach_login`):
+    die volle Einrichtung, oder nur die Rechte der App ändern. Er liegt in der
+    Sitzung auf dem Server — nicht in der Rückadresse, die der Browser bringt."""
+    if zweck not in ZWECKE:
+        raise ValueError(f"unbekannter Zweck: {zweck}")
     _prune_sessions()
     state = secrets.token_urlsafe(24)
     verifier, challenge = generate_pkce_pair()
     _sessions[state] = {"verifier": verifier, "redirect_uri": redirect_uri,
-                        "created_at": time.monotonic()}
+                        "created_at": time.monotonic(), "zweck": zweck}
     params = {
         "client_id": _get_client_id(), "response_type": "code", "redirect_uri": redirect_uri,
         "scope": " ".join(BOOTSTRAP_SCOPES), "state": state,
