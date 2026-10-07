@@ -24,7 +24,10 @@ DER WEG
 
 Primärquelle: learn.microsoft.com/powershell/exchange/app-only-auth-powershell-v2,
 „Option 2: Assign custom role groups to the application using service
-principals".
+principals". Live geprüft am 07.10.2026 mit einer App, die NIE Admin war:
+dieselbe Postfachliste wie mit Exchange-Administrator (20 Postfächer /
+75 Adressen, gleiche Prüfsumme), keine Schreib-Cmdlets in der Sitzung — die
+Messung über `Get-Command` in `messen()` trennt also Leser von Admin.
 
 ⚠️ EXCHANGE ZIEHT DAS HERABSTUFEN NICHT SOFORT NACH (live 07.10.2026): Die
 Entra-Rolle war weg, das frische Token der App ohne Admin-Rolle, in Exchange
