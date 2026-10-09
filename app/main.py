@@ -135,6 +135,18 @@ class _LenientController(Controller):
     def factory(self):
         return _LenientSMTP(self.handler, **self.SMTP_kwargs)
 
+    def _trigger_server(self):
+        # aiosmtpd verbindet sich zur Bereitschaftspruefung mit dem Bind-Namen. Unter
+        # Windows ist 0.0.0.0 als Verbindungsziel ungueltig (WinError 10049) -
+        # dann stuerzt der Start ab. Fuer die Pruefung genuegt Loopback.
+        gebunden = self.hostname
+        if gebunden in ("0.0.0.0", "::"):
+            self.hostname = "127.0.0.1" if gebunden == "0.0.0.0" else "::1"
+        try:
+            super()._trigger_server()
+        finally:
+            self.hostname = gebunden
+
 
 def _build_tls_context() -> ssl.SSLContext | None:
     cert, key = Path(config.SMTP_TLS_CERT), Path(config.SMTP_TLS_KEY)
@@ -210,7 +222,18 @@ async def _run_smtp() -> None:
         scheduler.stop()
 
 
+class _ProactorRauschen(logging.Filter):
+    """Windows (Proactor): ein Client, der die Verbindung hart schliesst (Browser, Scanner,
+    Portscan), erzeugt beim Aufraeumen einen ERROR mit Traceback - ohne Folgen fuer den Dienst."""
+
+    def filter(self, satz: logging.LogRecord) -> bool:
+        ausnahme = satz.exc_info[1] if satz.exc_info else None
+        return not (isinstance(ausnahme, ConnectionResetError)
+                    and "_call_connection_lost" in satz.getMessage())
+
+
 def main() -> None:
+    logging.getLogger("asyncio").addFilter(_ProactorRauschen())
     settings_store.init(config._ENV_SEEDS)
     log_manager.setup(retention_days=int(settings_store.get("LOG_RETENTION_DAYS") or 30),
                       tz_name=settings_store.get("LOG_TIMEZONE") or "UTC")
@@ -233,6 +256,9 @@ def main() -> None:
     import mail_audit
     mail_audit.init_db()
     mail_audit.prune_old_events(int(settings_store.get("LOG_RETENTION_DAYS") or 90))
+
+    import startmenue                                          # nur Windows; fuehrt den Link nach (z. B. nach einer Neuinstallation)
+    startmenue.aktualisieren(settings_store.get("PUBLIC_HOSTNAME") or "")
 
     import tls_cert
     try:

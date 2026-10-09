@@ -168,10 +168,11 @@ Das Skript:
 - Kopiert die Anwendung nach `C:\ProgramData\exo-smtp-relay`
 - Legt eine Python venv an und installiert Abhängigkeiten
 - Registriert den Dienst **ExoSmtpRelay** mit Autostart
-- Öffnet die Firewall für Port 25 (eingehend von Geräten) und den Web-Port
+- Legt einen Startmenü-Eintrag **EXO SMTP Relay** an, der die Weboberfläche öffnet (`https://<Rechnername>:8443`; anderer Port: `.\windows\install.ps1 -WebPort <Port>`, der Installer warnt, wenn er belegt ist)
+- Öffnet die Firewall für Port 25 (eingehend von Geräten) und den Web-Port, in allen Netzwerkprofilen
 - Bietet die Installation des PowerShell-Moduls **ExchangeOnlineManagement** an (optional, aber für den Einrichtungsassistenten nötig)
 
-Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7.
+Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7. Für Skripte und Fernausführung gibt es `-Unattended` (keine Rückfragen).
 
 **Deinstallation:** `.\windows\uninstall.ps1`
 

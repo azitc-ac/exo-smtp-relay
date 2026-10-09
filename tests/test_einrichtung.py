@@ -143,11 +143,47 @@ def test_rueckadresse_erst_nach_bekanntgabe(einstellungen):
     """Beim allerersten Login kennt die Login-App die HTTPS-Rückadresse nicht —
     dann bleibt es beim Localhost-Weg. Danach läuft es im Popup."""
     from webui.routen import einrichtung
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = "boot-1"
     einstellungen["BOOTSTRAP_REDIRECT_URIS"] = []
     assert einrichtung._setup_redirect_uri(False).startswith("http://localhost:")
     einstellungen["BOOTSTRAP_REDIRECT_URIS"] = ["https://relay.firma.de:8080/auth/callback"]
     assert einrichtung._setup_redirect_uri(False) == "https://relay.firma.de:8080/auth/callback"
     assert einrichtung._setup_redirect_uri(True).startswith("http://localhost:"), "ausdrücklich erzwungen"
+
+
+def test_ohne_login_app_laeuft_der_erste_login_ueber_loopback_ohne_pfad(einstellungen):
+    """Ohne eigene Login-App gilt Microsofts Graph-CLI-App; deren Registrierung kennt nur
+    `http://localhost` — ein Pfad wie /auth/callback gaebe AADSTS50011."""
+    from webui.routen import einrichtung
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = ""
+    assert einrichtung._setup_redirect_uri(False) == "http://localhost"
+    assert einrichtung._setup_redirect_uri(True) == "http://localhost"
+
+
+def test_assistent_legt_die_login_app_selbst_an(graph, einstellungen):
+    import setup_wizard
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = ""
+    ergebnis = asyncio.run(setup_wizard.run_post_auth_setup("token"))
+    login = [a for a in graph.apps if a["displayName"] == "EXO SMTP Relay Login"]
+    assert len(login) == 1, "genau eine Login-App"
+    assert login[0]["isFallbackPublicClient"] is True and login[0]["signInAudience"] == "AzureADMyOrg"
+    uris = login[0]["publicClient"]["redirectUris"]
+    assert "http://localhost:8080/auth/callback" in uris and "https://relay.firma.de:8080/auth/callback" in uris
+    assert any(s["appId"] == login[0]["appId"] for s in graph.sps), "Service Principal, sonst kein Login moeglich"
+    assert einstellungen["BOOTSTRAP_CLIENT_ID"] == login[0]["appId"] == ergebnis["login_app_id"]
+
+
+def test_login_app_wird_wiederverwendet_und_eine_gesetzte_bleibt(graph, einstellungen):
+    import setup_wizard
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = ""
+    asyncio.run(setup_wizard.run_post_auth_setup("token"))
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = ""            # wie nach einem Zuruecksetzen der Einstellungen
+    asyncio.run(setup_wizard.run_post_auth_setup("token"))
+    assert len([a for a in graph.apps if a["displayName"] == "EXO SMTP Relay Login"]) == 1
+    einstellungen["BOOTSTRAP_CLIENT_ID"] = "boot-1"      # Gateway-App oder von Hand: nicht anfassen
+    vorher = len(graph.apps)
+    asyncio.run(setup_wizard.run_post_auth_setup("token"))
+    assert len(graph.apps) == vorher and einstellungen["BOOTSTRAP_CLIENT_ID"] == "boot-1"
 
 
 def test_pkce_sitzung_ist_einmalig():

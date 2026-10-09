@@ -92,7 +92,10 @@ try {
     } else {
         if ($vorhanden) {
             Write-Warn "Connector vorhanden - aktualisiere (Zertifikatsvariante)"
+            # Beim Wechsel von der Adressvariante die alten Adressen entfernen - sonst bleibt ein
+            # Mischzustand (Adresse UND Zertifikatsname) stehen.
             Set-InboundConnector -Identity $ConnectorName `
+                -SenderIPAddresses $null `
                 -RequireTls $true -TlsSenderCertificateName $RelayHostname `
                 -Enabled $true -Comment $managedBy
         } else {

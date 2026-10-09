@@ -24,10 +24,13 @@
     Pfad zu python.exe. Ohne Angabe wird "py -3" bzw. "python" gesucht.
 
 .PARAMETER WebPort
-    Port der Weboberflaeche. Vorgabe: 8080
+    Port der Weboberflaeche. Vorgabe: 8443
 
 .PARAMETER SkipFirewall
     Keine Firewall-Regeln anlegen.
+
+.PARAMETER Unattended
+    Keine Rueckfragen: Python und ExchangeOnlineManagement werden ohne Nachfrage installiert.
 
 .PARAMETER SkipExoModule
     ExchangeOnlineManagement nicht installieren/pruefen.
@@ -40,9 +43,10 @@
 param(
     [string]$InstallDir = "C:\ProgramData\exo-smtp-relay",
     [string]$PythonExe = "",
-    [int]$WebPort = 8080,
+    [int]$WebPort = 8443,
     [switch]$SkipFirewall,
-    [switch]$SkipExoModule
+    [switch]$SkipExoModule,
+    [switch]$Unattended
 )
 
 Set-StrictMode -Version Latest
@@ -86,22 +90,23 @@ if ($PythonExe -eq "") {
 
 if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
     Write-Warn "Python 3.11+ nicht gefunden."
-    $antwort = Read-Host "Jetzt herunterladen und installieren? (j/n)"
+    $antwort = if ($Unattended) { "j" } else { Read-Host "Jetzt herunterladen und installieren? (j/n)" }
     if ($antwort -match "^[jJyY]") {
-        Write-Step "Lade Python 3.11 herunter"
+        Write-Step "Lade Python 3.12 herunter"
         $pythonZip = "$env:TEMP\python-3.11-windows.zip"
-        $pythonMsi = "$env:TEMP\python-3.11-amd64.exe"
+        $pythonMsi = "$env:TEMP\python-installer.exe"
 
         # Nutzer zur Python.org-Seite fuehren oder automatisch MSI runterladen
         # Hier: directed install von der aktuellsten stabilen Version
-        $url = "https://www.python.org/ftp/python/3.11.11/python-3.11.11-amd64.exe"
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+        $url = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-$arch.exe"
 
         try {
             Write-Host "    Lade herunter: $url" -ForegroundColor Gray
             $ProgressPreference = 'SilentlyContinue'
             Invoke-WebRequest -Uri $url -OutFile $pythonMsi -ErrorAction Stop
 
-            Write-Step "Installiere Python 3.11"
+            Write-Step "Installiere Python 3.12"
             & $pythonMsi /quiet InstallAllUsers=1 PrependPath=1 | Out-Null
             Remove-Item $pythonMsi -ErrorAction SilentlyContinue
 
@@ -192,8 +197,10 @@ if (-not $SkipExoModule) {
     if ($modul) {
         Write-Ok "vorhanden: $($modul.Version)"
     } else {
-        $antwort = Read-Host "Modul fehlt. Jetzt aus der PowerShell Gallery installieren? (j/n)"
+        $antwort = if ($Unattended) { "j" } else { Read-Host "Modul fehlt. Jetzt aus der PowerShell Gallery installieren? (j/n)" }
         if ($antwort -match "^[jJyY]") {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
             Install-Module ExchangeOnlineManagement -Scope AllUsers -Force -AllowClobber
             Write-Ok "installiert"
         } else {
@@ -210,12 +217,13 @@ if ($dienst) {
 } else {
     & $venvPython $service --startup auto install | Out-Null
 }
-# WEBUI_PORT als Umgebungsvariable des Dienstes (Registry), wenn abweichend
-if ($WebPort -ne 8080) {
-    $regPfad = "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay"
-    New-ItemProperty -Path $regPfad -Name "Environment" -PropertyType MultiString `
-        -Value @("WEBUI_PORT=$WebPort") -Force | Out-Null
-}
+# Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
+# findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
+$sp = Join-Path $venv "Lib\site-packages"
+$dienstUmgebung = @("PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
+$dienstUmgebung += "WEBUI_PORT=$WebPort"
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -Name "Environment" `
+    -PropertyType MultiString -Value $dienstUmgebung -Force | Out-Null
 Write-Ok "Dienst registriert (Autostart)"
 
 # -- Firewall ---------------------------------------------------------------------
@@ -223,12 +231,12 @@ if (-not $SkipFirewall) {
     Write-Step "Firewall-Regeln"
     foreach ($regel in @(@{ Name = "EXO SMTP Relay - SMTP 25"; Port = 25 },
                          @{ Name = "EXO SMTP Relay - Web $WebPort"; Port = $WebPort })) {
-        if (-not (Get-NetFirewallRule -DisplayName $regel.Name -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -DisplayName $regel.Name -Direction Inbound -Protocol TCP `
-                -LocalPort $regel.Port -Action Allow -Profile Domain,Private | Out-Null
-        }
+        # Vorhandene Regel ersetzen: eine Neuinstallation soll alte Profil-/Portwerte korrigieren.
+        Get-NetFirewallRule -DisplayName $regel.Name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        New-NetFirewallRule -DisplayName $regel.Name -Direction Inbound -Protocol TCP `
+            -LocalPort $regel.Port -Action Allow -Profile Any | Out-Null
     }
-    Write-Ok "Port 25 und $WebPort eingehend (Domaene/Privat)"
+    Write-Ok "Port 25 und $WebPort eingehend (alle Netzwerkprofile)"
 }
 
 # -- Port 25 frei? -----------------------------------------------------------------
@@ -238,7 +246,24 @@ if ($belegt) {
     Write-Warn "Port 25 ist bereits belegt (Prozess: $($prozess.ProcessName)). Der Dienst kann nicht starten, bis er frei ist."
 }
 
+# -- Web-Port frei? ------------------------------------------------------------------
+$belegtWeb = Get-NetTCPConnection -LocalPort $WebPort -State Listen -ErrorAction SilentlyContinue
+if ($belegtWeb) {
+    $prozessWeb = Get-Process -Id $belegtWeb[0].OwningProcess -ErrorAction SilentlyContinue
+    Write-Warn "Web-Port $WebPort ist bereits belegt (Prozess: $($prozessWeb.ProcessName)). Anderen Port waehlen: .\install.ps1 -WebPort <Port>"
+}
+
 # -- Starten ------------------------------------------------------------------------
+# -- Startmenue-Eintrag (alle Benutzer): oeffnet die Weboberflaeche ---------------
+Write-Step "Startmenue-Eintrag"
+$startmenue = [Environment]::GetFolderPath("CommonPrograms")
+$verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
+# Rechnername statt localhost: das TLS-Zertifikat des Dienstes traegt nur den Hostnamen, nie "localhost".
+try { $rechnername = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $rechnername = "" }
+if (-not $rechnername) { $rechnername = "localhost" }
+Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")
+Write-Ok "$verknuepfung"
+
 Write-Step "Starte Dienst"
 Start-Service -Name "ExoSmtpRelay"
 Start-Sleep -Seconds 3
@@ -246,6 +271,6 @@ $dienst = Get-Service -Name "ExoSmtpRelay"
 Write-Ok "Status: $($dienst.Status)"
 
 Write-Host ""
-Write-Host "Fertig. Weboberflaeche: https://localhost:$WebPort  (admin / admin - bitte aendern)" -ForegroundColor Green
+Write-Host "Fertig. Weboberflaeche: https://${rechnername}:$WebPort  (admin / admin - bitte aendern; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
 Write-Host "Protokoll: $InstallDir\data\logs\app.log"
 Write-Host "Entfernen: .\uninstall.ps1"
