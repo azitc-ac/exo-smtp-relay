@@ -229,6 +229,24 @@ def _eigene_domaenen() -> set[str]:
     return {d for d in domaenen if d}
 
 
+def ist_intern(adresse: str, adressen: set[str]) -> bool:
+    """Gilt diese Empfängeradresse als intern?
+
+    Massgeblich ist die volle Adresse. Zusätzlich zählt ein Eintrag `@domain`
+    (nur von Hand, `ADRESSEN_ZUSAETZLICH`) als ganze Domäne: Wer ohne
+    App-Registrierung arbeitet, müsste sonst jede Adresse samt Aliasen pflegen.
+    Der Preis ist ausdrücklich gewählt — dann gilt auch eine Adresse der Domäne
+    als intern, die es nicht gibt; Exchange weist sie selbst ab.
+
+    EINE Stelle für die Zielgrenze in `pruefe()` und für die Zählung
+    „ging nach draussen?" im Handler des Relays.
+    """
+    a = (adresse or "").strip().lower()
+    if a in adressen:
+        return True
+    return "@" in a and "@" + a.rsplit("@", 1)[-1] in adressen
+
+
 def pruefe(absender: str, empfaenger: list[str], ip: str) -> tuple[bool, str, str]:
     """Darf diese Nachricht über das Relay? → (erlaubt, Protokollgrund, SMTP-Antwort).
 
@@ -289,8 +307,9 @@ def pruefe(absender: str, empfaenger: list[str], ip: str) -> tuple[bool, str, st
     # Nur interne Ziele: gegen die bekannten ADRESSEN prüfen, nicht gegen die
     # Domänen. Eine Adresse der eigenen Domäne, die es nicht gibt, ist kein
     # internes Ziel — Exchange erzeugte daraus einen Unzustellbarkeitsbericht
-    # nach aussen, also doch eine Zustellung nach draussen.
-    fremd = [e for e in empfaenger if (e or "").strip().lower() not in adressen]
+    # nach aussen, also doch eine Zustellung nach draussen. Ausnahme nur bei
+    # einem ausdrücklichen `@domain`-Eintrag von Hand, siehe `ist_intern()`.
+    fremd = [e for e in empfaenger if not ist_intern(e, adressen)]
     if fremd:
         return (False,
                 f"Relay von {ip} abgelehnt — Empfänger ausserhalb des Tenants: "

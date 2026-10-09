@@ -22,6 +22,20 @@ TAG = 24 * STUNDE
 
 
 def _stuendlich() -> None:
+    # Zuerst der Schlüssel: Läuft er ab, scheitert danach auch die Postfachabfrage.
+    # Ohne Netz, solange er nicht fällig ist (Lesen der PFX genügt).
+    # Eigener try: Ein Fehler hier darf die Postfachabfrage nicht mitnehmen.
+    import auth_cert
+    try:
+        auth_cert.erneuern()
+    except Exception as exc:                                  # noqa: BLE001
+        log.error("Erneuerung des Auth-Zertifikats: %s", exc)
+    # Nach dem Herabstufen: messen, bis Exchange es übernommen hat (rechte.py).
+    import rechte
+    try:
+        rechte.nachmessen()
+    except Exception as exc:                                  # noqa: BLE001
+        log.error("Nachmessen der App-Rechte: %s", exc)
     import exo_mailboxes
     import settings_store
     if settings_store.get("EXO_ABFRAGE_AN"):

@@ -94,7 +94,8 @@
     <p style="font-size:13px;margin:0 0 12px">
       Einmal als Entra-Administrator anmelden — danach legt der Dienst
       <strong>automatisch</strong> die Login-App und die App-Registrierung an (nur <code>Exchange.ManageAsApp</code>),
-      erteilt die Zustimmung, weist die Rolle Exchange-Administrator zu, erzeugt das
+      erteilt die Zustimmung, weist die Rolle Exchange-Administrator zu — nur bis der
+      Connector in Schritt 4 steht, danach wird auf Lesen herabgestuft —, erzeugt das
       Auth-Zertifikat und lädt es hoch. Tenant und Smarthost werden dabei erkannt.
     </p>
 
@@ -176,6 +177,69 @@
     </div>
     <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:240px;overflow:auto;font-size:11px"></pre>
     <p class="hint" style="margin-top:8px">Postfachliste: {{ e.exo.postfaecher }} Postfächer{% if e.exo.letzter_erfolg %} (Stand {{ e.exo.letzter_erfolg }}){% endif %}{% if e.exo.letzter_fehler %} — <span data-state="err">{{ e.exo.letzter_fehler }}</span>{% endif %}. Der Dienst holt sie stündlich; <a href="#" onclick="abfragen(this);return false;">jetzt abrufen</a>.</p>
+
+    <!-- Rechte der App: Admin nur für den Connector, danach Lesen (rechte.py) -->
+    <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="rechte-block">
+      <h3 style="font-size:13px;margin:0 0 6px">Rechte der App</h3>
+      {% set r = e.rechte %}
+      {% if not r.eigene_app %}
+      <p class="hint" style="margin:0">{{ r.hinweis }}</p>
+      {% else %}
+      <p class="hint" style="margin:0 0 8px">
+        Exchange-Administrator braucht die App nur zum Anlegen des Connectors. Danach liest sie
+        nur noch die Postfachliste — über die Rollengruppe <code>{{ r.lesegruppe or (s.GATEWAY_NAME ~ ' - nur lesen') }}</code>
+        (<em>View-Only Recipients</em> + <em>View-Only Configuration</em>). Sobald Exchange das
+        übernommen hat, kann ein kopierter Schlüssel nichts mehr ändern.
+      </p>
+      {% if r.lauf.text %}
+      <div class="alert {{ 'success' if r.lauf.ok else 'warn' }}" style="margin-bottom:8px">{{ r.lauf.text }}
+        <span style="font-size:11px;opacity:.8">({{ r.lauf.zeit }})</span></div>
+      {% endif %}
+      {% if r.herabgestuft %}
+      {% if r.wirksam.zeit %}
+      <div class="alert success" style="margin-bottom:8px">In Exchange wirksam: keine Schreibrechte mehr
+        {% if r.wirksam.minuten is not none %}— {{ r.wirksam.minuten }} Minuten nach dem Herabstufen{% endif %}
+        <span style="font-size:11px;opacity:.8">({{ r.wirksam.zeit }})</span></div>
+      {% else %}
+      <div class="alert warn" style="margin-bottom:8px">Exchange hat das Herabstufen noch nicht übernommen
+        {% if r.messung.zeit %}— letzte Messung: {{ r.messung.text }}
+        <span style="font-size:11px;opacity:.8">({{ r.messung.zeit }})</span>{% else %}— noch nicht gemessen{% endif %}.
+        Der Dienst misst stündlich nach.</div>
+      {% endif %}
+      {% endif %}
+      <div class="actions" style="flex-wrap:wrap;gap:8px">
+        <button class="btn secondary" onclick="rechteMessen(this)">Rechte jetzt messen</button>
+        {% if r.admin_token %}
+        <button class="btn primary" onclick="herabstufen(this)">Jetzt auf Lesen herabstufen</button>
+        {% else %}
+        <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'herabstufen')">Anmelden und herabstufen</button>
+        {% endif %}
+        <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'hochstufen')">Admin-Recht für Änderungen holen</button>
+        <span id="rechte-result" style="font-size:12px"></span>
+      </div>
+      <div id="paste-rechte" style="display:none;margin-top:10px">
+        <label for="paste-rechte-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
+        <input type="text" id="paste-rechte-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
+        <div id="paste-rechte-result" style="display:none;margin-top:8px"></div>
+        <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste-rechte')">Fortsetzen</button></div>
+      </div>
+      {% endif %}
+
+      <h3 style="font-size:13px;margin:14px 0 6px">Schlüssel der App</h3>
+      <p class="hint" style="margin:0 0 8px">
+        {% if e.auth_cert.not_after %}Gültig bis <strong>{{ e.auth_cert.not_after[:10] }}</strong>. {% endif %}
+        Der Dienst erneuert ihn selbst, 30 Tage vor Ablauf, für jeweils ein Jahr — ohne
+        zusätzliches Recht. Ist er abgelaufen, geht es nur noch über eine neue Anmeldung in Schritt 3.
+      </p>
+      {% if e.auth_cert_lauf.text %}
+      <div class="alert {{ 'success' if e.auth_cert_lauf.ok else 'warn' }}" style="margin-bottom:8px">{{ e.auth_cert_lauf.text }}
+        <span style="font-size:11px;opacity:.8">({{ e.auth_cert_lauf.zeit }})</span></div>
+      {% endif %}
+      {% if r.eigene_app %}
+      <div class="actions"><button class="btn secondary" onclick="schluesselErneuern(this)">Jetzt erneuern</button>
+        <span id="schluessel-result" style="font-size:12px"></span></div>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
 </div>
@@ -246,9 +310,12 @@ window.addEventListener('message', function (ev) {
   if (ev.data.type === 'setup-auth-done') location.reload();
   if (ev.data.type === 'setup-auth-fail') alert('Einrichtung fehlgeschlagen: ' + (ev.data.msg || ''));
 });
-async function anmelden(btn, pasteId, localhost) {
+async function anmelden(btn, pasteId, localhost, zweck) {
   btn.disabled = true;
-  const r = await getJSON('/auth/start' + (localhost ? '?localhost=1' : ''));
+  const q = [];
+  if (localhost) q.push('localhost=1');
+  if (zweck) q.push('zweck=' + encodeURIComponent(zweck));
+  const r = await getJSON('/auth/start' + (q.length ? '?' + q.join('&') : ''));
   btn.disabled = false;
   if (!r.ok) { alert('Anmeldung konnte nicht gestartet werden: ' + errText(r)); return; }
   window.open(r.auth_url, 'exo-relay-login', 'width=520,height=720');
@@ -274,9 +341,31 @@ async function connectorEinrichten(btn) {
   const alt = btn.textContent; btn.disabled = true; btn.textContent = 'läuft (bis zu einer Minute) …';
   const r = await postJSON('/api/setup/connector', { sender_ips: document.getElementById('conn-ips').value });
   btn.disabled = false; btn.textContent = alt;
-  showMsg('conn-result', r.ok ? 'Connector eingerichtet' : 'fehlgeschlagen', !!r.ok);
+  showMsg('conn-result', r.ok ? 'Connector eingerichtet' + (r.rechte ? ' · ' + r.rechte.text : '') : 'fehlgeschlagen', !!r.ok);
   const pre = document.getElementById('conn-output');
   pre.textContent = r.output || r.error || ''; pre.style.display = pre.textContent ? '' : 'none';
+  if (r.ok) setTimeout(function () { location.reload(); }, 2500);
+}
+async function rechteMessen(btn) {
+  const alt = btn.textContent; btn.disabled = true; btn.textContent = 'misst (bis zu einer Minute) …';
+  const r = await postJSON('/api/setup/rechte/messen', {});
+  btn.disabled = false; btn.textContent = alt;
+  const stufe = {admin: 'Exchange-Administrator', lesen: 'nur Lesen', keine: 'kein Lesezugriff'}[r.stufe] || 'nicht messbar';
+  showMsg('rechte-result', stufe + ' — ' + (r.text || errText(r)), r.stufe === 'lesen');
+  if (r.stufe === 'lesen') setTimeout(function () { location.reload(); }, 2500);
+}
+async function herabstufen(btn) {
+  const alt = btn.textContent; btn.disabled = true; btn.textContent = 'stuft herab …';
+  const r = await postJSON('/api/setup/rechte/herabstufen', {});
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('rechte-result', r.text || errText(r), !!r.ok);
+  if (r.ok) setTimeout(function () { location.reload(); }, 2500);
+}
+async function schluesselErneuern(btn) {
+  const alt = btn.textContent; btn.disabled = true; btn.textContent = 'erneuert …';
+  const r = await postJSON('/api/auth-cert/erneuern', {});
+  btn.disabled = false; btn.textContent = alt;
+  showMsg('schluessel-result', r.text || errText(r), r.ok !== false);
   if (r.ok) setTimeout(function () { location.reload(); }, 2500);
 }
 async function abfragen(a) {

@@ -1,5 +1,59 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.8 — 2026-10-07 — App nur noch mit Leserechten, Schlüssel erneuert sich selbst
+
+- **Exchange-Administrator nur noch für den Connector.** Bisher behielt die App
+  des Relays die Entra-Rolle *Exchange-Administrator* dauerhaft — wer die
+  `auth.pfx` kopierte, konnte sich damit von überall als Exchange-Administrator
+  anmelden. Jetzt stuft der Assistent sie nach dem Anlegen des Connectors herab:
+  Sie kommt in eine Exchange-Rollengruppe *„<Name> - nur lesen“* (*View-Only
+  Recipients* + *View-Only Configuration*), danach wird die Entra-Rolle entfernt
+  — in dieser Reihenfolge, damit die App nie ganz ohne Recht dasteht. Für spätere
+  Änderungen am Connector holst du das Admin-Recht unter *Einrichtung → Rechte der
+  App* kurz zurück.
+- **Exchange übernimmt das Herabstufen verzögert.** Die Entra-Rolle ist sofort
+  weg, Exchange liess die App aber noch über drei Stunden schreiben (in einer
+  stündlichen Messung: nach 202 Minuten noch Admin, nach 263 Minuten Leser); eine
+  Frist nennt Microsoft nicht. Der Dienst misst deshalb nach dem Herabstufen stündlich
+  nach und zeigt unter *Rechte der App*, ob Exchange es übernommen hat und nach
+  wie vielen Minuten. *Rechte jetzt messen* prüft den Stand sofort.
+- **Schlüssel der App: ein Jahr statt zehn, Erneuerung von selbst.** 30 Tage vor
+  Ablauf trägt der Dienst ein neues Schlüsselpaar in Entra ein (Graph `addKey`),
+  stellt erst danach lokal um und trägt den alten Schlüssel im nächsten
+  stündlichen Lauf aus (`removeKey`; Entra kennt den neuen Schlüssel in den ersten
+  Minuten noch nicht überall). Dafür braucht die App kein zusätzliches Recht.
+  Scheitert das Eintragen, bleibt der alte Schlüssel in Gebrauch; gelingt das
+  Austragen einen Tag lang nicht, steht es unter *Schlüssel der App*.
+- Beides gilt nur für eine App, die der Assistent selbst angelegt hat. Nutzt das
+  Relay über ein importiertes Zertifikat die App des Signatur-Gateways mit, fasst
+  es deren Rechte und Schlüssel nicht an — das Gateway braucht Schreibrechte.
+- **Betrieb ganz ohne App-Registrierung** ist im README beschrieben: Postfach-
+  adressen bzw. `@domäne`-Einträge von Hand, Connector per PowerShell.
+
+**Zu tun bei einer bestehenden Installation:** Melde dich unter *Einrichtung*
+in Schritt 3 einmal neu an. Das ersetzt den Zehn-Jahres-Schlüssel durch einen
+mit einem Jahr Laufzeit und kennzeichnet die App als eigene. Danach unter
+*Rechte der App* auf *Jetzt auf Lesen herabstufen*. Ohne diese Schritte bleibt
+alles wie bisher.
+
+## 0.2.7 — 2026-10-07 — Domäneneinträge in der Handliste
+
+- Unter *Adressen von Hand* gilt ein Eintrag wie `@firma.de` jetzt als ganze
+  Domäne: Jede Adresse dieser Domäne zählt als internes Ziel. Wer das Relay ohne
+  App-Registrierung betreibt, braucht damit eine Zeile je Domäne statt jeder
+  einzelnen Adresse samt Aliasen. Die Grenze ist etwas gröber — auch Adressen, die
+  es nicht gibt, gelten dann als intern; Exchange weist sie selbst ab. Sie gilt
+  nur, wo sie ausdrücklich eingetragen ist; die abgefragte Postfachliste bleibt
+  adressgenau.
+
+## 0.2.6 — 2026-10-06 — Scanner-Abbrüche wirklich leiser
+
+- Abgebrochene TLS-Handshakes fremder Rechner (meist Port-Scanner) erscheinen jetzt
+  wie vorgesehen als einzeilige INFO-Meldung statt als ERROR mit Traceback. Der
+  Filter griff bisher nie, weil der SMTP-Baustein solche Abbrüche in einer eigenen
+  Hülle meldet und nur die Hülle geprüft wurde. Echte Fehler bleiben ERROR.
+  Gemeinsamer Baustein mit dem Gateway; Test jetzt auch hier, mit echtem Verkehr.
+
 ## 0.2.5 — 2026-10-05 — Verwaltung auf eigener Seite „SMTP-Relay", Dashboard zeigt die Auswertung
 
 - **Neue Seite SMTP-Relay** (`/relay`, Menüpunkt *Relay*): Lernmodus, Geräteliste

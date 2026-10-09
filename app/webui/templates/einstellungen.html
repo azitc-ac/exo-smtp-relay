@@ -154,8 +154,8 @@
   </div>
   <div class="settings-row">
     <label for="ADRESSEN_ZUSAETZLICH">Adressen von Hand</label>
-    <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="buchhaltung@firma.de, scanner@firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
-    <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn du keine App-Registrierung willst. Ihre Domänen gelten als deine eigenen.</span>
+    <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="buchhaltung@firma.de, scanner@firma.de, @firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
+    <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn du keine App-Registrierung willst. Ihre Domänen gelten als deine eigenen. Ein Eintrag <code>@firma.de</code> lässt die ganze Domäne als internes Ziel gelten — eine Zeile statt jeder einzelnen Adresse, dafür etwas gröber: auch Adressen, die es nicht gibt, gelten dann als intern (Exchange weist sie selbst ab).</span>
   </div>
   <div class="actions">
     <button class="btn primary" id="adressen-btn" data-wache="EXO_ABFRAGE_AN,ADRESSEN_ZUSAETZLICH"

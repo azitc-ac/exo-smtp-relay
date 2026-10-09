@@ -7,7 +7,9 @@ Sieht nach einem Klick aus, tut im Hintergrund fünf Dinge (aus dem Gateway
   2. App-Registrierung „<Name>" anlegen oder wiederverwenden — mit genau EINER
      Berechtigung: `Exchange.ManageAsApp`. Kein Graph, kein Geheimnis: Der
      Dienst spricht Exchange nur per PowerShell mit Zertifikat.
-  3. Zustimmung erteilen und die Rolle Exchange-Administrator zuweisen.
+  3. Zustimmung erteilen und die Rolle Exchange-Administrator zuweisen —
+     nur für die Einrichtung; nach dem Connector stuft `rechte.herabstufen()`
+     die App auf Lesen zurück (seit 0.2.8).
   4. Auth-Zertifikat erzeugen (`auth_cert.py`) und den öffentlichen Teil an die
      App-Registrierung hängen.
   5. Die Login-App selbst anlegen (oder wiederverwenden), falls noch keine Client-ID
@@ -21,7 +23,6 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime, timedelta, timezone
 
 import auth_cert
 import config
@@ -32,7 +33,6 @@ log = logging.getLogger(__name__)
 GRAPH = "https://graph.microsoft.com/v1.0"
 _EXO_APP_ID = "00000002-0000-0ff1-ce00-000000000000"                  # Exchange Online
 _EXO_MANAGE_AS_APP = "dc50a0fb-09a3-484d-be87-e023b12c6440"           # Exchange.ManageAsApp
-_EXCHANGE_ADMIN_ROLE_ID = "29232cdf-9323-42fd-ade2-1d097af3e4de"      # in jedem Tenant gleich
 
 # In Tests austauschbar (httpx.MockTransport).
 _transport = None
@@ -114,23 +114,38 @@ async def create_app_registration(token: str) -> dict:
         log.info("Zustimmung für Exchange.ManageAsApp erteilt")
     except Exception as exc:                                  # noqa: BLE001
         log.warning("Zustimmung nicht erteilt (bereits vorhanden?): %s", exc)
+    # Ab hier ist es die eigene App des Relays — erst damit darf `rechte` sie
+    # herabstufen (siehe dort: die mitbenutzte App des Gateways nie).
+    settings_store.update({"CLIENT_ID": app_id, "APP_OBJECT_ID": obj_id,
+                           "APP_SP_ID": sp_id, "APP_EIGEN": True})
+    import rechte
     try:
-        await _gh("post", f"{GRAPH}/roleManagement/directory/roleAssignments", token,
-                  json={"principalId": sp_id, "roleDefinitionId": _EXCHANGE_ADMIN_ROLE_ID,
-                        "directoryScopeId": "/"})
-        log.info("Rolle Exchange-Administrator zugewiesen")
+        await rechte.adminrolle_zuweisen(token)
     except Exception as exc:                                  # noqa: BLE001
-        log.warning("Rolle nicht zugewiesen (bereits vorhanden?): %s", exc)
+        log.warning("Rolle nicht zugewiesen: %s", exc)
     return {"app_id": app_id, "app_object_id": obj_id, "sp_id": sp_id}
 
 
 # ── 4. Zertifikat ────────────────────────────────────────────────────────────
 
-async def _upload_key_credential(token: str, app_object_id: str, cert_der: bytes) -> None:
-    ende = (datetime.now(timezone.utc) + timedelta(days=3650)).strftime("%Y-%m-%dT%H:%M:%SZ")
+async def _upload_key_credential(token: str, app_object_id: str, cert_der: bytes) -> str:
+    """Den Schlüssel der App auf GENAU dieses Zertifikat setzen (PATCH ersetzt alle).
+
+    Die `keyId` vergeben wir selbst und merken sie: Die App kann ihre eigenen
+    Schlüssel ohne Graph-Recht nicht auflisten, braucht die Kennung aber, um
+    beim Erneuern den alten per `removeKey` zu entfernen (`auth_cert.erneuern`).
+    Ablauf = Ablauf des Zertifikats, nicht pauschal zehn Jahre."""
+    import uuid
+    from cryptography import x509
+    cert = x509.load_der_x509_certificate(cert_der)
+    key_id = str(uuid.uuid4())
     await _gh("patch", f"{GRAPH}/applications/{app_object_id}", token, json={
-        "keyCredentials": [{"type": "AsymmetricX509Cert", "usage": "Verify",
-                            "key": base64.b64encode(cert_der).decode(), "endDateTime": ende}]})
+        "keyCredentials": [{"type": "AsymmetricX509Cert", "usage": "Verify", "keyId": key_id,
+                            "key": base64.b64encode(cert_der).decode(),
+                            "endDateTime": cert.not_valid_after_utc.strftime("%Y-%m-%dT%H:%M:%SZ")}]})
+    # PATCH hat alle anderen Schlüssel entfernt — ein noch auszutragender ist damit weg.
+    settings_store.update({"AUTH_KEY_ID": key_id, "AUTH_KEY_ALT": {}})
+    return key_id
 
 
 # ── 5. Rückadresse an der Login-App ──────────────────────────────────────────
@@ -220,15 +235,19 @@ async def patch_bootstrap_redirect_uri(token: str) -> None:
 
 # ── Alles zusammen ───────────────────────────────────────────────────────────
 
-async def run_post_auth_setup(token: str) -> dict:
+async def run_post_auth_setup(token: str, gueltig_s: int | None = None) -> dict:
     tenant = await discover_tenant(token)
     patch = {"TENANT_ID": tenant["tenant_id"], "TENANT_DOMAIN": tenant["tenant_domain"]}
     if not (settings_store.get("EXO_SMARTHOST") or "").strip():
         patch["EXO_SMARTHOST"] = tenant["smarthost"]
     settings_store.update(patch)
 
+    # Das Admin-Token nur im Speicher und nur bis zu seinem Ablauf: Damit stuft
+    # der Connector-Schritt die App danach auf Lesen herab (`rechte`).
+    import rechte
+    rechte.merke_admin_token(token, gueltig_s)
+
     app = await create_app_registration(token)
-    settings_store.update({"CLIENT_ID": app["app_id"]})
 
     ergebnis = {"tenant": tenant, "app_id": app["app_id"]}
     try:

@@ -55,7 +55,7 @@ du verlierst nichts.
 | Was | Wozu | Pflicht |
 |---|---|---|
 | **Inbound-Connector** (OnPremises) | Exchange nimmt Post vom Relay für beliebige Absender deiner Domänen an | ja |
-| **App-Registrierung** mit `Exchange.ManageAsApp` + Rolle *Exchange-Administrator* + Zertifikat | Postfachliste abrufen, Connector anlegen | empfohlen |
+| **App-Registrierung** mit `Exchange.ManageAsApp` + Zertifikat — *Exchange-Administrator* nur zum Anlegen des Connectors, danach **nur Lesen** | Postfachliste abrufen, Connector anlegen | empfohlen |
 | Ausgehend **Port 25** zum Smarthost `<domäne>.mail.protection.outlook.com` (oder Port 587) | Rückweg zu Exchange | ja |
 
 ### Rückweg: smarthost oder submit
@@ -85,6 +85,61 @@ Betreibst du das grosse Gateway, kannst du dessen `auth.pfx` und App-ID
 übernehmen.
 
 ---
+
+### Rechte der App — so wenig wie nötig
+
+Die App braucht *Exchange-Administrator* nur, um den Inbound-Connector anzulegen.
+Gleich danach stuft der Assistent sie herab: Sie kommt in eine Exchange-Rollengruppe
+*„<Name> - nur lesen“* (*View-Only Recipients* + *View-Only Configuration*), und
+die Entra-Rolle wird entfernt. Ein kopierter Schlüssel kann dann nur noch die
+Postfachliste lesen — keine Connectoren, keine Transportregeln, keine Postfächer
+ändern. Für eine spätere Änderung am Connector holst du das Admin-Recht unter
+*Einrichtung → Rechte der App* kurz zurück; danach wird wieder herabgestuft.
+Dort misst *Rechte jetzt messen* auch, was die App gerade wirklich darf.
+
+Exchange übernimmt das Herabstufen **nicht sofort**: Die Entra-Rolle ist sofort
+weg, Exchange lässt die App aber noch eine Weile schreiben. Gemessen wurden
+zwischen drei und viereinhalb Stunden (nach 202 Minuten noch Schreibrechte, nach 263 Minuten nicht
+mehr); eine Frist nennt Microsoft nicht. Der Dienst misst deshalb
+stündlich nach und zeigt unter *Einrichtung → Rechte der App*, ab wann die
+Schreibrechte wirklich weg sind und nach wie vielen Minuten.
+
+Der Schlüssel der App gilt **ein Jahr** und wird 30 Tage vor Ablauf selbst
+erneuert (Graph `addKey`/`removeKey` — dafür braucht die App kein zusätzliches
+Recht). Der alte Schlüssel wird im nächsten stündlichen Lauf ausgetragen, nicht
+sofort: Entra kennt den neuen in den ersten Minuten noch nicht überall, und das
+Austragen muss mit ihm belegt werden. Gelingt es einen Tag lang nicht, steht das
+unter *Einrichtung → Schlüssel der App*.
+Ist er doch einmal abgelaufen, genügt eine neue Anmeldung im Assistenten.
+
+Das gilt nur für eine App, die der Assistent selbst angelegt hat. Nutzt das
+Relay über ein importiertes Zertifikat die App des Signatur-Gateways mit, fasst
+es deren Rechte und Schlüssel nicht an — das Gateway braucht im Betrieb
+Schreibrechte.
+
+### Betrieb ganz ohne App-Registrierung
+
+Wer keinen Schlüssel mit Tenant-Rechten auf dem Server haben will:
+
+1. **Adressen von Hand** (*Einstellungen → Adressquelle*), *Stündlich abrufen*
+   aus. Eine Zeile `@firma.de` je Domäne genügt: Jede Adresse dieser Domäne
+   gilt dann als internes Ziel. Gröber als die abgefragte Liste — auch
+   Adressen, die es nicht gibt, gelten als intern; Exchange weist sie selbst ab.
+   Willst du es genau, trägst du stattdessen die einzelnen Adressen ein.
+2. **Connector selbst anlegen**, als Administrator in einer eigenen
+   PowerShell-Sitzung (Zertifikatsvariante; bei fester IP statt
+   `-RequireTls`/`-TlsSenderCertificateName` die Option `-SenderIPAddresses`):
+
+   ```powershell
+   Connect-ExchangeOnline
+   New-InboundConnector -Name "EXO SMTP Relay - Inbound" -ConnectorType OnPremises `
+       -SenderDomains @("*") -RequireTls $true `
+       -TlsSenderCertificateName "relay.firma.de" -Enabled $true
+   ```
+3. Im Assistenten Schritt 3 und 4 überspringen.
+
+Auf dem Server liegt dann nur das TLS-Zertifikat des Relays — kein Schlüssel,
+mit dem sich jemand bei Microsoft 365 anmelden könnte.
 
 ## Installation
 
@@ -143,7 +198,8 @@ sichtbarem Zustand:
 3. **Entra-Login** — melde dich einmal als Entra-Administrator an. Im
    Hintergrund legt der Dienst die App-Registrierung an (nur
    `Exchange.ManageAsApp`, kein Geheimnis), erteilt die Zustimmung, weist die
-   Rolle Exchange-Administrator zu, erzeugt das Auth-Zertifikat und lädt es
+   Rolle Exchange-Administrator zu (nur bis der Connector steht, siehe
+   *Rechte der App*), erzeugt das Auth-Zertifikat und lädt es
    hoch, erkennt Tenant und Smarthost und holt die Postfachliste. Für den Login
    dient eine kleine Login-App (Public Client); betreibst du das Gateway, trag
    dessen „… Login"-App ein.

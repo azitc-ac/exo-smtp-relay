@@ -386,3 +386,38 @@ def test_kuerzere_dauer_bleibt_unangetastet(anlage):
 
 def test_standarddauer_liegt_unter_der_hoechstdauer(anlage):
     assert 0 < smtp_relay.STANDARD_LERNDAUER_MIN < smtp_relay.MAX_LERNDAUER_MIN
+
+
+# ── Domäneneinträge von Hand (`@domain`, seit 0.2.7) ─────────────────────────
+# Für den Betrieb ohne App-Registrierung: eine Zeile je Domäne statt jeder
+# Adresse. Die gröbere Grenze ist gewählt — sie gilt nur, wo sie eingetragen ist.
+
+def test_domaeneneintrag_laesst_jede_adresse_der_domaene_als_intern_gelten(anlage, monkeypatch):
+    import exo_mailboxes
+    monkeypatch.setattr(exo_mailboxes, "known_addresses", lambda: {"@firma.de"})
+    erlaubt, grund, _ = smtp_relay.pruefe("drucker@firma.de", ["neu.im.team@firma.de"], "10.1.5.30")
+    assert erlaubt, grund
+
+
+def test_domaeneneintrag_gilt_nicht_fuer_fremde_oder_unterdomaenen(anlage, monkeypatch):
+    import exo_mailboxes
+    monkeypatch.setattr(exo_mailboxes, "known_addresses", lambda: {"@firma.de"})
+    for ziel in ("kunde@andere.de", "x@sub.firma.de", "x@firma.de.evil.example"):
+        erlaubt, _, _ = smtp_relay.pruefe("drucker@firma.de", [ziel], "10.1.5.30")
+        assert not erlaubt, ziel
+
+
+def test_domaeneneintrag_traegt_auch_die_absenderdomaene(anlage, monkeypatch):
+    import exo_mailboxes
+    monkeypatch.setattr(exo_mailboxes, "known_addresses", lambda: {"@firma.de"})
+    erlaubt, _, _ = smtp_relay.pruefe("drucker@fremd.de", ["chefin@firma.de"], "10.1.5.30")
+    assert not erlaubt, "fremde Absenderdomäne trotz Domäneneintrag angenommen"
+    erlaubt, grund, _ = smtp_relay.pruefe("drucker@firma.de", ["chefin@firma.de"], "10.1.5.30")
+    assert erlaubt, grund
+
+
+def test_ohne_domaeneneintrag_bleibt_es_bei_adressen(anlage):
+    """Gegenstück: Die abgefragte Liste enthält nie `@domain` — dort gilt
+    weiter die strenge Grenze (siehe Test zur unbekannten Adresse oben)."""
+    assert not smtp_relay.ist_intern("gibtsnicht@firma.de", {"chefin@firma.de"})
+    assert smtp_relay.ist_intern(" Chefin@Firma.DE ", {"chefin@firma.de"})
