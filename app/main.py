@@ -148,14 +148,36 @@ class _LenientController(Controller):
             self.hostname = gebunden
 
 
+# Cipherliste der Geräteseite — Begründung in _build_tls_context().
+GERAETE_CIPHERS = "DEFAULT:@SECLEVEL=0"
+
+
 def _build_tls_context() -> ssl.SSLContext | None:
     cert, key = Path(config.SMTP_TLS_CERT), Path(config.SMTP_TLS_KEY)
     if not cert.exists() or not key.exists():
         log.warning("TLS-Zertifikat fehlt (%s / %s) — SMTP läuft OHNE STARTTLS", cert, key)
         return None
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    # Alte Geräte: TLS 1.0/1.1 zulassen. Ein Scanner von 2012 kann nichts
-    # Besseres, und Klartext wäre die Alternative — nicht ein neueres TLS.
+    # Alte Geräte: TLS 1.0/1.1 und statischen RSA-Schlüsseltausch zulassen. Ein
+    # Scanner von 2012 kann nichts Besseres, und Klartext wäre die Alternative —
+    # nicht ein neueres TLS.
+    #
+    # Die Mindestversion allein genügt unter OpenSSL 3 NICHT (gemessen
+    # 2026-10-11): Sicherheitsstufe 2 verbietet TLS 1.0/1.1 und deren
+    # SHA-1-Signaturen, und mit Pythons eigener Cipherliste blieb unter
+    # OpenSSL 3.5 (im Abbild) keine kRSA-Suite übrig, unter 3.0 noch sechs — ein
+    # HP-Gerät, das nur TLS_RSA_WITH_AES_128_CBC_SHA256 kann, scheiterte im
+    # Abbild am Handshake. Deshalb
+    # OpenSSLs DEFAULT-Liste auf Stufe 0. Sie ordnet ECDHE/AES-GCM vorn ein, und
+    # create_default_context setzt OP_CIPHER_SERVER_PREFERENCE: Moderne Clients
+    # bekommen weiter TLS 1.3 bzw. Forward Secrecy, die alten Suites sind nur
+    # Rückfallebene. NULL-/anonyme Suites enthält DEFAULT nicht.
+    #
+    # Nur HIER, auf der Geräteseite. Der Weg zu Exchange (smarthost.py) und die
+    # Weboberfläche bleiben bei den strengen Vorgaben.
+    # kRSA setzt ein RSA-Zertifikat voraus (selbstsigniert: immer RSA; bei einem
+    # importierten EC-Zertifikat gehen nur die ECDHE-Suites).
+    ctx.set_ciphers(GERAETE_CIPHERS)
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)   # TLSv1 ist absichtlich

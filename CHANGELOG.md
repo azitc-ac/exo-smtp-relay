@@ -1,5 +1,37 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.9 — 2026-10-11 — Alte Geräte bekommen wirklich TLS 1.0/1.1 und statisches RSA
+
+- **STARTTLS scheiterte bei Altgeräten am Handshake.** Der Listener setzte nur
+  die Mindestversion auf TLS 1.0. Unter OpenSSL 3 genügt das nicht: Die
+  Sicherheitsstufe 2 der Vorgabe verbietet TLS 1.0/1.1 samt deren
+  SHA-1-Signaturen, und mit Pythons Cipherliste blieb unter OpenSSL 3.5 — so im
+  ausgelieferten Abbild — keine Suite mit statischem RSA-Schlüsseltausch übrig.
+  Gemessen im Abbild (Python 3.11.15, OpenSSL 3.5.6): Ein Client mit nur
+  `TLS_RSA_WITH_AES_128_CBC_SHA256` (typisch für ältere HP-Multifunktionsgeräte)
+  bekam keinen gemeinsamen Cipher, TLS 1.0 und 1.1 wurden als Protokoll
+  abgelehnt. Unter OpenSSL 3.0 ging die RSA-Suite, TLS 1.0/1.1 nicht. Ein Gerät,
+  das STARTTLS versucht, weicht danach in der Regel nicht selbst auf Klartext aus
+  — es konnte schlicht nicht einliefern.
+- **Jetzt:** Die Geräteseite nutzt OpenSSLs `DEFAULT`-Liste auf Stufe 0. Damit
+  gehen TLS 1.0, 1.1 und die statischen RSA-Suites wieder. Die Reihenfolge
+  bestimmt der Server: Ein moderner Client bekommt weiterhin TLS 1.3, ein Client
+  mit TLS 1.2 eine ECDHE-Suite mit AES-GCM; die alten Suites greifen nur, wenn
+  das Gerät nichts anderes kann. Unverschlüsselte, anonyme, RC4- und DES-Suites
+  sind nicht enthalten.
+- Nur die **Geräteseite** ist gelockert. Der Weg zu Exchange und die
+  Weboberfläche bleiben bei den strengen Vorgaben.
+- Statisches RSA setzt ein RSA-Zertifikat voraus. Das selbstsignierte Zertifikat
+  des Relays ist eines; mit einem importierten EC-Zertifikat stehen nur die
+  ECDHE-Suites zur Verfügung.
+- Neue Tests machen einen echten Handshake gegen den Kontext des Dienstes (TLS
+  1.0, 1.1, nur `AES128-SHA256`, nur `AES128-SHA` unter TLS 1.0) und prüfen die
+  Gegenrichtung: Forward Secrecy für moderne Clients, keine schwachen Suites,
+  keine Lockerung auf der Exchange-Seite.
+
+**Zu tun:** Aktualisiere, wenn Geräte mit TLS 1.0/1.1 oder nur statischem RSA
+einliefern sollen. Sonst ändert sich nichts.
+
 ## 0.2.8 — 2026-10-07 — App nur noch mit Leserechten, Schlüssel erneuert sich selbst
 
 - **Exchange-Administrator nur noch für den Connector.** Bisher behielt die App
