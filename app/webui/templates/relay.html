@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{# weit: Geräte- und Abweisungstabelle sind breiter als 960px. #}
+{% block main_klasse %}weit{% endblock %}
 {% block content %}
 {#- Verwaltung des Relays: Lernmodus, Geräteliste, Abweisungen — die EINE Stelle
     dafür. Das Dashboard zeigt nur noch die Auswertung (Kennzahlen, Aufkommen je

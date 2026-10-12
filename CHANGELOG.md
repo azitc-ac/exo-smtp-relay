@@ -1,5 +1,20 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.10 — 2026-10-13 — Dashboard und Geräteseite: nichts mehr abgeschnitten
+
+- **Gerätetabellen liefen rechts über.** Die Tabellen auf Dashboard und
+  Geräteseite brauchen 820–1150px, die Seite war auf 960px begrenzt. Die letzte
+  Spalte („Extern erlaubt“ bzw. die Namensfelder) stand deshalb abgeschnitten im
+  waagerechten Rollbereich, unabhängig von der Fenstergrösse. Beide Seiten
+  dürfen jetzt ab 1100px Fensterbreite bis 1600px breit werden, wie die breiten
+  Seiten des Gateways. Darunter bleibt der Rollbereich.
+- **Kachel „davon mit TLS“ brach um.** Der Wert „25 (78 %)“ stand in der grossen
+  Kennzahlschrift und brach in einer Sechstel-Kachel dreizeilig um. Der Anteil
+  steht jetzt in der Beschriftung („davon mit TLS (78 %)“), die Kennzahl allein
+  darüber.
+- Geprüft wird beides bei 1280px und 393px im Browser: jede Kennzahl einzeilig,
+  keine Tabelle breiter als ihr Platz, keine Seite breiter als das Fenster.
+
 ## 0.2.9 — 2026-10-11 — Alte Geräte bekommen wirklich TLS 1.0/1.1 und statisches RSA
 
 - **STARTTLS scheiterte bei Altgeräten am Handshake.** Der Listener setzte nur

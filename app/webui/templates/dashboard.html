@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{# weit: Die Gerätetabelle hat elf Spalten (min-width 980px) — in 960px schnitt
+   der Rollbereich die letzte sichtbare Spalte ab. #}
+{% block main_klasse %}weit{% endblock %}
 {% block content %}
 <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px">
   <h1 style="margin:0">Dashboard</h1>
@@ -15,9 +18,9 @@
 
 <div id="db-warnungen" style="margin-bottom:16px"></div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+<div class="db-kacheln" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
   <div class="stat-card"><div class="stat-value" id="k-zugestellt">–</div><div class="stat-label">Zugestellt</div></div>
-  <div class="stat-card" id="c-tls"><div class="stat-value" id="k-tls">–</div><div class="stat-label">davon mit TLS</div></div>
+  <div class="stat-card" id="c-tls"><div class="stat-value" id="k-tls">–</div><div class="stat-label">davon mit TLS<span id="k-tls-anteil"></span></div></div>
   <div class="stat-card" id="c-extern"><div class="stat-value" id="k-extern">–</div><div class="stat-label">davon nach aussen</div></div>
   <div class="stat-card" id="c-abgelehnt"><div class="stat-value" id="k-abgelehnt">–</div><div class="stat-label">Abgelehnt / Fehler</div></div>
   <div class="stat-card"><div class="stat-value" id="k-geraete">–</div><div class="stat-label">Geräte</div></div>
@@ -100,7 +103,10 @@ function zeichneKarten(r) {
   const g = r.gesamt || {};
   document.getElementById('db-port').textContent = r.smtp_port;
   document.getElementById('k-zugestellt').textContent = zahl(g.zugestellt);
-  document.getElementById('k-tls').textContent = zahl(g.tls) + (g.zugestellt ? ' (' + Math.round(100 * g.tls / g.zugestellt) + ' %)' : '');
+  // Der Anteil steht in der Beschriftung, nicht im Wert: "25 (78 %)" in 36px
+  // brach in einer Sechstel-Kachel dreizeilig um.
+  document.getElementById('k-tls').textContent = zahl(g.tls);
+  document.getElementById('k-tls-anteil').textContent = g.zugestellt ? ' (' + Math.round(100 * g.tls / g.zugestellt) + ' %)' : '';
   document.getElementById('c-tls').classList.toggle('warn', (g.klartext || 0) > 0);
   document.getElementById('k-extern').textContent = zahl(g.extern);
   const fehl = (g.abgelehnt || 0) + (g.fehler || 0);
