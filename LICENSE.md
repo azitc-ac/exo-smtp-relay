@@ -1,19 +1,13 @@
 Copyright (c) 2026 Alexander Zarenko / Alexander Zarenko IT Consulting (AZITC)
 
-## Community Edition — Field of Use
+## Free of charge — no size limit
 
-This software is provided free of charge under the license below for
-organizations using it for **up to 100 mailboxes** (counted across all
-mailboxes with signature and/or S/MIME processing enabled, within one
-organization).
+This software is provided free of charge, for organizations of any size.
+There is no mailbox limit and no paid edition.
 
-Organizations exceeding 100 mailboxes require a separate, paid Commercial
-License from the licensor. Contact alexander@zarenko.net to obtain one.
-
-This limit is in addition to, and does not relax, the restrictions in the
-PolyForm Internal Use License below — redistribution and operating the
-software as a service for third parties remain prohibited regardless of
-mailbox count.
+The restrictions of the PolyForm Internal Use License below still apply —
+redistribution and operating the software as a service for third parties
+remain prohibited.
 
 ---
 

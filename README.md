@@ -296,4 +296,6 @@ tauglich; `tests/test_ps_skripte.py` prüft beides, die Windows-CI parst sie mit
 
 ## Lizenz
 
-Siehe `LICENSE.md` — PolyForm Internal Use, Community Edition wie beim Gateway.
+Siehe `LICENSE.md` — PolyForm Internal Use, **kostenlos und ohne Postfachgrenze**,
+für Organisationen jeder Grösse. Weitergeben oder als Dienst für Dritte betreiben
+ist nicht erlaubt.
