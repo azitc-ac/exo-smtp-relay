@@ -1,5 +1,18 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.11 — 2026-10-21 — Anmeldefenster öffnet sich zuverlässig
+
+- **Die Microsoft-Anmeldung in der Einrichtung konnte blockiert werden.** Das
+  Fenster ging erst auf, nachdem das Relay die Anmeldeadresse geliefert hatte.
+  Zu diesem Zeitpunkt gilt der Klick für den Browser nicht mehr als Klick des
+  Nutzers, und der Browser blockierte das Fenster je nach Einstellung ohne
+  Hinweis. Jetzt öffnet es sich im Klick selbst und kommt nach vorn. Blockiert
+  der Browser es trotzdem, steht das in der Meldung.
+- `common.js` auf den Stand des Gateways gebracht (`fensterImKlick()`,
+  `anmeldeFenster()`). Ein Test lässt `window.open` nur noch dort zu.
+
+**Zu tun:** nichts.
+
 ## 0.2.10 — 2026-10-13 — Dashboard und Geräteseite: nichts mehr abgeschnitten
 
 - **Gerätetabellen liefen rechts über.** Die Tabellen auf Dashboard und

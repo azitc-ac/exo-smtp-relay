@@ -315,11 +315,17 @@ async function anmelden(btn, pasteId, localhost, zweck) {
   const q = [];
   if (localhost) q.push('localhost=1');
   if (zweck) q.push('zweck=' + encodeURIComponent(zweck));
-  const r = await getJSON('/auth/start' + (q.length ? '?' + q.join('&') : ''));
+  // Fenster im Klick öffnen (common.js): Nach dem await blockiert der Browser es sonst.
+  let paste = false;
+  const r = await anmeldeFenster(async function () {
+    const d = await getJSON('/auth/start' + (q.length ? '?' + q.join('&') : ''));
+    if (!d.ok) throw new Error(errText(d));
+    paste = !!d.paste;
+    return d.auth_url;
+  }, 'exo-relay-login', true);
   btn.disabled = false;
-  if (!r.ok) { alert('Anmeldung konnte nicht gestartet werden: ' + errText(r)); return; }
-  window.open(r.auth_url, 'exo-relay-login', 'width=520,height=720');
-  if (r.paste) document.getElementById(pasteId).style.display = '';
+  if (!r.ok) { alert('Anmeldung konnte nicht gestartet werden: ' + r.fehler); return; }
+  if (paste) document.getElementById(pasteId).style.display = '';
 }
 async function einfuegen(pasteId) {
   const box = document.getElementById(pasteId + '-result');

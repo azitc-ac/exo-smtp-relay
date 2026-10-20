@@ -108,6 +108,49 @@ function errText(d) {
 }
 
 /* Betrag in Cent als Euro-Text. War in mehreren Vorlagen einzeln nachgebaut. */
+/* Neues Fenster IM KLICK öffnen — EIN Weg für jedes Fenster der Oberfläche.
+ * Nach einem `await` gilt der Klick nicht mehr als Nutzergeste, und der Browser
+ * blockiert das Fenster je nach Einstellung stumm (Safari immer). Deshalb zuerst
+ * ein leeres Fenster, Inhalt danach. `popup`: kleines Fenster statt Tab. Holt das
+ * Fenster nach vorn — ein noch offenes gleichen Namens würde sonst im Hintergrund
+ * wiederverwendet. Liefert das Fenster oder null (blockiert).
+ * Geprüft von tests/test_popup_nutzergeste.py: window.open nur hier. */
+const FENSTER_BLOCKIERT = 'Der Browser hat das Fenster blockiert — Popups für diese Seite erlauben und erneut klicken';
+
+function fensterImKlick(name, popup) {
+  let win = null;
+  try { win = window.open('about:blank', name || '_blank', popup ? 'width=520,height=700' : ''); } catch (e) { win = null; }
+  if (win) { try { win.focus(); } catch (e) { /* manche Browser verweigern */ } }
+  return win;
+}
+
+/* Anmelde-/Zustimmungsfenster (Microsoft-Login u. ä.): Fenster im Klick öffnen,
+ * dann die Adresse holen und dort laden. `quelle`: URL eines Endpunkts, der
+ * {auth_url} liefert, oder eine async-Funktion, die die Adresse liefert.
+ * Wirft nicht: {ok, fenster} oder {ok:false, blockiert, fehler}. */
+async function anmeldeFenster(quelle, name, popup) {
+  const win = fensterImKlick(name, popup);
+  if (!win) return { ok: false, blockiert: true, fehler: FENSTER_BLOCKIERT };
+  try {
+    let url;
+    if (typeof quelle === 'function') {
+      url = await quelle();
+    } else {
+      const r = await fetch(quelle);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+      url = d.auth_url;
+    }
+    if (!url) throw new Error('Keine Anmeldeadresse erhalten');
+    win.location.href = url;
+    try { win.focus(); } catch (e) { /* s. o. */ }
+    return { ok: true, fenster: win };
+  } catch (e) {
+    try { win.close(); } catch (x) { /* schon zu */ }
+    return { ok: false, fehler: e.message || String(e) };
+  }
+}
+
 function eur(cents) {
   return (Number(cents || 0) / 100).toLocaleString('de-DE', {
     style: 'currency', currency: 'EUR',
