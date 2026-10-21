@@ -1269,6 +1269,17 @@ input[type="password"]:focus { outline: none; border-color: #0078d4; }
    selber Grund. */
 .step-status[data-zustand="ok"] { background: #dcfce7; color: #166534; }
 
+/* Aktion einer Mail im Protokoll (aktionMarke() in base.html): Dashboard und
+   Relay-Seite. Farbgruppe als data-art statt JS-Farbe (Dark-Mode-Regel 2). */
+.aktion-marke { font-weight: 600; color: #555; }
+.aktion-marke[data-art="signiert"]       { color: #1f2937; }
+.aktion-marke[data-art="smime"]          { color: #0369a1; }
+.aktion-marke[data-art="verschluesselt"] { color: #1e40af; }
+.aktion-marke[data-art="entschluesselt"] { color: #0284c7; }
+.aktion-marke[data-art="neutral"]        { color: #6b7280; }
+.aktion-marke[data-art="warnung"]        { color: #d97706; }
+.aktion-marke[data-art="fehler"]         { color: #dc2626; }
+
 /* Azure-Zugriffskasten (armKasten() in base.html) — EIN Kasten für Key Vault
    (Einrichtung) und Wächter (Erweitert). Warn-Gelb ohne Zugriff, ruhiges Blau
    verbunden; Zustand als data-arm statt JS-Farbe (Dark-Mode-Regel 2). */

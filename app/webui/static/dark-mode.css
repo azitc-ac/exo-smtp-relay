@@ -551,6 +551,16 @@
   border-color: #3d2f00 !important;
 }
 
+/* Aktion einer Mail im Protokoll (aktionMarke) — Gegenstück zu style.css. */
+[data-theme="dark"] .aktion-marke { color: #cbd5e1; }
+[data-theme="dark"] .aktion-marke[data-art="signiert"]       { color: #e2e8f0; }
+[data-theme="dark"] .aktion-marke[data-art="smime"]          { color: #7dd3fc; }
+[data-theme="dark"] .aktion-marke[data-art="verschluesselt"] { color: #60a5fa; }
+[data-theme="dark"] .aktion-marke[data-art="entschluesselt"] { color: #38bdf8; }
+[data-theme="dark"] .aktion-marke[data-art="neutral"]        { color: #94a3b8; }
+[data-theme="dark"] .aktion-marke[data-art="warnung"]        { color: #fbbf24; }
+[data-theme="dark"] .aktion-marke[data-art="fehler"]         { color: #fca5a5; }
+
 /* Azure-Zugriffskasten (armKasten): verbunden blau-dunkel, schlägt das Warn-Gelb. */
 [data-theme="dark"] .arm-box[data-arm="ok"] {
   background: #0a1827 !important;

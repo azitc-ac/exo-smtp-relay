@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.14 — 2026-10-21 — Stylesheet auf Gateway-Stand
+
+- `style.css` und `dark-mode.css` vom Gateway übernommen. Neu sind die Regeln
+  für die Aktionsmarken im Mailprotokoll des Gateways. Im Relay haben sie keine
+  Wirkung, die Dateien bleiben aber deckungsgleich.
+
+**Zu tun:** nichts.
+
 ## 0.2.13 — 2026-10-21 — Stylesheet auf Gateway-Stand
 
 - `style.css` und `dark-mode.css` auf den Stand des Gateways gebracht. Neu sind
