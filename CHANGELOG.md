@@ -1,5 +1,21 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.12 — 2026-10-21 — Gemeinsame Bausteine auf Gateway-Stand
+
+- `common.js`, `style.css` und `dark-mode.css` auf den Stand des Gateways
+  gebracht. Neu sind:
+  - `knopfAktion()`: sperrt einen Knopf während einer Aktion, zeigt einen
+    drehenden Pfeil und gibt ihn auch nach einem Fehler wieder frei;
+  - `sendeFormular()` für Datei-Uploads;
+  - `dateiHerunterladen()`;
+  - die Stilregeln für Pfeil und Fortschrittsanzeige, im hellen und dunklen
+    Modus.
+
+  Die Seiten des Relays nutzen die neuen Funktionen noch nicht, ihr Verhalten
+  ändert sich nicht.
+
+**Zu tun:** nichts.
+
 ## 0.2.11 — 2026-10-21 — Anmeldefenster öffnet sich zuverlässig
 
 - **Die Microsoft-Anmeldung in der Einrichtung konnte blockiert werden.** Das

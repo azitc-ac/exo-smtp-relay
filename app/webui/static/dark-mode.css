@@ -609,6 +609,9 @@
 [data-theme="dark"] .speicher-hinweis[data-zustand="offen"]  { color: #fcd34d; }
 [data-theme="dark"] .speicher-hinweis[data-zustand="fertig"] { color: #86efac; }
 [data-theme="dark"] .speicher-hinweis[data-zustand="fehler"] { color: #fca5a5; }
+[data-theme="dark"] .fortschritt { color: #94a3b8; }
+[data-theme="dark"] .fortschritt[data-state="ok"]  { color: #4ade80; }
+[data-theme="dark"] .fortschritt[data-state="err"] { color: #fca5a5; }
 
 /* Mitlaufende Leiste für offene Änderungen (common.js) */
 [data-theme="dark"] .speicher-leiste { background:#241d10; border-color:#78350f; color:#fcd34d; }

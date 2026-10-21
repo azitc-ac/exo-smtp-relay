@@ -1158,6 +1158,23 @@ input[type="password"]:focus { outline: none; border-color: #0078d4; }
 .speicher-hinweis[data-zustand="fertig"] { color: #166534; }
 .speicher-hinweis[data-zustand="fehler"] { color: #dc2626; }
 
+/* Laufende Aktion (knopfAktion in common.js): Pfeil dreht am Knopf, oder an der
+   Fortschrittsanzeige daneben, wenn die Seite eine hat. Keine Farbe am Pfeil —
+   er übernimmt die Schrift seines Trägers, im hellen wie im dunklen Modus. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn[data-laeuft]::before,
+.fortschritt[data-laeuft]::before {
+  content: '⟳'; display: inline-block; margin-right: 6px;
+  animation: spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn[data-laeuft]::before, .fortschritt[data-laeuft]::before { animation: none; }
+}
+.fortschritt { font-size: 13px; color: #64748b; }
+/* Ergebnis am Ort der Anzeige (showMsg setzt data-state) */
+.fortschritt[data-state="ok"]  { color: #166534; }
+.fortschritt[data-state="err"] { color: #991b1b; }
+
 /* ── Kompakte Zertifikatsliste (S/MIME) ──────────────────────────────────────
  *
  * Drei Zustaende je Postfachzeile, gesteuert ueber KLASSEN am Container:

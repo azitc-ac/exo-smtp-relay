@@ -45,26 +45,31 @@ function showMsg(el, text, ok) {
   el.style.display = 'block';
 }
 
-/* JSON-POST mit einheitlicher Fehlerbehandlung. Wirft nicht, sondern liefert
- * immer ein Objekt mit ok/error — damit Aufrufstellen nicht jeweils eigene
- * try/catch-Varianten bauen. */
-async function postJSON(url, body) {
+/* Anfrage mit einheitlicher Fehlerbehandlung — der gemeinsame Kern von
+ * postJSON, sendJSON und sendeFormular. Wirft nicht, sondern liefert immer
+ * ein Objekt mit ok/error. `ok` aus der Antwort gilt vor dem HTTP-Status. */
+async function _anfrage(url, opts) {
   try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body || {}),
-    });
+    const r = await fetch(url, opts);
     const ct = r.headers.get('content-type') || '';
     const d = ct.indexOf('application/json') === 0 ? await r.json() : {};
-    if (!r.ok && !d.message && !d.error && !d.detail) {
-      return { ok: false, error: 'HTTP ' + r.status };
-    }
+    if (!r.ok && !d.message && !d.error && !d.detail) return { ok: false, error: 'HTTP ' + r.status };
     if (d.ok === undefined) d.ok = r.ok;
     return d;
   } catch (e) {
     return { ok: false, error: 'Netzwerkfehler: ' + e };
   }
+}
+
+/* JSON-POST mit einheitlicher Fehlerbehandlung. Wirft nicht, sondern liefert
+ * immer ein Objekt mit ok/error — damit Aufrufstellen nicht jeweils eigene
+ * try/catch-Varianten bauen. */
+async function postJSON(url, body) {
+  return _anfrage(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
 }
 
 /* GET mit einheitlicher Fehlerbehandlung. Liefert immer ein Objekt:
@@ -85,26 +90,108 @@ async function getJSON(url) {
 
 /* Wie postJSON, aber mit frei wählbarer Methode — für DELETE und PUT. */
 async function sendJSON(method, url, body) {
+  const opts = { method: method };
+  if (body !== undefined && body !== null) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  return _anfrage(url, opts);
+}
+
+/* Fehlertext aus einer Antwort von getJSON/postJSON/sendJSON/sendeFormular. */
+function errText(d) {
+  return (d && (d.error || d.message || d.detail)) || 'Unbekannter Fehler';
+}
+
+/* FormData-POST (Datei-Uploads). Wirft nicht, liefert immer {ok, …} wie
+ * postJSON — statt je Vorlage fetch + json().catch + eigener ok-Deutung. */
+async function sendeFormular(url, formData) {
+  return _anfrage(url, { method: 'POST', body: formData });
+}
+
+/* Datei per GET holen und im Browser speichern. Den Namen gibt der Server per
+ * Content-Disposition vor, sonst `vorgabeName`. Wirft nicht: liefert
+ * {ok, name, groesse} oder {ok:false, error}. */
+async function dateiHerunterladen(url, vorgabeName) {
   try {
-    const opts = { method: method };
-    if (body !== undefined && body !== null) {
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body = JSON.stringify(body);
-    }
-    const r = await fetch(url, opts);
-    const ct = r.headers.get('content-type') || '';
-    const d = ct.indexOf('application/json') === 0 ? await r.json() : {};
-    if (!r.ok && !d.message && !d.error && !d.detail) return { ok: false, error: 'HTTP ' + r.status };
-    if (d.ok === undefined) d.ok = r.ok;
-    return d;
+    const r = await fetch(url);
+    if (!r.ok) return { ok: false, error: 'HTTP ' + r.status };
+    const blob = await r.blob();
+    const m = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+    const name = m ? m[1] : vorgabeName;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    return { ok: true, name: name, groesse: blob.size };
   } catch (e) {
-    return { ok: false, error: 'Netzwerkfehler: ' + e };
+    return { ok: false, error: e.message };
   }
 }
 
-/* Fehlertext aus einer Antwort von getJSON/postJSON/sendJSON. */
-function errText(d) {
-  return (d && (d.error || d.message || d.detail)) || 'Unbekannter Fehler';
+/* Knopf für die Dauer einer Arbeit sperren und zeigen, dass sie läuft — EIN Weg
+ * für jeden Knopf mit Aktion (Bestand 2026-10-21: 87 Funktionen, 16 Vorlagen).
+ *
+ * Während der Arbeit dreht ein Pfeil (`data-laeuft`, Regel in style.css): am
+ * Knopf, oder — wenn die Seite eine Fortschrittsanzeige neben dem Knopf hat
+ * (optionen.anzeige) — an dieser. Die Anzeige bleibt Absicht: Lange Abläufe
+ * ohne Abschlussbericht sagen dort, welcher Teilschritt gerade läuft.
+ * `arbeit(text)` bekommt eine Funktion, mit der sie den Arbeitstext unterwegs
+ * ändert (Phasen, „dauert länger als üblich“).
+ *
+ * Danach Sperre und Inhalt zurück — auch, wenn die Arbeit wirft. Ausnahme
+ * optionen.gesperrtLassen: Ist das Ergebnis ok, bleibt alles, wie es ist, und
+ * der Pfeil dreht weiter, bis die Seite neu lädt (Neustart, Update).
+ *
+ * Liefert, was `arbeit()` liefert (bei postJSON/sendJSON/getJSON immer {ok, …}).
+ * Meldet selbst nichts: Wie das Ergebnis erscheint (showAlert, showMsg,
+ * wacheFertig), entscheidet die Seite — Hub und Relay haben kein showAlert. */
+async function knopfAktion(knopf, arbeitsText, arbeit, optionen) {
+  optionen = optionen || {};
+  if (typeof knopf === 'string') knopf = document.getElementById(knopf);
+  let anzeige = optionen.anzeige;
+  if (typeof anzeige === 'string') anzeige = document.getElementById(anzeige);
+  const vorher = knopf ? knopf.innerHTML : '';
+  const traeger = anzeige || knopf;
+  const text = (t) => laeuftZeigen(traeger, t);
+  if (knopf) knopf.disabled = true;
+  laeuftZeigen(traeger, arbeitsText || undefined);   // ohne Text: nur der Pfeil
+  let erg;
+  try {
+    erg = await arbeit(text);
+  } finally {
+    if (!(optionen.gesperrtLassen && erg && erg.ok)) {
+      laeuftZeigen(traeger, null);
+      if (knopf) { knopf.innerHTML = vorher; knopf.disabled = false; }
+    }
+  }
+  return erg;
+}
+
+/* Zeigt an `el` (Knopf oder Fortschrittsanzeige neben ihm), dass etwas läuft:
+ * drehender Pfeil (data-laeuft, style.css) und Text. `text === null` beendet
+ * die Anzeige; eine Fortschrittsanzeige verschwindet dann wieder. Sperrt
+ * nichts — das entscheidet der Aufrufer. Der EINE Ort, der data-laeuft setzt:
+ * knopfAktion() nutzt es, ebenso Abläufe über viele Abfragetakte (Update,
+ * Bereitstellung), die in kein einzelnes await passen. */
+function laeuftZeigen(el, text) {
+  if (typeof el === 'string') el = document.getElementById(el);
+  if (!el) return;
+  const istAnzeige = !el.matches('button, .btn, input');
+  if (text === null) {
+    delete el.dataset.laeuft;
+    if (istAnzeige) { el.hidden = true; el.style.display = ''; el.textContent = ''; }
+    return;
+  }
+  el.dataset.laeuft = '';
+  // style.display und data-state räumen: Eine Anzeige, die zuvor per showMsg()
+  // ein Ergebnis zeigte, trägt beides noch — `hidden` griffe sonst nicht mehr.
+  if (istAnzeige) {
+    el.classList.add('fortschritt'); el.hidden = false;
+    el.style.display = ''; delete el.dataset.state;
+  }
+  if (text !== undefined) el.textContent = text;
 }
 
 /* Betrag in Cent als Euro-Text. War in mehreren Vorlagen einzeln nachgebaut. */
