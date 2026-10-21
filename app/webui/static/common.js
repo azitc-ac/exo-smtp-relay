@@ -47,18 +47,28 @@ function showMsg(el, text, ok) {
 
 /* Anfrage mit einheitlicher Fehlerbehandlung — der gemeinsame Kern von
  * postJSON, sendJSON und sendeFormular. Wirft nicht, sondern liefert immer
- * ein Objekt mit ok/error. `ok` aus der Antwort gilt vor dem HTTP-Status. */
+ * ein Objekt mit ok/error. `ok` aus der Antwort gilt vor dem HTTP-Status.
+ *
+ * Gescheiterter ABRUF (kein Netz, Antwort ohne JSON — etwa die 502-Seite des
+ * Proxys während eines Neustarts) ist etwas anderes als eine fachliche Antwort
+ * `ok:false` und trägt deshalb `abrufFehler: true`. Bei HTTP-Fehlern steht der
+ * Status in `http` (0 = keine Verbindung). Beides fehlt bei Erfolg. */
+function _abrufFehler(http, error) {
+  return { ok: false, error: error, abrufFehler: true, http: http };
+}
+
 async function _anfrage(url, opts) {
-  try {
-    const r = await fetch(url, opts);
-    const ct = r.headers.get('content-type') || '';
-    const d = ct.indexOf('application/json') === 0 ? await r.json() : {};
-    if (!r.ok && !d.message && !d.error && !d.detail) return { ok: false, error: 'HTTP ' + r.status };
-    if (d.ok === undefined) d.ok = r.ok;
-    return d;
-  } catch (e) {
-    return { ok: false, error: 'Netzwerkfehler: ' + e };
+  let r;
+  try { r = await fetch(url, opts); } catch (e) { return _abrufFehler(0, 'Netzwerkfehler: ' + e); }
+  const ct = r.headers.get('content-type') || '';
+  let d = {};
+  if (ct.indexOf('application/json') === 0) {
+    try { d = await r.json(); } catch (e) { return _abrufFehler(r.status, 'Antwort unlesbar (HTTP ' + r.status + ')'); }
   }
+  if (!r.ok && !d.message && !d.error && !d.detail) return _abrufFehler(r.status, 'HTTP ' + r.status);
+  if (d.ok === undefined) d.ok = r.ok;
+  if (!r.ok) d.http = r.status;
+  return d;
 }
 
 /* JSON-POST mit einheitlicher Fehlerbehandlung. Wirft nicht, sondern liefert
@@ -73,19 +83,26 @@ async function postJSON(url, body) {
 }
 
 /* GET mit einheitlicher Fehlerbehandlung. Liefert immer ein Objekt:
- * bei Netzwerk- oder HTTP-Fehler { ok:false, error:"…" } statt zu werfen.
- * Für Anzeige-Widgets, die sonst still leer blieben. */
+ * bei Netzwerk- oder HTTP-Fehler { ok:false, error:"…" } statt zu werfen
+ * (mit `http`, bei gescheitertem Abruf zusätzlich `abrufFehler` — siehe
+ * _anfrage). Für Anzeige-Widgets, die sonst still leer blieben.
+ * ⚠️ Bei Erfolg wird `ok: true` in den Rumpf geschrieben — für Antworten, deren
+ * Schlüssel frei benannte Daten sind (Wörterbuch Name → …), ungeeignet. */
 async function getJSON(url) {
-  try {
-    const r = await fetch(url);
-    const ct = r.headers.get('content-type') || '';
-    const d = ct.indexOf('application/json') === 0 ? await r.json() : {};
-    if (!r.ok) return { ok: false, error: d.error || d.message || d.detail || ('HTTP ' + r.status) };
-    if (d.ok === undefined) d.ok = true;
-    return d;
-  } catch (e) {
-    return { ok: false, error: 'Netzwerkfehler: ' + e };
+  let r;
+  try { r = await fetch(url); } catch (e) { return _abrufFehler(0, 'Netzwerkfehler: ' + e); }
+  const ct = r.headers.get('content-type') || '';
+  // getJSON erwartet JSON: alles andere (auch eine Anmeldeseite mit 200 nach
+  // einer Weiterleitung) ist ein gescheiterter Abruf, kein leerer Erfolg.
+  if (ct.indexOf('application/json') !== 0) return _abrufFehler(r.status, 'Keine JSON-Antwort (HTTP ' + r.status + ')');
+  let d;
+  try { d = await r.json(); } catch (e) { return _abrufFehler(r.status, 'Antwort unlesbar (HTTP ' + r.status + ')'); }
+  if (!r.ok) {
+    const meldung = d.error || d.message || d.detail;
+    return meldung ? { ok: false, error: meldung, http: r.status } : _abrufFehler(r.status, 'HTTP ' + r.status);
   }
+  if (d.ok === undefined) d.ok = true;
+  return d;
 }
 
 /* Wie postJSON, aber mit frei wählbarer Methode — für DELETE und PUT. */
@@ -404,6 +421,13 @@ function fieldClear(el) {
   var box = el.nextElementSibling;
   if (box && box.classList && box.classList.contains('field-msg')) box.style.display = 'none';
   el.dataset.invalid = '';
+}
+
+/* Getrimmter Wert eines Eingabefeldes (Element oder ID); '' wenn es fehlt.
+ * Statt `(document.getElementById(x).value || '').trim()` an jeder Stelle. */
+function feldWert(el) {
+  if (typeof el === 'string') el = document.getElementById(el);
+  return el ? String(el.value == null ? '' : el.value).trim() : '';
 }
 
 

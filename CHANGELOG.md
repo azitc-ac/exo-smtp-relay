@@ -1,5 +1,16 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.15 — 2026-10-21 — Gemeinsame Helfer auf Gateway-Stand
+
+- `common.js` vom Gateway übernommen. Ein gescheiterter Abruf (keine
+  Verbindung, Antwort ohne JSON) ist jetzt von einer fachlichen Absage
+  unterscheidbar (`abrufFehler`, `http`). `getJSON` wertet eine Antwort ohne
+  JSON nicht mehr als leeren Erfolg. Neu ist `feldWert()`. Die vier Abrufe
+  der Relay-Oberfläche gehen alle an Routen, die JSON liefern; ihr Verhalten
+  bei Erfolg bleibt gleich.
+
+**Zu tun:** nichts.
+
 ## 0.2.14 — 2026-10-21 — Stylesheet auf Gateway-Stand
 
 - `style.css` und `dark-mode.css` vom Gateway übernommen. Neu sind die Regeln
