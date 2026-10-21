@@ -393,8 +393,12 @@
 [data-theme="dark"] [style*="border:1px solid #fde68a"],
 [data-theme="dark"] [style*="border:1px solid #fed7aa"] { border-color: #78350f !important; }
 
-/* ── Erweitert: JS-gesetzte Farben (CSSOM normalisiert zu rgb → Attribut-Selektor greift nicht) */
-[data-theme="dark"] #maintenance-status-text { color: #94a3b8 !important; }
+/* Zustandsbeschriftung neben einem Schalter (.zustand-text, style.css) */
+[data-theme="dark"] .zustand-text { color: #94a3b8; }
+[data-theme="dark"] .modus-karte { border-color: #2a2d3e; }
+[data-theme="dark"] .modus-karte[data-gewaehlt] { border-color: #16a34a; }
+[data-theme="dark"] .zustand-text[data-zustand="ok"]      { color: #4ade80; }
+[data-theme="dark"] .zustand-text[data-zustand="warnung"] { color: #fcd34d; }
 
 /* Kurzmeldungen aus showMsg(). Die helle Fassung steht in style.css bei
    .alert; hier nur der Dunkelmodus, mit denselben Werten wie .alert.error /
@@ -430,9 +434,7 @@
 [data-theme="dark"] #auto-topup-msg[data-state="err"] { color: #fca5a5; }
 
 /* ── Postfächer: Fair-Use-Zähler ─────────────────────────────────────────── */
-/* #fu-badge wird in refreshFairUse() per style.cssText gesetzt (CSSOM → rgb),
-   daher ID-Regeln statt [style*]. Die drei Zustände werden über den Textinhalt
-   nicht unterscheidbar — deshalb data-fu-state, das refreshFairUse() mitsetzt. */
+/* #fu-badge: Zustand aus data-fu-state (refreshFairUse), helle Fassung in style.css. */
 [data-theme="dark"] #fu-badge[data-fu-state="exceeded"] {
   background: #1f0a0a !important;
   color: #fca5a5 !important;
@@ -461,17 +463,6 @@
   border-bottom-color: #495166 !important;
 }
 
-/* ── Dashboard: Pool-Modal Tab-Buttons ───────────────────────────────────── */
-/* CSSOM-normalisiert: el.style.cssText → background:#f0f0f0 → rgb(…) → kein [style*] Match.
-   data-pool-active="1/0" wird per JS gesetzt um aktive/inaktive Tabs zu unterscheiden. */
-[data-theme="dark"] [data-pool-active="0"] {
-  background: #394159 !important;
-  color: #94a3b8 !important;
-}
-[data-theme="dark"] [data-pool-active="1"] {
-  background: #2563eb !important;
-  color: #fff !important;
-}
 
 /* ── Settings: Notifikations- und Admin-Dropdown ─────────────────────────── */
 /* Dropdown-Items werden per createElement + style.cssText gesetzt (CSSOM-normalisiert).
@@ -553,19 +544,21 @@
 }
 
 [data-theme="dark"] #reconsent-bar,
-[data-theme="dark"] #kv-arm-box,
-[data-theme="dark"] #wd-arm-box,
+[data-theme="dark"] .arm-box,
 [data-theme="dark"] #kv-existing-vault-hint,
 [data-theme="dark"] #login-required {
   background: #1a1200 !important;
   border-color: #3d2f00 !important;
 }
 
-/* Wächter-Installer: verbundener Zustand blau-dunkel (schlägt das Warn-Gelb). */
-[data-theme="dark"] #wd-arm-box[data-wd-arm="ok"] {
+/* Azure-Zugriffskasten (armKasten): verbunden blau-dunkel, schlägt das Warn-Gelb. */
+[data-theme="dark"] .arm-box[data-arm="ok"] {
   background: #0a1827 !important;
   border-color: #1e3a5f !important;
 }
+[data-theme="dark"] .arm-text { color: #fcd34d; }
+[data-theme="dark"] .arm-box[data-arm="ok"] .arm-text { color: #4ade80; }
+[data-theme="dark"] .arm-box[data-arm="fehler"] .arm-text { color: #fca5a5; }
 
 [data-theme="dark"] #block-picker {
   background: #1e293b !important;
@@ -586,7 +579,7 @@
    Der Zustand steht als data-Attribut am Element — die Farben werden NICHT in
    JavaScript gesetzt, weil der Browser sie dort zu rgb() normalisiert und die
    Attribut-Selektoren dieser Datei dann nicht mehr greifen. Vorbild:
-   #fu-badge[data-fu-state], [data-pool-active]. */
+   #fu-badge[data-fu-state], .arm-box[data-arm]. */
 [data-theme="dark"] .hub-order                        { background:#111c2e; border-color:#1e3a5f; color:#93c5fd; }
 [data-theme="dark"] .hub-order[data-zustand="ok"]     { background:#0f2018; border-color:#14532d; color:#86efac; }
 [data-theme="dark"] .hub-order[data-zustand="fehler"] { background:#241416; border-color:#7f1d1d; color:#fca5a5; }

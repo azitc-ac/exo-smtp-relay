@@ -1,5 +1,14 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.13 — 2026-10-21 — Stylesheet auf Gateway-Stand
+
+- `style.css` und `dark-mode.css` auf den Stand des Gateways gebracht. Neu sind
+  die Regeln für Zustände, die Skripte setzen, statt selbst Farben zu setzen.
+  Dazu gehört der Online-Punkt in der Kopfleiste, der jetzt auch im Relay
+  darüber gefärbt wird.
+
+**Zu tun:** nichts.
+
 ## 0.2.12 — 2026-10-21 — Gemeinsame Bausteine auf Gateway-Stand
 
 - `common.js`, `style.css` und `dark-mode.css` auf den Stand des Gateways

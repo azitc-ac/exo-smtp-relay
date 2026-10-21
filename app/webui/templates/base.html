@@ -35,7 +35,7 @@
         </div>
         <button id="theme-toggle" onclick="toggleTheme()" title="Hell/Dunkel wechseln" aria-label="Theme wechseln">☾</button>
         <span id="nav-online" style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.75);white-space:nowrap;padding:0 8px;flex-shrink:0">
-            <span id="nav-dot" style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;transition:background 0.4s"></span>
+            <span id="nav-dot" style="width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;transition:background 0.4s"></span>
             <span id="nav-status-text" class="nav-online-text">online</span>
         </span>
         {% if active != 'login' %}
@@ -69,7 +69,7 @@
         function setStatus(v) {
           if (v === isOnline) return;
           isOnline = v;
-          dot.style.background = v ? '#22c55e' : '#ef4444';
+          dot.dataset.online = v ? '1' : '0';   // Farbe in style.css (wie im Gateway)
           txt.textContent = v ? 'online' : 'offline';
         }
         function check() {

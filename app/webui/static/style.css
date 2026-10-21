@@ -1269,10 +1269,42 @@ input[type="password"]:focus { outline: none; border-color: #0078d4; }
    selber Grund. */
 .step-status[data-zustand="ok"] { background: #dcfce7; color: #166534; }
 
-/* Wächter-Installer: Azure-Zugriffskasten wechselt bei Verbindung von
-   Warn-Gelb (Inline-Vorgabe) auf ruhiges Blau — über data-* statt JS-Farbe
-   (Dark-Mode-Regel 2). !important schlägt den Inline-Hintergrund. */
-#wd-arm-box[data-wd-arm="ok"] { background: #eff6ff !important; border-color: #bfdbfe !important; }
+/* Azure-Zugriffskasten (armKasten() in base.html) — EIN Kasten für Key Vault
+   (Einrichtung) und Wächter (Erweitert). Warn-Gelb ohne Zugriff, ruhiges Blau
+   verbunden; Zustand als data-arm statt JS-Farbe (Dark-Mode-Regel 2). */
+.arm-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; font-size: 13px; }
+.arm-box[data-arm="ok"] { background: #eff6ff; border-color: #bfdbfe; }
+.arm-text { color: #92400e; }
+.arm-box[data-arm="ok"] .arm-text { color: #166534; }
+.arm-box[data-arm="fehler"] .arm-text { color: #dc2626; }
+
+/* Zustandsbeschriftung neben einem Schalter („Aktiv“/„Deaktiviert“). Zustand als
+   data-zustand statt JS-Farbe: '' aus (gedämpft) · 'ok' an · 'warnung' an, aber
+   mit Folgen (Wartungsmodus hält Post zurück). */
+.zustand-text { font-weight: 400; font-size: 13px; margin-left: 8px; color: #64748b; }
+.zustand-text[data-zustand="ok"]      { color: #166534; }
+.zustand-text[data-zustand="warnung"] { color: #b45309; }
+
+/* Vorlagen-Editor: Hinweis nach der Umwandlung aus HTML (Kasten per JS erzeugt) */
+#umwandlung-hinweis { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 10px;
+                      line-height: 1.5; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+
+/* Online-Punkt in der Kopfleiste (base.html setzt data-online) */
+#nav-dot { background: #22c55e; }
+#nav-dot[data-online="0"] { background: #ef4444; }
+
+/* Postfächer: Fair-Use-Zähler — Zustand aus refreshFairUse(), Farbe hier */
+#fu-bar { background: #22c55e; }
+#fu-bar[data-fu-stufe="hoch"] { background: #d97706; }
+#fu-bar[data-fu-stufe="ueber"] { background: #dc2626; }
+#fu-badge[data-fu-state="exceeded"]  { background: #fef2f2; color: #991b1b; }
+#fu-badge[data-fu-state="licensed"]  { background: #dcfce7; color: #166534; }
+#fu-badge[data-fu-state="community"] { background: #f1f5f9; color: #64748b; }
+
+/* Auswahlkarte (Rückweg-Modus in der Einrichtung): gewählte Karte grün umrandet */
+.modus-karte { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 8px;
+               border: 2px solid #e2e8f0; cursor: pointer; }
+.modus-karte[data-gewaehlt] { border-color: #16a34a; }
 
 /* Seitenweiter Schalter „Erweiterte Einstellungen", ÜBER der ersten Karte.
    Rechtsbündig, damit er die Überschriften nicht stört, und mit Abstand nach
