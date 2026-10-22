@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.16 — 2026-10-23 — common.js: Meldungen auch in ausgeblendeten Elementen
+
+- `common.js` vom Gateway übernommen. `showMsg()` hebt jetzt auch das Attribut
+  `hidden` auf. Bisher blieb eine Meldung in einer Fortschrittsanzeige nach
+  `knopfAktion()` unsichtbar, denn dagegen setzt sich `[hidden] { display:
+  none !important }` durch. Die Relay-Oberfläche nutzt diesen Ablauf nicht,
+  sichtbar ändert sich nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.15 — 2026-10-21 — Gemeinsame Helfer auf Gateway-Stand
 
 - `common.js` vom Gateway übernommen. Ein gescheiterter Abruf (keine

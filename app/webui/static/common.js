@@ -42,6 +42,10 @@ function showMsg(el, text, ok) {
   if (!el) return;
   el.textContent = text;
   el.dataset.state = ok ? 'ok' : 'err';
+  // `hidden` mit räumen: style.css setzt [hidden] auf display:none !important,
+  // dagegen kommt style.display nicht an. Eine Fortschrittsanzeige trägt es
+  // nach knopfAktion() immer — bis v1.10.36 blieb das Ergebnis dort unsichtbar.
+  el.hidden = false;
   el.style.display = 'block';
 }
 
