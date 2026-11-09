@@ -86,7 +86,8 @@
 }
 [data-theme="dark"] select option       { background: #1c2030; color: #e2e8f0; }
 [data-theme="dark"] select:disabled,
-[data-theme="dark"] input:disabled      { opacity: 0.5; color: #94a3b8; }
+[data-theme="dark"] input:disabled,
+[data-theme="dark"] textarea:disabled   { opacity: 0.5; color: #94a3b8; }
 [data-theme="dark"] input:focus,
 [data-theme="dark"] select:focus,
 [data-theme="dark"] textarea:focus      { border-color: #5b9bd5; box-shadow: 0 0 0 2px rgba(78,157,232,0.18); }

@@ -1,5 +1,14 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.17 — 2026-11-09 — dark-mode.css: gesperrte mehrzeilige Felder
+
+- `dark-mode.css` vom Gateway übernommen. Gesperrte mehrzeilige Felder
+  (`textarea:disabled`) erscheinen im Dunkelmodus ausgegraut wie gesperrte
+  Eingabefelder. Die Relay-Oberfläche hat derzeit kein solches Feld, sichtbar
+  ändert sich nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.16 — 2026-10-23 — common.js: Meldungen auch in ausgeblendeten Elementen
 
 - `common.js` vom Gateway übernommen. `showMsg()` hebt jetzt auch das Attribut
