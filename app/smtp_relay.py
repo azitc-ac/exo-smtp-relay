@@ -212,6 +212,29 @@ def ist_relay_quelle(ip: str) -> bool:
     return bool(lernmodus_bis()) and _im_lernbereich(ip)
 
 
+def ist_vorgelagertes_gateway(ip: str) -> bool:
+    """Ist diese Adresse ein vorgelagertes Gateway (Tenant-Weiterleitung)?
+
+    Teilen sich zwei Gateways eine öffentliche Adresse, nimmt eines die Post
+    aus Exchange an und reicht die des anderen Tenants byte-genau weiter. Beim
+    zweiten kommt dann JEDE Post von dieser einen Adresse, und sie ist nicht in
+    Microsofts Bereichen. Als gewöhnliches Gerät eingetragen, galten für sie die
+    Relay-Grenzen — und die weisen jede Post mit fremdem Absender ab, also die
+    gesamte eingehende Post, die eine Transportregel ans Gateway schickt
+    (signierte Mails von aussen, darunter die Bestätigungsmails der CA).
+
+    Ein solches Gerät gilt deshalb wie der Exchange-Connector. Dieselben
+    Voraussetzungen wie `ist_relay_quelle()`: Relay an, eingetragen, nicht
+    gesperrt — nur nie aus dem Lernmodus, denn die Rolle setzt nur ein Mensch.
+    """
+    import settings_store
+    if not settings_store.get("SMTP_RELAY_ENABLED"):
+        return False
+    import relay_hosts
+    eintrag = relay_hosts.host((ip or "").strip())
+    return bool(eintrag and eintrag.get("gateway") and not eintrag.get("gesperrt"))
+
+
 def _eigene_domaenen() -> set[str]:
     """Domänen, die dem Tenant gehören — aus den bekannten Postfachadressen.
 

@@ -76,7 +76,12 @@ def _conn() -> sqlite3.Connection:
         -- -1 = noch nie geliefert, 0 = zuletzt im Klartext, 1 = zuletzt mit TLS.
         -- Drei Zustaende, weil "noch nie" und "unverschluesselt" verschiedene
         -- Dinge sind: Das eine ist ein neuer Eintrag, das andere ein Befund.
-        letzte_tls      INTEGER NOT NULL DEFAULT -1
+        letzte_tls      INTEGER NOT NULL DEFAULT -1,
+        -- 1 = vorgelagertes Gateway (Tenant-Weiterleitung): reicht Post aus
+        -- Exchange weiter und gilt deshalb wie der Exchange-Connector, nicht
+        -- wie ein Gerät. Ausgewertet nur im Gateway (`handler`); das
+        -- eigenständige Relay kennt keine Weiterleitung und lässt sie liegen.
+        gateway         INTEGER NOT NULL DEFAULT 0
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS tage (
         ip     TEXT NOT NULL,
@@ -107,6 +112,9 @@ def _conn() -> sqlite3.Connection:
     if "letzte_tls" not in vorhanden:
         c.execute("ALTER TABLE hosts ADD COLUMN letzte_tls INTEGER NOT NULL DEFAULT -1")
         log.info("relay_hosts: Spalte 'letzte_tls' nachgetragen")
+    if "gateway" not in vorhanden:
+        c.execute("ALTER TABLE hosts ADD COLUMN gateway INTEGER NOT NULL DEFAULT 0")
+        log.info("relay_hosts: Spalte 'gateway' nachgetragen")
     return c
 
 
@@ -218,6 +226,7 @@ def liste() -> list[dict]:
     for z in zeilen:
         z["extern"] = bool(z["extern"])
         z["gesperrt"] = bool(z["gesperrt"])
+        z["gateway"] = bool(z.get("gateway"))
         z["tls"] = {1: "ja", 0: "nein"}.get(z.get("letzte_tls"), "unbekannt")
         z["gelernt"] = bool(z["gelernt"])
         z["zaehler"] = zaehler.get(z["ip"], {t: 0 for t in FENSTER})
@@ -227,7 +236,7 @@ def liste() -> list[dict]:
 
 def speichern(ip: str, *, dns: str | None = None, kommentar: str | None = None,
               ansprechpartner: str | None = None, extern: bool | None = None,
-              gesperrt: bool | None = None) -> bool:
+              gesperrt: bool | None = None, gateway: bool | None = None) -> bool:
     """Eintrag anlegen oder ändern. Nur übergebene Felder werden geschrieben.
 
     ⚠️ `None` heisst „unverändert", nicht „leeren". Sonst löschte ein Formular,
@@ -239,7 +248,8 @@ def speichern(ip: str, *, dns: str | None = None, kommentar: str | None = None,
     felder = {"dns": dns, "kommentar": kommentar,
               "ansprechpartner": ansprechpartner,
               "extern": None if extern is None else int(bool(extern)),
-              "gesperrt": None if gesperrt is None else int(bool(gesperrt))}
+              "gesperrt": None if gesperrt is None else int(bool(gesperrt)),
+              "gateway": None if gateway is None else int(bool(gateway))}
     gesetzt = {k: v for k, v in felder.items() if v is not None}
     try:
         with _lock, _conn() as c:

@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.18 — 2026-11-09 — Geräteliste: Spalte für die Rolle „vorgelagertes Gateway“
+
+- `relay_hosts.py` und `smtp_relay.py` vom Gateway übernommen (v1.10.98). Die
+  Geräteliste kennt dort die Rolle *vorgelagertes Gateway* für die
+  Tenant-Weiterleitung zwischen zwei Gateways. Die Datenbank bekommt beim
+  Start die Spalte `gateway` nachgetragen; das Relay wertet sie nicht aus,
+  am Mailpfad ändert sich nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.17 — 2026-11-09 — dark-mode.css: gesperrte mehrzeilige Felder
 
 - `dark-mode.css` vom Gateway übernommen. Gesperrte mehrzeilige Felder
