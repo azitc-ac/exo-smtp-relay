@@ -97,5 +97,20 @@ class AbbruchLeiser(logging.Filter):
         record.exc_info = None
         record.exc_text = None   # sonst hängt ein bereits formatierter Traceback an
         record.msg = "SMTP-Verbindung von %r ohne Datenübergabe beendet (%s)"
-        record.args = (gegenstelle, type(fehler).__name__)
+        record.args = (gegenstelle, _grund(fehler))
         return True
+
+
+def _grund(fehler: BaseException) -> str:
+    """Name der Ausnahme, bei Zertifikatsfehlern samt Prüfmeldung.
+
+    Am 11.11.2026 stand hier nur „SSLCertVerificationError“, als Exchange
+    Online beim Einliefern ein Client-Zertifikat vorlegte, das nicht geprüft
+    werden konnte. Ob die Wurzel fehlte („unable to get local issuer
+    certificate“) oder der Verwendungszweck nicht passte („unsuitable
+    certificate purpose“), war daraus nicht abzulesen. Das sind zwei Fehler
+    mit zwei verschiedenen Gegenmaßnahmen.
+    """
+    name = type(fehler).__name__
+    meldung = getattr(fehler, "verify_message", None)
+    return f"{name}: {meldung}" if meldung else name

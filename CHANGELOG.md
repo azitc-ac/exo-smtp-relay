@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.19 — 2026-11-11 — Abgebrochenes TLS: genauer Grund im Protokoll
+
+- `smtp_rauschen.py` vom Gateway übernommen (v1.11.21). Bricht ein
+  TLS-Aufbau an einem Zertifikat ab, nennt die Protokollzeile jetzt die
+  Prüfmeldung, etwa „unable to get local issuer certificate“ (Wurzel
+  unbekannt) oder „unsuitable certificate purpose“ (falscher
+  Verwendungszweck). Bisher stand dort nur „SSLCertVerificationError“.
+
+**Zu tun:** nichts.
+
 ## 0.2.18 — 2026-11-09 — Geräteliste: Spalte für die Rolle „vorgelagertes Gateway“
 
 - `relay_hosts.py` und `smtp_relay.py` vom Gateway übernommen (v1.10.98). Die

@@ -69,6 +69,21 @@ def test_gegenstelle_bleibt_erhalten(leiser):
     assert "203.0.113.9" in (r.msg % r.args)
 
 
+@pytest.mark.parametrize("meldung", ["unable to get local issuer certificate",
+                                     "unsuitable certificate purpose"])
+def test_zertifikatsfehler_nennt_die_pruefmeldung(leiser, meldung):
+    """Fehlende Wurzel und falscher Verwendungszweck brauchen verschiedene
+    Gegenmaßnahmen — die Zeile muss sagen, welcher es war (11.11.2026)."""
+    innen = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    innen.verify_message = meldung
+    huelle = RuntimeError("TLS-Aufbau")
+    huelle.__cause__ = innen
+    r = _satz(huelle)
+    leiser.filter(r)
+    text = r.msg % r.args
+    assert "SSLCertVerificationError" in text and meldung in text, text
+
+
 def test_echter_fehler_bleibt_fehler(leiser):
     """Der wichtigere Teil: Ein Filter, der zu viel schluckt, ist schlimmer als
     das Rauschen, das er beseitigen soll."""
