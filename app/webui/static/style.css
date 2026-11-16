@@ -815,6 +815,15 @@ input:focus { outline: none; border-color: #0078d4; }
     flex: 1 1 0;
     min-width: 0;
 }
+/* Eine Flex-SPALTE dehnt jedes Kind auf die volle Breite (align-items:
+   stretch). Fuer Erklaertexte und Textfelder gewollt — ein Speichern-Knopf oder
+   eine Auswahl ueber 650px Breite nicht (Firewall-Feld, Log-Level, Zeitzone).
+   Sie nehmen ihre eigene Breite, hoechstens die der Spalte. */
+.settings-control > .btn,
+.settings-control > select {
+    align-self: flex-start;
+    max-width: 100%;
+}
 .checkbox-label {
     display: flex !important;
     align-items: center;

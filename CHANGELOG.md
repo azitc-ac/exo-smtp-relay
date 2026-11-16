@@ -1,5 +1,14 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.21 — 2026-11-16 — Gemeinsames Stylesheet vom Gateway
+
+- `style.css` vom Gateway übernommen (v1.12.45). Knöpfe und Auswahllisten in
+  der Feldspalte einer Einstellungszeile (`.settings-control`) nehmen ihre
+  eigene Breite statt der ganzen Zeile. Das Relay verwendet diese Klasse
+  derzeit nicht, an seiner Oberfläche ändert sich nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.20 — 2026-11-16 — Gemeinsame Datei secure_io vom Gateway
 
 - `secure_io.py` vom Gateway übernommen (v1.12.40). Verzeichnisse, die beim
