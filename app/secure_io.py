@@ -61,41 +61,35 @@ SECRET_GLOBS = (
 
 
 def ensure_dir(path: Path | str, mode: int = DIR_MODE) -> Path:
-    """Verzeichnis anlegen und Rechte durchsetzen (auch wenn es schon existierte)."""
+    """Verzeichnis anlegen und Rechte durchsetzen (auch wenn es schon existierte).
+
+    Zwischenverzeichnisse, die `mkdir(parents=True)` dabei NEU anlegt, werden
+    ebenfalls gehärtet. Bis 2026-11 bekamen sie die umask (im Container 755):
+    `ensure_dir(ablage / "a" / "b")` hinterließ `ablage` und `a` offen, und eine
+    600-Datei darin war nur halb geschützt (Kopfkommentar, Falle 2). Nur NEU
+    entstandene — ein schon vorhandenes Elternverzeichnis (etwa der Einhängepunkt
+    des Datenverzeichnisses) gehört dem Betreiber und bleibt unberührt. Härten
+    nimmt nur Rechte weg (`_tightened`), nie hinzu.
+    """
     p = Path(path)
+    neu = []
+    cur = p
+    while not cur.exists() and cur != cur.parent:
+        neu.append(cur)
+        cur = cur.parent
     p.mkdir(parents=True, exist_ok=True)
     try:
         if stat.S_IMODE(p.stat().st_mode) != mode:
             p.chmod(mode)
     except OSError as exc:                       # z.B. fremder Eigentümer
         log.warning("secure_io: chmod %o auf %s fehlgeschlagen: %s", mode, p, exc)
-    return p
-
-
-def harden_file(path: Path | str, mode: int = FILE_MODE) -> Path:
-    """Rechte einer bestehenden Datei durchsetzen — für Dateien, die eine
-    fremde Bibliothek selbst anlegt.
-
-    ANLASS (2026-08-25): SQLite legt seine Datenbankdatei selbst an, mit der
-    umask des Prozesses — im Container 022, also 644. `harden_tree()` räumt das
-    auf, läuft aber nur beim Start. Eine Datenbank, die zur LAUFZEIT entsteht,
-    bleibt damit bis zum nächsten Neustart für jeden Systembenutzer lesbar.
-
-    Im Bestand fiel das nicht auf, weil jede vorhandene `.db` längst einen
-    Neustart erlebt hat: Ein Blick auf die Rechte im laufenden Betrieb zeigt
-    überall 600 und bestätigt scheinbar, dass alles stimmt. Es ist dieselbe
-    Klasse wie beim atomaren Schreiben — die Rechte gehören dorthin gesetzt, wo
-    die Datei ENTSTEHT, nicht dorthin, wo man später hinsieht.
-
-    Idempotent und leise: Ein fehlgeschlagenes `chmod` (fremder Eigentümer, nur
-    lesbar eingehängt) darf den Aufrufer nicht anhalten — es wird protokolliert.
-    """
-    p = Path(path)
-    try:
-        if p.exists() and stat.S_IMODE(p.stat().st_mode) != mode:
-            p.chmod(mode)
-    except OSError as exc:
-        log.warning("secure_io: chmod %o auf %s fehlgeschlagen: %s", mode, p, exc)
+    for d in neu[1:]:                            # neu[0] ist p selbst
+        try:
+            jetzt = stat.S_IMODE(d.stat().st_mode)
+            if _tightened(jetzt) != jetzt:
+                d.chmod(_tightened(jetzt))
+        except OSError as exc:
+            log.warning("secure_io: chmod auf %s fehlgeschlagen: %s", d, exc)
     return p
 
 
@@ -136,7 +130,26 @@ def _tightened(current: int) -> int:
 
 
 def harden_file(path: Path | str) -> bool:
-    """Group/Other-Rechte einer bestehenden Datei entfernen. True, wenn geändert."""
+    """Group/Other-Rechte einer bestehenden Datei entfernen. True, wenn geändert.
+
+    Für `harden_tree()` UND für Dateien, die eine fremde Bibliothek selbst
+    anlegt. ANLASS (2026-08-25): SQLite legt seine Datenbankdatei mit der umask
+    des Prozesses an — im Container 022, also 644. `harden_tree()` räumt das
+    auf, läuft aber nur beim Start; eine Datenbank, die zur LAUFZEIT entsteht,
+    bliebe bis zum nächsten Neustart für jeden Systembenutzer lesbar. Deshalb
+    steht der Aufruf direkt nach jedem `sqlite3.connect`. Die Rechte gehören
+    dorthin gesetzt, wo die Datei ENTSTEHT, nicht dorthin, wo man später hinsieht.
+
+    Nur einschränkend (`_tightened`): Bis 2026-11 stand hier zusätzlich eine
+    zweite Funktion gleichen Namens, die einen festen Modus 600 setzte. Python
+    nahm stillschweigend die spätere Definition — diese. Die frühere hätte
+    certbots 400er-Datei auf 600 ERWEITERT. Geprüft von
+    tests/test_keine_doppelten_definitionen.py.
+
+    Idempotent und leise: Eine fehlende Datei ist kein Fehler (der erste
+    `_conn()` ruft vor dem Anlegen), ein fehlgeschlagenes `chmod` (fremder
+    Eigentümer, nur lesbar eingehängt) wird protokolliert, nicht geworfen.
+    """
     p = Path(path)
     try:
         if not p.is_file():

@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.20 — 2026-11-16 — Gemeinsame Datei secure_io vom Gateway
+
+- `secure_io.py` vom Gateway übernommen (v1.12.40). Verzeichnisse, die beim
+  Anlegen einer geschützten Datei mit entstehen, bekommen jetzt 700 statt der
+  Systemvorgabe; schon vorhandene bleiben unverändert. Die doppelt definierte
+  `harden_file` ist auf die wirksame, nur einschränkende Fassung reduziert; am
+  Verhalten ändert sich dadurch nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.19 — 2026-11-11 — Abgebrochenes TLS: genauer Grund im Protokoll
 
 - `smtp_rauschen.py` vom Gateway übernommen (v1.11.21). Bricht ein
