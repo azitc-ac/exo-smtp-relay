@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.22 — 2026-11-20 — Gemeinsame Stylesheets vom Gateway
+
+- `style.css` und `dark-mode.css` vom Gateway übernommen (v1.12.120). Entfernt
+  sind drei Stilregeln früherer Vorschlagslisten, die weder Gateway noch Relay
+  noch benutzen. An der Oberfläche ändert sich nichts.
+
+**Zu tun:** nichts.
+
 ## 0.2.21 — 2026-11-16 — Gemeinsames Stylesheet vom Gateway
 
 - `style.css` vom Gateway übernommen (v1.12.45). Knöpfe und Auswahllisten in

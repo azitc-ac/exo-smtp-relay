@@ -490,10 +490,6 @@
 }
 #theme-toggle:hover { color: #fff; background: rgba(255,255,255,0.12); }
 
-/* Admin-Autovervollständigung (Klasse statt Inline — Attribut-Selektor greift nicht) */
-[data-theme="dark"] .admin-suggest-item { border-bottom-color: #495166 !important; }
-[data-theme="dark"] .admin-suggest-item:hover { background: #394159 !important; }
-
 /* Rechtsdokumente in Dialogen (Klasse statt Inline — siehe style.css) */
 [data-theme="dark"] .legal-view       { color: #cbd5e1 !important; }
 [data-theme="dark"] .legal-view h2,
@@ -683,9 +679,6 @@ tr td[data-relay-tls="ja"]    { color: #15803d; }
 [data-theme="dark"] .acme-status[data-zustand="unklar"] { background:#241d10; border-color:#78350f; color:#fcd34d; }
 [data-theme="dark"] .acme-status pre { background:rgba(255,255,255,.06); }
 
-[data-theme="dark"] .vorschlag-kopf   { background: #1e293b; border-bottom-color: #334155; }
-[data-theme="dark"] .vorschlag-zeile { border-bottom-color: #334155; }
-[data-theme="dark"] .vorschlag-zeile:hover        { background: #1e3a5f; }
 [data-theme="dark"] .empfaenger-zeile { border-bottom-color: #334155; }
 [data-theme="dark"] .js-trenner      { border-top-color: #334155; }
 [data-theme="dark"] .js-aufklappteil { border-top-color: #334155; }
