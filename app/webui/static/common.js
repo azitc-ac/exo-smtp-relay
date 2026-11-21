@@ -496,6 +496,15 @@ function _hintBewerten(p, schalter) {
 
 function _hintAusstatten(p) {
   if (!_hintBewerten(p, null)) return;
+  _hintSchalterAnlegen(p);
+}
+
+function _hintSchalter(p) {
+  var s = p.nextElementSibling;
+  return s && s.classList.contains('hint-toggle') ? s : null;
+}
+
+function _hintSchalterAnlegen(p) {
   var schalter = document.createElement('button');
   schalter.type = 'button';
   schalter.className = 'hint-toggle';
@@ -568,12 +577,36 @@ function initHintClamps(root) {
  * von vorn. Entprellt, weil beim Nachladen viele Änderungen kurz hintereinander
  * kommen.
  */
-var _hintNachzuegler;
+/* Neubewertung eines schon bewerteten Hinweises (Breite oder Text geändert).
+ *
+ * ⚠️ Läuft er jetzt über und hat noch keinen Schalter, bekommt er einen. Bis
+ * 2026-11-21 wurde hier nur gekürzt: Ein Hinweis, dessen Text ein Skript erst
+ * NACH dem Seitenaufbau setzt (DMARC-Ziel, „Letzter Abruf …“), galt leer als
+ * „passt“, bekam keinen Schalter — und beim nächsten resize (am Telefon reicht
+ * das Ein-/Ausblenden der Adressleiste) wurde er auf zwei Zeilen gekürzt, ohne
+ * Weg zurück. `data-clamp="nie"` aus der Vorlage bleibt unangetastet. */
+function _hintNeuBewerten(p) {
+  var c = p.dataset.clamp;
+  if (c === 'auf' || c === 'nie') return;
+  var s = _hintSchalter(p);
+  if (_hintBewerten(p, s) && !s) _hintSchalterAnlegen(p);
+}
+
+var _hintNachzuegler, _hintGeaendert = [];
 if (typeof MutationObserver !== 'undefined') {
-  new MutationObserver(function () {
+  new MutationObserver(function (aenderungen) {
+    aenderungen.forEach(function (m) {
+      var el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      var h = el && el.closest ? el.closest('.hint[data-clamp]') : null;
+      if (h && _hintGeaendert.indexOf(h) < 0) _hintGeaendert.push(h);
+    });
     clearTimeout(_hintNachzuegler);
-    _hintNachzuegler = setTimeout(function () { initHintClamps(document); }, 120);
-  }).observe(document.documentElement, {childList: true, subtree: true});
+    _hintNachzuegler = setTimeout(function () {
+      var liste = _hintGeaendert; _hintGeaendert = [];
+      liste.forEach(function (h) { if (h.isConnected) _hintNeuBewerten(h); });
+      initHintClamps(document);
+    }, 120);
+  }).observe(document.documentElement, {childList: true, subtree: true, characterData: true});
 }
 
 /* Bei geänderter Fensterbreite passt derselbe Text plötzlich in zwei Zeilen
@@ -583,11 +616,7 @@ var _hintZeitgeber;
 window.addEventListener('resize', function () {
   clearTimeout(_hintZeitgeber);
   _hintZeitgeber = setTimeout(function () {
-    document.querySelectorAll('.hint[data-clamp]').forEach(function (p) {
-      if (p.dataset.clamp === 'auf') return;
-      var s = p.nextElementSibling;
-      _hintBewerten(p, s && s.classList.contains('hint-toggle') ? s : null);
-    });
+    document.querySelectorAll('.hint[data-clamp]').forEach(_hintNeuBewerten);
   }, 150);
 });
 

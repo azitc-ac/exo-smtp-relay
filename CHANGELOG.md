@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.23 — 2026-11-21 — Gemeinsame Frontend-Helfer vom Gateway
+
+- `common.js` vom Gateway übernommen (v1.12.144): Ein langer Hinweis, dessen
+  Text erst nach dem Seitenaufbau gesetzt wird, bekommt bei Überlauf jetzt
+  seinen Schalter „mehr“, statt ohne ihn gekürzt zu werden.
+
+**Zu tun:** nichts.
+
 ## 0.2.22 — 2026-11-20 — Gemeinsame Stylesheets vom Gateway
 
 - `style.css` und `dark-mode.css` vom Gateway übernommen (v1.12.120). Entfernt
