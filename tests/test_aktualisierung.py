@@ -51,16 +51,16 @@ def schluessel(monkeypatch):
 
 def _baum(ziel: Path, version: str, main: str = "print('neu')\n", lock: str = "x==1\n") -> Path:
     (ziel / "app").mkdir(parents=True)
-    (ziel / "app" / "main.py").write_text(main)
-    (ziel / "app" / "requirements.lock").write_text(lock)
+    (ziel / "app" / "main.py").write_text(main, encoding="utf-8")
+    (ziel / "app" / "requirements.lock").write_text(lock, encoding="utf-8")
     (ziel / "windows").mkdir()
-    (ziel / "windows" / "install.ps1").write_text("# install\n")
+    (ziel / "windows" / "install.ps1").write_text("# install\n", encoding="utf-8")
     (ziel / "linux").mkdir()
-    (ziel / "linux" / "exo-smtp-relay.service").write_text("[Unit]\n")
+    (ziel / "linux" / "exo-smtp-relay.service").write_text("[Unit]\n", encoding="utf-8")
     for name, inhalt in (("VERSION", version + "\n"), ("LICENSE.md", "Apache\n"),
                          ("NOTICE", "Notice\n"), ("CHANGELOG.md", f"## {version} — x\n"),
                          ("README.md", "readme\n")):
-        (ziel / name).write_text(inhalt)
+        (ziel / name).write_text(inhalt, encoding="utf-8")
     return ziel
 
 
@@ -200,8 +200,8 @@ def test_rundlauf_pruefen_einspielen_tauschen(anlage, schluessel, tmp_path):
     dienst = _Dienst(anlage["wurzel"], anlage["daten"])
     assert _ablauf(anlage, dienst) == "ok"
     w = anlage["wurzel"]
-    assert ut.aktuelle_version(w) == NEU_V and (w / "app" / "main.py").read_text() == "print('neu')\n"
-    assert (w / ut.ALT / "app" / "main.py").read_text() == "print('alt')\n", "Rückfallstand bleibt"
+    assert ut.aktuelle_version(w) == NEU_V and (w / "app" / "main.py").read_text(encoding="utf-8") == "print('neu')\n"
+    assert (w / ut.ALT / "app" / "main.py").read_text(encoding="utf-8") == "print('alt')\n", "Rückfallstand bleibt"
     assert dienst.stopps == 1 and dienst.starts == [NEU_V]
     assert _baumstempel(anlage["daten"]) == vorher, "Daten unberührt"
     assert not ut.auftrag_pfad(anlage["daten"]).exists()
@@ -219,7 +219,7 @@ def test_fehlstart_rollt_zurueck(anlage, schluessel, tmp_path):
     dienst = _Dienst(anlage["wurzel"], anlage["daten"], defekt={NEU_V})
     assert _ablauf(anlage, dienst) == "zurueckgerollt"
     w = anlage["wurzel"]
-    assert ut.aktuelle_version(w) == ALT_V and (w / "app" / "main.py").read_text() == "print('alt')\n"
+    assert ut.aktuelle_version(w) == ALT_V and (w / "app" / "main.py").read_text(encoding="utf-8") == "print('alt')\n"
     assert dienst.starts == [NEU_V, ALT_V] and dienst.laeuft()
     assert not (w / ut.ALT).exists() and not (w / ut.NEU).exists()
     assert _baumstempel(anlage["daten"]) == vorher, "Daten unberührt"
@@ -257,7 +257,7 @@ def _einspielen_mit(anlage, tmp_path, schluessel, veraendern):
 
 def test_manipulierte_pruefsumme_abgelehnt(anlage, schluessel, tmp_path):
     def falsche_summe(dist):
-        s = (dist / up.SUMMEN).read_text()
+        s = (dist / up.SUMMEN).read_text(encoding="utf-8")
         (dist / up.SUMMEN).write_text(("0" * 64) + s[64:])
     assert "Signatur" in _einspielen_mit(anlage, tmp_path, schluessel, falsche_summe)
 
@@ -317,7 +317,7 @@ def test_tauscher_lehnt_manipuliertes_paket_ab(anlage, schluessel, tmp_path):
     assert _ablauf(anlage, dienst) == "fehler"
     assert dienst.stopps == 0, "vor der Prüfung wird der Dienst nicht angehalten"
     assert ut.aktuelle_version(anlage["wurzel"]) == ALT_V
-    assert (anlage["wurzel"] / "app" / "main.py").read_text() == "print('alt')\n"
+    assert (anlage["wurzel"] / "app" / "main.py").read_text(encoding="utf-8") == "print('alt')\n"
     assert "Prüfsumme" in ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
     assert not ut.auftrag_pfad(anlage["daten"]).exists(), "Auftrag weg — keine Endlosschleife"
 
@@ -459,7 +459,7 @@ def test_update_bereich_nicht_im_backup():
 # ── 7. Pakete und Release-Workflow ───────────────────────────────────────────
 
 def test_echtes_paket_enthaelt_lizenz_notice_und_installer(tmp_path):
-    version = (WURZEL / "VERSION").read_text().strip()
+    version = (WURZEL / "VERSION").read_text(encoding="utf-8").strip()
     zip_p, tar_p = up.bauen(WURZEL, tmp_path, version)
     kopf = f"exo-smtp-relay-{version}/"
     namen = zipfile.ZipFile(zip_p).namelist()
@@ -477,7 +477,7 @@ def test_echtes_paket_enthaelt_lizenz_notice_und_installer(tmp_path):
 def test_installer_kopiert_lizenz_und_notice():
     ps = (WURZEL / "windows" / "install.ps1").read_text(encoding="utf-8-sig")
     assert '"LICENSE.md", "NOTICE"' in ps
-    assert "COPY LICENSE.md NOTICE" in (WURZEL / "Dockerfile").read_text()
+    assert "COPY LICENSE.md NOTICE" in (WURZEL / "Dockerfile").read_text(encoding="utf-8")
 
 
 def test_release_workflow_nur_durch_tag():
@@ -527,7 +527,7 @@ def test_signieren_und_pruefen_rund(tmp_path, schluessel):
 
 
 def test_tag_muss_zu_version_passen():
-    version = (WURZEL / "VERSION").read_text().strip()
+    version = (WURZEL / "VERSION").read_text(encoding="utf-8").strip()
     r = _release_tool("kanal", f"v{version}")
     assert r.returncode == 0 and f"version={version}" in r.stdout and "kanal=" in r.stdout
     assert _release_tool("kanal", "v0.0.1").returncode != 0

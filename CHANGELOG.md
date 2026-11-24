@@ -1,5 +1,13 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.41 — 2026-11-24 — Testkorrektur unter Windows
+
+- `tests/test_aktualisierung.py` liest und schreibt Dateien ausdrücklich als
+  UTF-8. Unter Windows las `read_text()` das Dockerfile mit cp1252 und brach
+  an einem Umlaut ab (CI „Tests unter Windows“ zu 0.2.40 rot). Kein Einfluss
+  auf den Dienst.
+
+**Zu tun:** nichts.
 ## 0.2.40 — 2026-11-24 — Aktualisierung aus fertigen Releases
 
 - **Release-Workflow** (`.github/workflows/release.yml`), ausgelöst NUR durch
