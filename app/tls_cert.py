@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import re
+import socket
 from pathlib import Path
 
 import config
@@ -85,13 +87,43 @@ def _schreiben(cert_pem: bytes, key_pem: bytes) -> None:
     secure_io.write_secret_bytes(key_pfad, key_pem)
 
 
+VORGABE_NAME = "exo-smtp-relay.local"
+_NAME_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?)*$")
+
+
+def rechnernamen() -> list[str]:
+    """FQDN und kurzer Name DIESES Rechners — die Namen, auf die der
+    Startmenü-Link (install.ps1: GetHostEntry(COMPUTERNAME).HostName,
+    startmenue._zielname: gethostname) zeigt. Im Container leer: Dort ist der
+    Rechnername eine zufällige Container-ID, erreicht wird der Wirt."""
+    import aktualisierung
+    if aktualisierung.betriebsart() == "docker":
+        return []
+    namen: list[str] = []
+    for n in (socket.getfqdn(), socket.gethostname()):
+        n = (n or "").strip().lower().rstrip(".")
+        if (n and _NAME_RE.match(n) and n not in namen
+                and not n.startswith(("localhost", "ip6-"))):
+            namen.append(n)
+    return namen
+
+
 def selbstsigniert_erzeugen(hostname: str, tage: int = 3650) -> dict:
+    """Selbstsigniert auf `hostname` (CN), dazu FQDN und kurzer Name des
+    Rechners als SAN — damit passt es zum Startmenü-Link, auch solange kein
+    Hostname eingetragen ist (Labtest 0.2.42: Link auf den FQDN, Zertifikat
+    nur auf exo-smtp-relay.local)."""
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
 
-    hostname = (hostname or "").strip().lower() or "exo-smtp-relay.local"
+    hostname = (hostname or "").strip().lower()
+    namen = [hostname] if hostname else []
+    namen += [n for n in rechnernamen() if n not in namen]
+    if not namen:
+        namen = [VORGABE_NAME]
+    hostname = namen[0]
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])
     jetzt = _dt.datetime.now(_dt.timezone.utc)
@@ -101,14 +133,15 @@ def selbstsigniert_erzeugen(hostname: str, tage: int = 3650) -> dict:
             .serial_number(x509.random_serial_number())
             .not_valid_before(jetzt - _dt.timedelta(minutes=5))
             .not_valid_after(jetzt + _dt.timedelta(days=tage))
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName(hostname)]), critical=False)
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(n) for n in namen]),
+                           critical=False)
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .sign(key, hashes.SHA256()))
     _schreiben(cert.public_bytes(serialization.Encoding.PEM),
                key.private_bytes(serialization.Encoding.PEM,
                                  serialization.PrivateFormat.PKCS8,
                                  serialization.NoEncryption()))
-    log.info("Selbstsigniertes TLS-Zertifikat für %s erzeugt (%d Tage)", hostname, tage)
+    log.info("Selbstsigniertes TLS-Zertifikat für %s erzeugt (%d Tage)", ", ".join(namen), tage)
     return info()
 
 

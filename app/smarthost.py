@@ -34,6 +34,7 @@ import msal
 
 import config
 import settings_store
+import tls_vertrauen
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _acquire_oauth_token() -> str | None:
 def _client_tls_context() -> ssl.SSLContext:
     """STARTTLS-Kontext mit dem eigenen Zertifikat als Client-Zertifikat —
     darüber erkennt der Inbound-Connector den Dienst."""
-    ctx = ssl.create_default_context()
+    ctx = tls_vertrauen.client_kontext()
     cert, key = Path(config.SMTP_TLS_CERT), Path(config.SMTP_TLS_KEY)
     if cert.exists() and key.exists():
         try:
@@ -105,7 +106,7 @@ def _send_submit(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
         try:
             with smtplib.SMTP(host, port, timeout=30) as smtp:
                 smtp.ehlo()
-                smtp.starttls(context=ssl.create_default_context())
+                smtp.starttls(context=tls_vertrauen.client_kontext())
                 smtp.ehlo()
                 auth_string = f"user=\r\nauth=Bearer {token}\r\n\r\n"
                 smtp.auth("XOAUTH2", lambda _: auth_string.encode("utf-8"))
@@ -124,7 +125,7 @@ def _send_submit(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
 
     with smtplib.SMTP(host, port, timeout=30) as smtp:
         smtp.ehlo()
-        smtp.starttls(context=ssl.create_default_context())
+        smtp.starttls(context=tls_vertrauen.client_kontext())
         smtp.ehlo()
         smtp.login(user, pw)
         smtp.sendmail(mail_from, rcpt_tos, content)
@@ -159,7 +160,7 @@ def verbindungstest() -> dict:
                 try:
                     with smtplib.SMTP(host, port, timeout=20) as smtp:
                         smtp.ehlo()
-                        smtp.starttls(context=ssl.create_default_context())
+                        smtp.starttls(context=tls_vertrauen.client_kontext())
                         smtp.ehlo()
                         auth_string = f"user=\r\nauth=Bearer {token}\r\n\r\n"
                         smtp.auth("XOAUTH2", lambda _: auth_string.encode("utf-8"))
@@ -174,7 +175,7 @@ def verbindungstest() -> dict:
             pw = settings_store.get("SUBMIT_PASSWORD") or ""
             with smtplib.SMTP(host, port, timeout=20) as smtp:
                 smtp.ehlo()
-                smtp.starttls(context=ssl.create_default_context())
+                smtp.starttls(context=tls_vertrauen.client_kontext())
                 smtp.ehlo()
                 if user and pw:
                     smtp.login(user, pw)

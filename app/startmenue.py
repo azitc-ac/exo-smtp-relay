@@ -1,7 +1,8 @@
 """Startmenü-Eintrag der Weboberfläche (nur Windows).
 
-`install.ps1` legt „EXO SMTP Relay.url" an. Das TLS-Zertifikat des Dienstes trägt nur den
-Hostnamen, nie „localhost" — der Link soll deshalb auf den Hostnamen zeigen, den der Betreiber im
+`install.ps1` legt „EXO SMTP Relay.url" an. Das selbstsignierte TLS-Zertifikat des Dienstes trägt
+den eingetragenen Hostnamen sowie FQDN und kurzen Rechnernamen (`tls_cert.rechnernamen`), nie
+„localhost" — der Link soll deshalb auf den Hostnamen zeigen, den der Betreiber im
 Assistenten (oder unter Einstellungen) setzt, SOFERN dieser auf dem Server selbst auflöst.
 Der Hostname ist der Name, unter dem Exchange den Dienst von aussen erreicht; hier muss er nicht
 auflösbar sein (Split-DNS, NAT). Dann zeigt der Link auf den Rechnernamen, zuletzt auf localhost.

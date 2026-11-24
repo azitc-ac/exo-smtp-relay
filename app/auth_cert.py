@@ -172,7 +172,8 @@ def _graph_token(key, cert) -> str:
 
 def _graph_post(token: str, pfad: str, body: dict) -> dict:
     import httpx
-    r = httpx.post(f"https://graph.microsoft.com/v1.0{pfad}", json=body, timeout=30,
+    import tls_vertrauen
+    r = httpx.post(f"https://graph.microsoft.com/v1.0{pfad}", json=body, timeout=30, verify=tls_vertrauen.client_kontext(),
                    headers={"Authorization": f"Bearer {token}"})
     if not r.is_success:
         raise RuntimeError(f"Graph {pfad} → {r.status_code}: {r.text[:300]}")

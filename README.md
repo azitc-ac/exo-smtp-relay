@@ -153,11 +153,20 @@ git clone https://github.com/azitc-ac/exo-smtp-relay.git && cd exo-smtp-relay
 docker compose up -d --build
 ```
 
-Die Weboberfläche erreichst du unter `https://<host>:8443` (selbstsigniert),
+Die Weboberfläche erreichst du unter `https://<host>:8443` (selbstsigniert;
+im Container lauscht sie auf 8080, `docker-compose.yml` bildet sie auf 8443 ab),
 Anmeldung `admin` / `admin`. Mit diesem Auslieferungs-Kennwort ist nur Schritt 1
 der Einrichtung erreichbar, bis du ein eigenes gesetzt hast. Port 25 ist im
 Container freigegeben; das Abbild enthält PowerShell 7 und das
 ExchangeOnlineManagement-Modul.
+
+**Daten und Rechte:** Alles Veränderliche liegt in `./data` neben der
+`docker-compose.yml` (Bind-Mount nach `/app/data`). Du musst das Verzeichnis
+nicht anlegen: Fehlt es, legt Docker es als root an, und der Container setzt
+beim Start den Besitz auf `appuser` (uid 1000), bevor er den Dienst als
+`appuser` startet (`docker-entrypoint.sh`). Der Dienst läuft nie als root.
+Liegt `./data` auf einem Speicher, auf dem root nicht umschreiben darf (z. B.
+NFS mit `root_squash`), setze den Besitz selbst: `sudo chown -R 1000:1000 data`.
 
 ### Windows-Dienst
 
@@ -188,6 +197,20 @@ der Installer den Prozess. Der Dienst startet erst, wenn der Port frei ist.
 Sieh dir `linux/exo-smtp-relay.service` an — die Unit erklärt die Schritte im
 Kopf, ausgehend vom Linux-Archiv eines Releases. Für die Postfachabfrage
 installierst du `pwsh` getrennt.
+
+Die Weboberfläche erreichst du unter `https://<host>:8080` (selbstsigniert) —
+das ist die Vorgabe von `WEBUI_PORT`. Docker und der Windows-Installer zeigen
+8443, weil sie den Port anders abbilden bzw. setzen; der Dienst ist derselbe.
+Einen anderen Port setzt du mit einem Drop-in
+(`sudo systemctl edit exo-smtp-relay`):
+
+```ini
+[Service]
+Environment=WEBUI_PORT=8443
+```
+
+Ein Port unter 1024 (z. B. 443) geht ebenfalls, `AmbientCapabilities` deckt
+ihn ab.
 
 ---
 

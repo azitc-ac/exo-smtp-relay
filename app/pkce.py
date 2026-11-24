@@ -93,12 +93,13 @@ def _prune_sessions() -> None:
 async def exchange_code(code: str, verifier: str, redirect_uri: str) -> dict:
     """Code gegen Token tauschen. Wirft RuntimeError."""
     import httpx
+    import tls_vertrauen
     daten = {
         "client_id": _get_client_id(), "grant_type": "authorization_code", "code": code,
         "redirect_uri": redirect_uri, "code_verifier": verifier,
         "scope": " ".join(BOOTSTRAP_SCOPES),
     }
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=tls_vertrauen.client_kontext()) as client:
         resp = await client.post("https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
                                  data=daten)
     body = resp.json()

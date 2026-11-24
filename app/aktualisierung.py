@@ -32,6 +32,7 @@ from pathlib import Path
 
 import config
 import update_paket
+import tls_vertrauen
 import update_tausch
 
 log = logging.getLogger(__name__)
@@ -65,7 +66,10 @@ def _laden(url: str, accept: str = "application/vnd.github+json",
     req = urllib.request.Request(url, headers={"User-Agent": f"EXO-SMTP-Relay/{config.VERSION}",
                                                "Accept": accept})
     # Nur https-Adressen aus der GitHub-API bzw. API_RELEASES.
-    with urllib.request.urlopen(req, timeout=30) as r:          # nosec B310
+    # Kontext mit Systemspeicher UND certifi — frisches Windows kennt die
+    # GitHub-Wurzel sonst evtl. noch nicht (tls_vertrauen).
+    ctx = tls_vertrauen.client_kontext()
+    with urllib.request.urlopen(req, timeout=30, context=ctx) as r:     # nosec B310
         daten = r.read(max_bytes + 1)
     if len(daten) > max_bytes:
         raise ValueError(f"Antwort grösser als {max_bytes // (1024 * 1024)} MB")

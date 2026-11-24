@@ -258,7 +258,8 @@ if ($belegtWeb) {
 Write-Step "Startmenue-Eintrag"
 $startmenue = [Environment]::GetFolderPath("CommonPrograms")
 $verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
-# Rechnername statt localhost: das TLS-Zertifikat des Dienstes traegt nur den Hostnamen, nie "localhost".
+# Rechnername statt localhost: das selbstsignierte TLS-Zertifikat des Dienstes traegt FQDN und kurzen
+# Rechnernamen als SAN (tls_cert.rechnernamen), nie "localhost" - der Link zeigt auf den FQDN.
 try { $rechnername = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $rechnername = "" }
 if (-not $rechnername) { $rechnername = "localhost" }
 Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")

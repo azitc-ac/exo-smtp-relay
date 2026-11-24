@@ -40,8 +40,10 @@ _transport = None
 
 async def _gh(method: str, url: str, token: str, **kwargs) -> dict:
     import httpx
+    import tls_vertrauen
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=30, transport=_transport) as client:
+    async with httpx.AsyncClient(timeout=30, transport=_transport,
+                                 verify=tls_vertrauen.client_kontext()) as client:
         resp = await getattr(client, method)(url, headers=headers, **kwargs)
     if not resp.is_success:
         raise RuntimeError(f"Graph {method.upper()} {url} → {resp.status_code}: {resp.text[:400]}")

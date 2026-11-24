@@ -1,5 +1,33 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.43-beta — 2026-11-24 — Korrekturen aus dem Labtest von 0.2.42
+
+- **Docker: Start mit root-eigenem `./data`** (Blocker). Fehlte `./data`, legte
+  Docker es als root an; das Abbild lief als `appuser` und brach mit
+  `PermissionError: '/app/data/logs'` in einer Neustartschleife ab. Neu:
+  `docker-entrypoint.sh` startet als root, legt `/app/data` an, setzt den
+  Besitz NUR dort, wo er nicht schon `appuser` gehört, und wechselt per
+  `setpriv` auf `appuser` (uid jetzt fest 1000). Der Bind-Mount `./data` bleibt
+  — bestehende Installationen ändern sich nicht. Die CI startet das Abbild mit
+  frischem, root-eigenem Bind-Mount und wartet auf „healthy“.
+- **Windows: „Aktualisierung prüfen“ auf frischem Server** scheiterte mit
+  `CERTIFICATE_VERIFY_FAILED` — Windows lädt Wurzelzertifikate erst bei Bedarf
+  nach. Neues Modul `tls_vertrauen.client_kontext()`: Systemspeicher UND
+  certifi. Ein Pfad für alle ausgehenden Verbindungen: GitHub-API und
+  Downloads (`aktualisierung.py`), STARTTLS zu Exchange Online bzw. Smarthost
+  (`smarthost.py`), Graph und Anmeldung über httpx (`setup_wizard.py`,
+  `auth_cert.py`, `pkce.py`). Eine Firmen-CA aus dem Systemspeicher gilt weiter.
+  Ein Test erzwingt, dass keine neue Stelle daran vorbeigeht.
+- **Selbstsigniertes Zertifikat passt zum Startmenü-Link:** Es trägt jetzt
+  neben dem eingetragenen Hostnamen FQDN und kurzen Rechnernamen als SAN
+  (vorher ohne Hostnamen nur `exo-smtp-relay.local`). Im Container bleibt es
+  bei `exo-smtp-relay.local`. Bestehende Zertifikate bleiben, bis du sie unter
+  *Einstellungen → TLS-Zertifikat des Listeners* neu erzeugst.
+- README: Abschnitt Docker (Daten und Rechte) und systemd (Port 8080, Wechsel
+  per Drop-in) ergänzt. Kein Portwechsel für bestehende Installationen.
+
+**Zu tun:** nichts. Windows: Wer den Link ohne Zertifikatswarnung will, erzeugt
+das selbstsignierte Zertifikat einmal neu (*Einstellungen → TLS-Zertifikat des Listeners*).
 ## 0.2.42 — 2026-11-24 — Release-Schlüssel eingebaut
 
 - `app/update_paket.py`: zwei öffentliche Prüfschlüssel in `RELEASE_SCHLUESSEL`.

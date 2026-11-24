@@ -65,10 +65,18 @@ ENV DATA_DIR=/app/data
 # tauscht sich nicht selbst aus, die Oberfläche zeigt stattdessen den Befehl.
 ENV RELAY_BETRIEBSART=docker
 
-# Mountpunkt VOR dem chown anlegen, sonst gehört er root und appuser kann beim
-# ersten Start nicht schreiben (Crash-Loop).
-RUN mkdir -p /app/data && useradd -m appuser && chown -R appuser /app
-USER appuser
+# Mountpunkt VOR dem chown anlegen (benanntes/anonymes Volume übernimmt den
+# Besitz). Ein BIND-Mount (./data in docker-compose.yml) bringt seinen eigenen
+# Besitz mit — legt Docker ./data selbst an, gehört es root. Deshalb startet der
+# Container als root, docker-entrypoint.sh macht /app/data für appuser
+# beschreibbar und wechselt per setpriv auf appuser (uid 1000, festgenagelt).
+# Der Dienst läuft nie als root. Kein `USER appuser` hier — sonst fehlte dem
+# Einstieg das Recht zum chown (Labtest 0.2.42: Neustartschleife mit
+# PermissionError auf /app/data/logs).
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN mkdir -p /app/data && useradd -m -u 1000 appuser && chown -R appuser /app \
+    && chmod 0755 /usr/local/bin/docker-entrypoint.sh \
+    && command -v setpriv
 
 EXPOSE 25 80 8080
 VOLUME ["/app/data"]
@@ -76,4 +84,5 @@ VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD curl -fk https://localhost:8080/health || curl -f http://localhost:8080/health || exit 1
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "main.py"]

@@ -96,3 +96,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Docker build
         run: docker build -t exo-smtp-relay:ci .
+
+      # Labtest 0.2.42: Ein von Docker als root angelegtes ./data führte zur
+      # Neustartschleife (PermissionError /app/data/logs). Hier genau so:
+      # Bind-Mount auf ein Verzeichnis, das es noch nicht gibt — Docker legt
+      # es als root an. Erwartet: healthy, Dienst als appuser, data gehört 1000.
+      - name: Start mit frischem Bind-Mount (root-eigenes data)
+        run: |
+          test ! -e ci-data
+          docker run -d --name relay-ci -v "$PWD/ci-data:/app/data" exo-smtp-relay:ci
+          for i in $(seq 1 40); do
+            zustand="$(docker inspect -f '{{.State.Health.Status}}' relay-ci)"
+            echo "Versuch $i: $zustand"
+            [ "$zustand" = "healthy" ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' relay-ci)" = "true" ] || break
+            sleep 5
+          done
+          docker logs relay-ci 2>&1 | tail -40
+          test "$(docker inspect -f '{{.State.Health.Status}}' relay-ci)" = "healthy"
+          test "$(docker inspect -f '{{.RestartCount}}' relay-ci)" = "0"
+          test "$(docker exec relay-ci sh -c 'stat -c %u /app/data /app/data/logs' | sort -u)" = "1000"
+          test "$(docker exec relay-ci sh -c 'stat -c %u /proc/1')" = "1000"
+          docker rm -f relay-ci
