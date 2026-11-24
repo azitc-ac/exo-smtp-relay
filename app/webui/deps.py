@@ -20,6 +20,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 import config
+import kennwort_stand
 import settings_store
 import sitzung
 
@@ -206,19 +207,15 @@ def _check_password(password: str) -> bool:
     return secrets.compare_digest(password.encode(), config.WEBUI_PASSWORD.encode())
 
 
-_DEFAULT_PASSWORDS = {"admin", "changeme", ""}
-
-
 def _password_change_required() -> bool:
     """True, solange noch ein Vorgabe-/Platzhalterkennwort gilt (wie Gateway
     `hilfen._password_change_required`).
 
     Ein eigenes Kennwort über `WEBUI_PASSWORD` in der Umgebung zählt als
-    geändert — sonst bliebe ein so eingerichtetes Relay dauerhaft gesperrt."""
-    stored_hash = settings_store.get("ADMIN_PASSWORD_HASH") or ""
-    if stored_hash:
-        return False  # wurde geändert
-    return config.WEBUI_PASSWORD in _DEFAULT_PASSWORDS
+    geändert — sonst bliebe ein so eingerichtetes Relay dauerhaft gesperrt.
+    Die Regel steht in `kennwort_stand` — install.ps1 fragt dieselbe."""
+    return kennwort_stand.aenderung_noetig(settings_store.get("ADMIN_PASSWORD_HASH") or "",
+                                           config.WEBUI_PASSWORD)
 
 
 templates.env.globals["password_change_required"] = _password_change_required

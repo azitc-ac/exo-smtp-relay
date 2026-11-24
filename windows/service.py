@@ -90,13 +90,19 @@ class RelayService(win32serviceutil.ServiceFramework):
         umgebung.setdefault("DATA_DIR", str(DATA))
         umgebung.setdefault("PYTHONUNBUFFERED", "1")
         umgebung["RELAY_BETRIEBSART"] = "windows"
+        # stdout/stderr des Kindes landen in service.log. Ohne Konsole nimmt Python dafür die
+        # ANSI-Codepage (cp1252): „übersprungen“ stand dort als 0xFC (Labtest 0.2.43).
+        # Fest UTF-8 wie app.log - gesetzt, nicht setdefault: eine geerbte Codepage zählt nicht.
+        umgebung["PYTHONIOENCODING"] = "utf-8"
         # Im Dienst ist sys.executable pythonservice.exe - der Kindprozess nimmt die venv.
-        ausgabe = open(LOGDATEI, "ab")
         python = VENV / "Scripts" / "python.exe"
-        return subprocess.Popen(
-            [str(python if python.exists() else sys.executable), str(APP / "main.py")], cwd=str(APP), env=umgebung,
-            stdout=ausgabe, stderr=subprocess.STDOUT,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        # Das Kind erbt einen eigenen Handle; der des Wrappers wird gleich wieder geschlossen
+        # (vorher blieb je Neustart einer offen).
+        with open(LOGDATEI, "ab") as ausgabe:
+            return subprocess.Popen(
+                [str(python if python.exists() else sys.executable), str(APP / "main.py")], cwd=str(APP),
+                env=umgebung, stdout=ausgabe, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def _waechter_melden(self) -> None:
         try:

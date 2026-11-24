@@ -1,5 +1,25 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.44-beta — 2026-11-24 — Korrekturen aus dem Labtest von 0.2.43
+
+- **Windows: `install.ps1` meldete nach einem Upgrade weiter „admin / admin -
+  bitte aendern“**, obwohl das Kennwort längst geändert war. Der Installer fragt
+  jetzt dieselbe Regel wie die Oberfläche (neues Modul `kennwort_stand.py`,
+  `ADMIN_PASSWORD_HASH` in settings.json): mit eigenem Kennwort „Kennwort
+  unveraendert“, sonst weiter der Hinweis. Beim Upgrade heißt es außerdem
+  „Aktualisiert.“ statt „Fertig.“ und „Dienst aktualisiert (Starttyp
+  unveraendert)“ statt „(Autostart)“ — ein Upgrade ändert den Starttyp nicht.
+- **Windows: `data\logs\service.log` in UTF-8.** Die Datei nimmt stdout/stderr
+  des Anwendungsprozesses auf; ohne Konsole schrieb Python sie in der
+  ANSI-Codepage („�bersprungen“). Der Dienst-Wrapper setzt jetzt
+  `PYTHONIOENCODING=utf-8` für den Kindprozess. `app.log` war schon UTF-8.
+  Nebenbei schließt der Wrapper seinen Handle auf service.log nach dem Start
+  des Kindes (vorher blieb je Neustart einer offen).
+
+**Zu tun:** nichts. Die UTF-8-Ausgabe greift nach einem Knopf-Update erst mit
+dem nächsten Neustart des Dienstes (der laufende Wrapper bleibt bis dahin der
+alte); ältere Zeilen in service.log bleiben in der alten Codierung.
+
 ## 0.2.43-beta — 2026-11-24 — Korrekturen aus dem Labtest von 0.2.42
 
 - **Docker: Start mit root-eigenem `./data`** (Blocker). Fehlte `./data`, legte

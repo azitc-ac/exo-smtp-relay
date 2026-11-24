@@ -137,6 +137,7 @@ Write-Ok "Python: $PythonExe"
 
 # -- Dienst anhalten, falls vorhanden -------------------------------------------
 $dienst = Get-Service -Name "ExoSmtpRelay" -ErrorAction SilentlyContinue
+$istUpgrade = [bool]$dienst
 if ($dienst -and $dienst.Status -eq "Running") {
     Write-Step "Halte laufenden Dienst an"
     Stop-Service -Name "ExoSmtpRelay" -Force
@@ -224,7 +225,7 @@ $dienstUmgebung = @("PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
 $dienstUmgebung += "WEBUI_PORT=$WebPort"
 New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -Name "Environment" `
     -PropertyType MultiString -Value $dienstUmgebung -Force | Out-Null
-Write-Ok "Dienst registriert (Autostart)"
+if ($istUpgrade) { Write-Ok "Dienst aktualisiert (Starttyp unveraendert)" } else { Write-Ok "Dienst registriert (Autostart)" }
 
 # -- Firewall ---------------------------------------------------------------------
 if (-not $SkipFirewall) {
@@ -271,7 +272,22 @@ Start-Sleep -Seconds 3
 $dienst = Get-Service -Name "ExoSmtpRelay"
 Write-Ok "Status: $($dienst.Status)"
 
+# Kennwort-Hinweis nach DERSELBEN Regel wie die Oberflaeche (app\kennwort_stand.py):
+# nach einem Upgrade mit eigenem Kennwort kein "admin / admin" mehr (Labtest 0.2.43).
+$kennwortStand = "unbekannt"
+try {
+    $kennwortStand = (& $venvPython (Join-Path $InstallDir "app\kennwort_stand.py") (Join-Path $dataDir "settings.json") | Select-Object -Last 1)
+} catch { $kennwortStand = "unbekannt" }
+if ($kennwortStand -eq "eigenes") {
+    $kennwortHinweis = "Kennwort unveraendert"
+} elseif ($kennwortStand -eq "vorgabe") {
+    $kennwortHinweis = "admin / admin - bitte aendern"
+} else {
+    $kennwortHinweis = "Kennwort: falls noch admin / admin, bitte aendern"
+}
+
 Write-Host ""
-Write-Host "Fertig. Weboberflaeche: https://${rechnername}:$WebPort  (admin / admin - bitte aendern; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
+if ($istUpgrade) { $fertig = "Aktualisiert" } else { $fertig = "Fertig" }
+Write-Host "${fertig}. Weboberflaeche: https://${rechnername}:$WebPort  ($kennwortHinweis; Startmenue: EXO SMTP Relay)" -ForegroundColor Green
 Write-Host "Protokoll: $InstallDir\data\logs\app.log"
 Write-Host "Entfernen: .\uninstall.ps1"
