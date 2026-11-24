@@ -10,6 +10,7 @@ Drei Ebenen: Nachbau von Get-Acl/Set-Acl (läuft mit pwsh auch unter Linux), ein
 gegen NTFS (nur Windows) und ein statischer Test.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -218,8 +219,11 @@ def test_data_acl_echt_auf_ntfs(tmp_path):
         "}\n"
         "ConvertTo-Json -Compress -Depth 5 -InputObject ([ordered]@{ Acls = $z; Meldungen = @($global:M) })\n",
         encoding="utf-8-sig")
+    # PSModulePath aus einer pwsh-Sitzung (CI-Schritt) laedt sonst die PS7-Module in 5.1:
+    # "Get-Acl ... module could not be loaded".
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
     r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120, env=umgebung)
     assert r.returncode == 0, r.stderr + r.stdout
     e = json.loads(r.stdout.strip().splitlines()[-1])
     acls = e["Acls"]
