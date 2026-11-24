@@ -368,6 +368,35 @@ Eintrag streichen.
 
 Prüfen von Hand: `sha256sum -c SHA256SUMS`.
 
+### Ablauf eines Releases (Checkliste)
+
+Erprobt mit dem ersten Release v0.2.42 am 24.11.2026.
+
+1. **Vorher:** `VERSION` und `CHANGELOG.md` angehoben, auf `main` gepusht, CI grün
+   (Linux, Windows, Container).
+2. **Tag setzen:** `git tag -a v<version> -m "…" && git push origin v<version>`.
+   Für eine Vorabfassung `v<version>-beta` nehmen. Das erreicht nur Relays mit
+   `UPDATE_KANAL=beta`.
+3. **Lauf beobachten:** `gh run watch <id> --exit-status`.
+   Bekannter Stolperstein beim allerersten Release: Ein Image-Job kann mit
+   `failed to push ghcr.io/…: denied` scheitern, weil GitHub das Paket gerade
+   anlegt. Dann `gh run rerun <id> --failed` ausführen. Beim zweiten Versuch
+   ist das Paket da.
+4. **Nachprüfen, wie ein Relay es sieht:**
+   ```bash
+   gh release download v<version> -R azitc-ac/exo-smtp-relay -D /tmp/rel
+   cd /tmp/rel && sha256sum -c SHA256SUMS
+   python tools/release.py pruefen /tmp/rel      # Signatur gegen eingebaute Schlüssel
+   tar tzf exo-smtp-relay-<version>-linux.tar.gz | grep -E 'LICENSE|NOTICE'
+   ```
+   Für das Abbild: Tags `<version>` und `stable` bzw. `beta` vorhanden,
+   Plattformen amd64 und arm64, ohne Anmeldung abrufbar (öffentlich).
+5. **Test auf echten Installationen:** siehe `docs/release-test.md`.
+
+Es sind zwei Prüfschlüssel eingebaut, ein Haupt- und ein Reserveschlüssel. Der
+Hauptschlüssel signiert über das Secret. Der Reserveschlüssel liegt offline,
+damit Aktualisierungen auch nach Verlust des Hauptschlüssels möglich bleiben.
+
 ### Optional: Authenticode für die Windows-Skripte
 
 Die PowerShell-Skripte unter `windows\` lassen sich mit einem
