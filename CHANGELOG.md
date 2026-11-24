@@ -1,5 +1,14 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.29 — 2026-11-24 — Keine Seite in einen Suchindex
+
+- Wie im Gateway (v1.9.172): Jede Antwort der Weboberfläche trägt
+  `X-Robots-Tag: noindex, nofollow`. Als Kopfzeile, nicht als
+  `robots.txt`-Sperre: Eine gesperrte Adresse ruft ein Suchdienst nicht mehr
+  ab und sieht das `noindex` nie.
+
+**Zu tun:** nichts.
+
 ## 0.2.28 — 2026-11-24 — Lücken-Pakete angehoben, pip-audit/bandit/ruff in der CI
 
 - Wie im Gateway (v1.11.6): `cryptography` 50.0.0, `certifi` 2026.10.18,

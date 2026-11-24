@@ -64,6 +64,11 @@ async def _sicherheits_header(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # Keine Seite des Relays gehört in einen Suchindex. Als Header, NICHT als
+    # robots.txt-Disallow: Eine gesperrte Adresse ruft der Crawler nicht mehr
+    # ab, sieht das noindex also nie — schon erfasste Adressen (beim Gateway
+    # führte Google /auth/login?next=/) blieben dann im Index stehen.
+    response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault(
         "Content-Security-Policy",

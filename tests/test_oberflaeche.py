@@ -214,6 +214,20 @@ def test_sicherheits_header(client):
     assert r.headers["Cache-Control"] == "no-store"
 
 
+@pytest.mark.parametrize("pfad", ["/auth/login", "/auth/login?next=/", "/", "/relay",
+                                  "/static/style.css", "/health", "/gibt-es-nicht"])
+def test_keine_seite_in_den_suchindex(client, pfad):
+    """Wie Gateway v1.9.172: Google führte dort /auth/login?next=/ im Index."""
+    r = client.get(pfad, follow_redirects=False)
+    assert r.headers.get("X-Robots-Tag") == "noindex, nofollow", (pfad, r.status_code)
+
+
+def test_kein_robots_disallow(client):
+    """Ein Disallow verhinderte, dass der Crawler das noindex überhaupt sieht."""
+    r = client.get("/robots.txt")
+    assert r.status_code != 200 or "Disallow: /\n" not in r.text + "\n"
+
+
 def test_keine_schnittstellenbeschreibung(client):
     for pfad in ("/docs", "/openapi.json", "/redoc"):
         assert client.get(pfad).status_code in (302, 404)
