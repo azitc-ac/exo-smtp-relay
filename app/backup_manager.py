@@ -46,6 +46,7 @@ Die Magie unterscheidet sich vom Gateway (`EXOGW-BACKUP-1`): Ein Relay-Backup
 ist kein Gateway-Backup und umgekehrt.
 
 RECHTE: Jede wiederhergestellte Datei geht über `secure_io.write_secret_bytes`
+(Datenbanken über `_db_schreiben` + `harden_file`)
 (600, Verzeichnis 700; unter Windows erbt sie die ACL von data\\, die
 install.ps1 auf SYSTEM und Administratoren beschränkt). Danach härtet
 `secure_io.harden_tree` den Bestand nach.
@@ -168,6 +169,33 @@ def _db_lesen(pfad: Path) -> bytes:
         except sqlite3.Error as exc:
             log.warning("Backup: %s nicht über SQLite lesbar (%s) — Datei wird kopiert", pfad, exc)
             return pfad.read_bytes()
+
+
+def _db_schreiben(target: Path, inhalt: bytes) -> None:
+    """Datenbank zurückspielen — über SQLite IN die bestehende Datei, nicht per
+    Dateitausch.
+
+    ANLASS (CI unter Windows, 24.11.2026): `os.replace()` auf relay_hosts.db
+    scheiterte mit WinError 5/32, solange der Dienst eine Verbindung offen hat.
+    Unter Windows lässt sich eine geöffnete Datei nicht ersetzen; unter Linux
+    gelänge der Tausch zwar, offene Verbindungen schrieben aber in die alte,
+    gelöschte Datei weiter. Die Backup-Schnittstelle von SQLite nimmt die
+    Sperren der Datenbank und ersetzt den Inhalt — auf beiden Systemen, und
+    die Datei behält ihre Rechte bzw. ACL."""
+    secure_io.ensure_dir(target.parent)
+    with tempfile.TemporaryDirectory() as tmp:
+        quelle_pfad = Path(tmp) / "quelle.db"
+        quelle_pfad.write_bytes(inhalt)
+        quelle = sqlite3.connect(str(quelle_pfad))
+        try:
+            ziel = sqlite3.connect(str(target))
+            try:
+                quelle.backup(ziel)
+            finally:
+                ziel.close()
+        finally:
+            quelle.close()
+    secure_io.harden_file(target)       # neu angelegt: umask-Rechte → 600
 
 
 def _ausgeschlossen(rel: PurePath) -> bool:
@@ -395,7 +423,15 @@ def restore_backup(zip_bytes: bytes, auswahl: list[str] | None = None) -> dict:
                     continue
                 # ZWINGEND über secure_io: 600/700 bzw. die ACL von data\ —
                 # eine Wiederherstellung darf die Rechte nicht verschlechtern.
-                secure_io.write_secret_bytes(target, zf.read(name))
+                inhalt = zf.read(name)
+                if target.suffix == ".db":
+                    try:
+                        _db_schreiben(target, inhalt)
+                    except sqlite3.DatabaseError as exc:
+                        warnings.append(f"Übersprungen (keine gültige Datenbank): {name} — {exc}")
+                        continue
+                else:
+                    secure_io.write_secret_bytes(target, inhalt)
                 restored += 1
                 if name == "data/auth.pfx":
                     warnings.append(

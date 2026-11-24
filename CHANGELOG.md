@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.36 — 2026-11-24 — Backup: Datenbanken auch bei laufendem Dienst unter Windows
+
+- Die Wiederherstellung tauschte `relay_hosts.db` und `mail_audit.db` als
+  Datei aus. Unter Windows scheitert das, solange der Dienst eine Verbindung
+  offen hat (in der CI gemessen: WinError 5/32); unter Linux schrieben offene
+  Verbindungen in die alte Datei weiter. Jetzt ersetzt SQLite den Inhalt der
+  bestehenden Datenbank (Backup-Schnittstelle), Rechte und ACL bleiben.
+
+**Zu tun:** nichts.
+
 ## 0.2.35 — 2026-11-24 — Backup und Wiederherstellung, optional mit Passwort
 
 - Neue Seite **Backup** (wie Gateway f0c95af, gleiche Routen

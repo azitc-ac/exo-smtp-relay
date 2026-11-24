@@ -77,6 +77,8 @@ def _zustand(d):
 
 
 def _leeren(d):
+    import gc
+    gc.collect()        # unter Windows hält eine nicht eingesammelte Verbindung die .db offen
     for p in sorted(d.rglob("*"), reverse=True):
         p.rmdir() if p.is_dir() else p.unlink()
     assert not any(d.iterdir())
@@ -190,6 +192,22 @@ def test_fremdes_archiv_wird_abgelehnt(relay):
     fremd = _zip({bm.MANIFEST: json.dumps({"art": "exo-signature-gateway"}),
                   "data/settings.json": "{}"})
     assert not bm.restore_backup(fremd)["ok"]
+
+
+def test_db_wiederherstellen_bei_offener_verbindung(relay):
+    """Der Dienst hält Verbindungen offen; unter Windows scheiterte der
+    Dateitausch daran (WinError 5/32). Gilt die Wiederherstellung trotzdem?"""
+    import sqlite3
+    import relay_hosts
+    daten, _ = bm.create_backup()
+    relay_hosts.entfernen("10.0.0.5")
+    offen = sqlite3.connect(str(relay / "relay_hosts.db"))
+    try:
+        assert bm.restore_backup(daten, ["data/relay_hosts.db"])["ok"]
+        assert offen.execute("SELECT COUNT(*) FROM hosts").fetchone()[0] == 2, \
+            "offene Verbindung sieht den alten Stand — Datei getauscht statt Inhalt ersetzt"
+    finally:
+        offen.close()
 
 
 def test_zip_slip(relay, tmp_path):
