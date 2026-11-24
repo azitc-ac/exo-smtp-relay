@@ -10,7 +10,7 @@
 
     Voraussetzungen:
       * Windows Server 2016+ oder Windows 10/11, als Administrator ausfuehren
-      * Python 3.11 oder neuer (https://www.python.org/downloads/windows/,
+      * Python 3.11 bis 3.13 (https://www.python.org/downloads/windows/,
         "Add python.exe to PATH" anhaken) - oder -PythonExe angeben
       * Fuer die Postfachabfrage: Install-Module ExchangeOnlineManagement
         (der Installer bietet es an)
@@ -21,7 +21,7 @@
     Zielverzeichnis. Vorgabe: C:\ProgramData\exo-smtp-relay
 
 .PARAMETER PythonExe
-    Pfad zu python.exe. Ohne Angabe wird "py -3" bzw. "python" gesucht.
+    Pfad zu python.exe (3.11 bis 3.13). Ohne Angabe: "py -3.13", "-3.12", "-3.11", "py -3", "python".
 
 .PARAMETER WebPort
     Port der Weboberflaeche. Vorgabe: 8443 bei der Erstinstallation; bei einem Upgrade
@@ -301,6 +301,29 @@ function Restore-RelayNachAbbruch {
     }
 }
 
+# Python-Fassungen, fuer die app\requirements.lock Wheels hat (pywin32, pydantic_core, cffi ...).
+# Eine neuere Fassung baut eine venv, in die pip nichts installieren kann.
+$RelayPythonMin = "3.11"
+$RelayPythonMax = "3.13"
+
+# "3.12" (bzw. mit -Pfad sys.executable) - oder "" bei jedem Fehler. EAP lokal Continue: eine
+# stderr-Zeile des Kandidaten ist unter PS 5.1 sonst ein beendender Fehler.
+function Get-RelayPythonFassung([string]$Exe, [string[]]$Zusatz, [switch]$Pfad) {
+    $code = if ($Pfad) { "import sys; print(sys.executable)" } else { "import sys; print('%d.%d' % sys.version_info[:2])" }
+    $vorher = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $aus = @(& $Exe @($Zusatz + @("-c", $code)) 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $aus.Count -eq 0) { return "" }
+        return "$($aus[-1])".Trim()
+    } catch { return "" } finally { $ErrorActionPreference = $vorher }
+}
+
+function Test-RelayPythonPasst([string]$Fassung) {
+    if ($Fassung -notmatch '^\d+\.\d+$') { return $false }
+    return ([version]$Fassung -ge [version]$RelayPythonMin) -and ([version]$Fassung -le [version]$RelayPythonMax)
+}
+
 # -- Administrator? ---------------------------------------------------------------
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -315,26 +338,33 @@ if (-not (Test-Path (Join-Path $quelle "app\main.py"))) {
 }
 
 # -- Python finden oder installieren ------------------------------------------------
-Write-Step "Suche Python 3.11+"
-if ($PythonExe -eq "") {
+Write-Step "Suche Python $RelayPythonMin bis $RelayPythonMax"
+if ($PythonExe -ne "") {
+    $ver = Get-RelayPythonFassung $PythonExe @()
+    if (-not (Test-RelayPythonPasst $ver)) {
+        throw "-PythonExe $PythonExe ist Python '$ver' - unterstuetzt sind $RelayPythonMin bis $RelayPythonMax (dafuer hat requirements.lock Wheels)."
+    }
+} else {
+    # Ausdrueckliche Unterfassungen zuerst: "py -3" nimmt die HOECHSTE installierte Fassung
+    # (CI 0.2.46: 3.15 - pywin32 311 hat dafuer kein Wheel, pip scheitert).
     $kandidaten = @()
     $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py) { $kandidaten += @{ Exe = $py.Source; Args = @("-3") } }
+    if ($py) {
+        foreach ($u in @("-3.13", "-3.12", "-3.11", "-3")) { $kandidaten += @{ Exe = $py.Source; Args = @($u) } }
+    }
     $python = Get-Command python -ErrorAction SilentlyContinue
     if ($python) { $kandidaten += @{ Exe = $python.Source; Args = @() } }
     foreach ($k in $kandidaten) {
-        try {
-            $ver = & $k.Exe @($k.Args + @("-c", "import sys; print('%d.%d' % sys.version_info[:2])")) 2>$null
-            if ($ver -and ([version]$ver -ge [version]"3.11")) {
-                $PythonExe = (& $k.Exe @($k.Args + @("-c", "import sys; print(sys.executable)"))).Trim()
-                break
-            }
-        } catch { }
+        $ver = Get-RelayPythonFassung $k.Exe $k.Args
+        if (Test-RelayPythonPasst $ver) {
+            $PythonExe = (Get-RelayPythonFassung $k.Exe $k.Args -Pfad)
+            if ($PythonExe) { break }
+        }
     }
 }
 
 if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
-    Write-Warn "Python 3.11+ nicht gefunden."
+    Write-Warn "Python $RelayPythonMin bis $RelayPythonMax nicht gefunden."
     $antwort = if ($Unattended) { "j" } else { Read-Host "Jetzt herunterladen und installieren? (j/n)" }
     if ($antwort -match "^[jJyY]") {
         Write-Step "Lade Python 3.12 herunter"
@@ -357,9 +387,7 @@ if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
 
             # Nach Installation neuerlich versuchen
             $py = Get-Command py -ErrorAction SilentlyContinue
-            if ($py) {
-                $PythonExe = (& $py.Source @("-3", "-c", "import sys; print(sys.executable)")).Trim()
-            }
+            if ($py) { $PythonExe = Get-RelayPythonFassung $py.Source @("-3.12") -Pfad }
             if ($PythonExe -and (Test-Path $PythonExe)) {
                 Write-Ok "Python installiert: $PythonExe"
             } else {
@@ -369,13 +397,13 @@ if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
             Write-Host ""
             Write-Host "Automatischer Download fehlgeschlagen." -ForegroundColor Yellow
             Write-Host "Bitte von https://www.python.org/downloads/windows/ installieren:" -ForegroundColor Yellow
-            Write-Host "  * Python 3.11 oder neuer waehlen" -ForegroundColor Yellow
+            Write-Host "  * Python 3.11, 3.12 oder 3.13 waehlen (neuere haben noch keine passenden Pakete)" -ForegroundColor Yellow
             Write-Host "  * Haken bei 'Add python.exe to PATH' setzen" -ForegroundColor Yellow
             Write-Host "  * Installation abschliessen und dann dieses Skript erneut ausfuehren" -ForegroundColor Yellow
             throw "Python erforderlich. Siehe obige Anleitung."
         }
     } else {
-        throw "Python 3.11+ erforderlich. Bitte von https://www.python.org/downloads/windows/ installieren (Haken 'Add python.exe to PATH')."
+        throw "Python 3.11 bis 3.13 erforderlich. Bitte von https://www.python.org/downloads/windows/ installieren (Haken 'Add python.exe to PATH')."
     }
 }
 Write-Ok "Python: $PythonExe"

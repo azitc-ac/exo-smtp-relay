@@ -34,6 +34,12 @@ Neu in 0.2.46 (Labtest von 0.2.45, Windows PowerShell 5.1):
   zum Abbruch samt Rücknahme. Läuft der Dienst nach dem Start nicht, ebenso.
   Nicht beendend bleiben: pip-Selbstaktualisierung, pywin32-Nachinstallation und
   ExchangeOnlineManagement (jeweils WARNUNG).
+- **Python nur 3.11 bis 3.13.** `py -3` nimmt die höchste installierte Fassung — im
+  CI-Lauf 3.15, für die pywin32 311 kein Wheel hat; pip scheiterte (bisher unbemerkt,
+  weil der Exit-Code nicht geprüft wurde). Der Installer fragt jetzt `py -3.13`,
+  `-3.12`, `-3.11` vor `py -3` und `python` und nimmt nur Fassungen, für die
+  `requirements.lock` Wheels hat; `-PythonExe` mit anderer Fassung bricht mit klarer
+  Meldung ab. Ohne passende Fassung bietet er wie bisher Python 3.12 an.
 - Tests: Der Nachbau ersetzt nicht mehr die icacls-Funktion, sondern nur icacls.exe
   selbst (Exit-Codes wie gemessen); Gegenproben für 0.2.45, „/C zurück“ und „EAP
   zurück“. Neuer CI-Job **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation,

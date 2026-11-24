@@ -175,3 +175,48 @@ def test_gegenprobe_ablauf_0245_faellt_durch():
         pytest.skip("Stand 0.2.45 nicht im Repository (flacher Checkout)")
     assert _verstoesse(alt.stdout.lstrip("\ufeff")) == [
         "kopieren_im_try", "start_im_try", "ruecknahme_im_catch", "exitcode_ungeprueft"]
+
+
+_PYTHON_PRUEFUNG = ("Get-RelayPythonFassung", "Test-RelayPythonPasst")
+
+
+def _python_lauf(tmp_path, funktionen: str) -> dict:
+    grenzen = "\n".join(re.search(rf"^\${n} = .*$", _code(), re.M).group(0)
+                        for n in ("RelayPythonMin", "RelayPythonMax"))
+    skript = tmp_path / "py.ps1"
+    skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n" + grenzen + "\n"
+                      + funktionen + "\n$e = [ordered]@{}\n"
+                      "foreach ($v in @('3.10', '3.11', '3.12', '3.13', '3.14', '3.15', '', 'kaputt')) { $e[\"v$v\"] = Test-RelayPythonPasst $v }\n"
+                      "$e['fehlt'] = Get-RelayPythonFassung 'C:\\gibt\\es\\nicht.exe' @()\n"
+                      "ConvertTo-Json -Compress -InputObject $e\n", encoding="utf-8-sig")
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
+                       capture_output=True, text=True, timeout=120, env=umgebung)
+    assert r.returncode == 0, r.stderr + r.stdout
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+_PYTHON_SOLL = {"v3.10": False, "v3.11": True, "v3.12": True, "v3.13": True, "v3.14": False,
+                "v3.15": False, "v": False, "vkaputt": False, "fehlt": ""}
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_python_nur_fassungen_mit_wheels(tmp_path):
+    """CI 0.2.46: `py -3` lieferte auf dem Runner Python 3.15; pywin32 311 hat dafür kein Wheel,
+    pip scheiterte. Nur 3.11–3.13 zählen; ein fehlendes Programm ist kein Abbruch."""
+    assert _python_lauf(tmp_path, "\n".join(_funktion(n) for n in _PYTHON_PRUEFUNG)) == _PYTHON_SOLL
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_python_gegenprobe_ohne_obergrenze(tmp_path):
+    funktionen = "\n".join(_funktion(n) for n in _PYTHON_PRUEFUNG)
+    ohne = funktionen.replace("-and ([version]$Fassung -le [version]$RelayPythonMax)", "")
+    assert ohne != funktionen
+    e = _python_lauf(tmp_path, ohne)
+    assert e["v3.15"] is True and e != _PYTHON_SOLL
+
+
+def test_python_suche_fragt_unterfassungen_zuerst():
+    code = _code()
+    assert '@("-3.13", "-3.12", "-3.11", "-3")' in code
+    assert "Test-RelayPythonPasst $ver" in code

@@ -177,7 +177,7 @@ NFS mit `root_squash`), setze den Besitz selbst: `sudo chown -R 1000:1000 data`.
 ```
 
 Das Skript:
-- **Prüft Python 3.11+** — falls nicht vorhanden, bietet automatischen Download und Installation von python.org
+- **Prüft Python 3.11 bis 3.13** (dafür hat `requirements.lock` Wheels; `py -3.13`, `-3.12`, `-3.11` vor `py -3`, das sonst die höchste Fassung nimmt) — falls keine passende vorhanden ist, bietet es Download und Installation von Python 3.12 von python.org an
 - Kopiert die Anwendung nach `C:\ProgramData\exo-smtp-relay`
 - Legt eine Python venv an und installiert Abhängigkeiten
 - Registriert den Dienst **ExoSmtpRelay** mit Autostart
