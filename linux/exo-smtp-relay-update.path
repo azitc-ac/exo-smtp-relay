@@ -1,0 +1,12 @@
+# Löst den Tausch aus, sobald die Weboberfläche einen Auftrag schreibt
+# (data/update/auftrag.json — erst NACH Prüfung von Signatur und Prüfsumme).
+# Einrichten: siehe Kopf von exo-smtp-relay-update.service.
+[Unit]
+Description=EXO SMTP Relay — Auftrag zur Aktualisierung beobachten
+
+[Path]
+PathExists=/opt/exo-smtp-relay/data/update/auftrag.json
+Unit=exo-smtp-relay-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -15,9 +15,19 @@ Installieren (als Administrator; `install.ps1` tut genau das):
 Entfernen:
     venv\\Scripts\\python.exe windows\\service.py stop
     venv\\Scripts\\python.exe windows\\service.py remove
+
+AKTUALISIERUNG (seit 0.2.40)
+----------------------------
+Der Wrapper ist auch der Tauscher: Erscheint `data\\update\\auftrag.json`
+(geschrieben von der Weboberfläche NACH Prüfung von Signatur und Prüfsumme),
+ruft er `app\\update_tausch.ablauf()` auf — erneut prüfen, Prozess anhalten,
+tauschen, starten, bei Fehlstart zurückrollen. `waechter.json` meldet der
+Oberfläche, dass dieser Wrapper das kann; ein älterer schreibt sie nicht.
 """
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -29,6 +39,10 @@ APP = WURZEL / "app"
 DATA = WURZEL / "data"
 LOGDATEI = DATA / "logs" / "service.log"
 VENV = WURZEL / "venv"
+UPDATE = DATA / "update"
+AUFTRAG = UPDATE / "auftrag.json"
+WAECHTER = UPDATE / "waechter.json"
+PROTOKOLL = 1                  # muss update_tausch.PROTOKOLL entsprechen
 
 # pythonservice.exe bettet den Basis-Interpreter ein und ignoriert pyvenv.cfg:
 # die Pakete der venv (pywin32, servicemanager, ...) liegen sonst nicht im Suchpfad.
@@ -75,6 +89,7 @@ class RelayService(win32serviceutil.ServiceFramework):
         umgebung = dict(os.environ)
         umgebung.setdefault("DATA_DIR", str(DATA))
         umgebung.setdefault("PYTHONUNBUFFERED", "1")
+        umgebung["RELAY_BETRIEBSART"] = "windows"
         # Im Dienst ist sys.executable pythonservice.exe - der Kindprozess nimmt die venv.
         ausgabe = open(LOGDATEI, "ab")
         python = VENV / "Scripts" / "python.exe"
@@ -83,8 +98,42 @@ class RelayService(win32serviceutil.ServiceFramework):
             stdout=ausgabe, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
+    def _waechter_melden(self) -> None:
+        try:
+            UPDATE.mkdir(parents=True, exist_ok=True)
+            WAECHTER.write_text(json.dumps({"protokoll": PROTOKOLL, "art": "windows",
+                                            "pid": os.getpid()}), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _neu_starten(self) -> None:
+        self._proc = self._starten()
+
+    def _laeuft(self) -> bool:
+        return bool(self._proc and self._proc.poll() is None)
+
+    def _aktualisieren(self) -> None:
+        """Auftrag ausführen — mit dem update_tausch.py der LAUFENDEN Fassung,
+        frisch von der Platte (nicht aus einem früheren Import)."""
+        try:
+            spec = importlib.util.spec_from_file_location("_update_tausch", APP / "update_tausch.py")
+            tausch = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tausch)
+            ende = tausch.ablauf(WURZEL, DATA, stoppen=self._beenden,
+                                 starten=self._neu_starten, laeuft=self._laeuft)
+            servicemanager.LogInfoMsg(f"EXO SMTP Relay: Aktualisierung beendet ({ende})")
+        except Exception as exc:                               # noqa: BLE001
+            servicemanager.LogErrorMsg(f"EXO SMTP Relay: Aktualisierung abgebrochen: {exc}")
+            try:
+                AUFTRAG.unlink()
+            except OSError:
+                pass
+        if not self._laeuft():
+            self._proc = self._starten()
+
     def _lauf(self) -> None:
         fehlstarts = 0
+        self._waechter_melden()
         while True:
             self._proc = self._starten()
             gestartet = time.monotonic()
@@ -92,6 +141,9 @@ class RelayService(win32serviceutil.ServiceFramework):
                 if win32event.WaitForSingleObject(self._stop, 1000) == win32event.WAIT_OBJECT_0:
                     self._beenden()
                     return
+                if AUFTRAG.exists():
+                    self._aktualisieren()
+                    gestartet = time.monotonic()
                 if self._proc.poll() is not None:
                     break
             # Abgestürzt — neu starten, mit wachsender Pause bei Serienfehlern.

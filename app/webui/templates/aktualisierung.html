@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Aktualisierung</h1>
+<p class="hint" style="max-width:720px;margin:0 0 16px">Neue Fassungen kommen als fertige, signierte Releases
+  von GitHub. Eingespielt wird nur, was mit dem im Relay eingebauten Schlüssel signiert ist; die Daten
+  (<code>data/</code>) bleiben dabei unberührt. Kommt die neue Fassung nicht stabil hoch, läuft die alte weiter.</p>
+
+<!-- ── Stand ──────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="stand">
+  <h2 style="margin-top:0">Stand</h2>
+  <div class="settings-row"><label>Laufende Fassung</label><span><strong>v{{ z.aktuell }}</strong></span></div>
+  <div class="settings-row"><label>Betriebsart</label>
+    <span id="betriebsart">{{ {'docker': 'Docker-Container', 'windows': 'Windows-Dienst', 'systemd': 'Linux (systemd)', 'manuell': 'von Hand gestartet'}[z.betriebsart] }}</span></div>
+  <div class="settings-row"><label>Neueste im Kanal {{ z.kanal }}</label>
+    <span id="neueste">{% if z.stand.neueste %}v{{ z.stand.neueste }}{% if z.stand.url %} — <a href="{{ z.stand.url }}" target="_blank" rel="noopener">Release ansehen</a>{% endif %}{% elif z.stand.hinweis %}{{ z.stand.hinweis }}{% elif z.stand.error %}{{ z.stand.error }}{% else %}noch nicht geprüft{% endif %}</span></div>
+  <div class="settings-row"><label>Zuletzt geprüft</label><span id="geprueft">{{ z.stand.geprueft or '—' }}</span></div>
+  <div class="actions">
+    <button class="btn secondary" id="pruefen-btn" onclick="pruefen(this)">Jetzt prüfen</button>
+  </div>
+  <div id="pruefen-msg" class="alert" style="display:none;margin-top:10px"></div>
+</div>
+
+<!-- ── Einspielen ─────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="einspielen">
+  <h2 style="margin-top:0">Einspielen</h2>
+  {% if z.betriebsart == 'docker' %}
+  <p class="hint">Ein Container tauscht sich nicht selbst aus. Auf dem Docker-Host im Verzeichnis mit
+    <code>docker-compose.yml</code>:</p>
+  <pre id="docker-befehl" style="user-select:all">{{ z.docker.befehl }}</pre>
+  <p class="hint">Dafür muss <code>docker-compose.yml</code> das fertige Abbild nennen
+    (<code>image: {{ z.docker.image }}</code>) statt es mit <code>build: .</code> selbst zu bauen.
+    Automatisch geht es mit <a href="https://containrrr.dev/watchtower/" target="_blank" rel="noopener">Watchtower</a>,
+    das das Abbild beobachtet und den Container bei einem neuen Stand neu startet.</p>
+  {% else %}
+  {% if not z.schluessel %}
+  <div class="alert warn">In dieser Fassung ist kein Prüfschlüssel eingebaut — ohne gültige Signatur
+    wird nichts eingespielt.</div>
+  {% elif not z.bereit %}
+  <div class="alert warn" id="tauscher-hinweis">{{ z.hinweis }}</div>
+  {% endif %}
+  <p class="hint">Lädt das Paket, prüft Prüfsumme und Ed25519-Signatur und übergibt es an den Tauscher
+    ({{ 'Dienst-Wrapper' if z.betriebsart == 'windows' else 'exo-smtp-relay-update.service' }}). Der Dienst
+    ist dabei kurz nicht erreichbar.</p>
+  <div class="actions">
+    <button class="btn primary" id="einspielen-btn" onclick="einspielen(this)"
+            {% if not (z.bereit and z.schluessel and z.stand.verfuegbar) %}disabled{% endif %}>
+      Einspielen{% if z.stand.verfuegbar %} (v{{ z.stand.neueste }}){% endif %}</button>
+  </div>
+  {% endif %}
+  <div id="status" class="hint" style="margin-top:12px">
+    {% if z.status.zustand and z.status.zustand != 'ruhe' %}
+    Letzter Vorgang ({{ z.status.zeit }}): <strong>{{ z.status.zustand }}</strong> — {{ z.status.text }}
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Einstellungen ──────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="einstellungen">
+  <h2 style="margin-top:0">Einstellungen</h2>
+  <div class="settings-row">
+    <label for="UPDATE_KANAL">Kanal</label>
+    <select id="UPDATE_KANAL">
+      {% for k in kanaele %}<option value="{{ k }}" {% if s.UPDATE_KANAL == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+    </select>
+    <span class="hint"><code>stable</code>: nur freigegebene Fassungen. <code>beta</code>: auch Vorabfassungen (<code>-beta</code>).</span>
+  </div>
+  <div class="settings-row">
+    <label for="UPDATE_PRUEF_STUNDEN">Prüfintervall</label>
+    <select id="UPDATE_PRUEF_STUNDEN">
+      {% for h in intervalle %}<option value="{{ h }}" {% if s.UPDATE_PRUEF_STUNDEN == h %}selected{% endif %}>{{ 'nie' if h == 0 else ('alle %d Stunden' % h if h < 168 else 'wöchentlich') }}</option>{% endfor %}
+    </select>
+    <span class="hint">Nur Prüfen und Anzeigen (Band auf jeder Seite) — eingespielt wird nie von selbst.</span>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="update-einst-btn" data-wache="UPDATE_KANAL,UPDATE_PRUEF_STUNDEN"
+            onclick="einstSpeichern()">Speichern</button>
+  </div>
+</div>
+
+<script>
+async function einstSpeichern() {
+  const r = await postJSON('/api/einstellungen', {
+    UPDATE_KANAL: document.getElementById('UPDATE_KANAL').value,
+    UPDATE_PRUEF_STUNDEN: document.getElementById('UPDATE_PRUEF_STUNDEN').value,
+  });
+  wacheFertig('update-einst-btn', r.ok, r.ok ? undefined : (r.error || 'nicht gespeichert'));
+}
+async function pruefen(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/aktualisierung/pruefen', {});
+  btn.disabled = false;
+  const msg = document.getElementById('pruefen-msg');
+  if (!r.ok) { showAlert(msg, 'error', esc(r.error || 'Prüfung fehlgeschlagen')); return; }
+  location.reload();
+}
+async function einspielen(btn) {
+  if (!confirm('Neue Fassung einspielen? Der Dienst ist dabei kurz nicht erreichbar.')) return;
+  btn.disabled = true;
+  const r = await postJSON('/api/aktualisierung/einspielen', {});
+  if (!r.ok) { btn.disabled = false; showMsg('status', r.error || 'Nicht eingespielt', false); return; }
+  showMsg('status', 'Auftrag übergeben — v' + r.version + ' wird eingespielt …', true);
+  statusVerfolgen();
+}
+function statusVerfolgen() {
+  const t = setInterval(async function () {
+    const z = await getJSON('/api/aktualisierung');
+    if (!z.ok) { showMsg('status', 'Dienst startet neu …', true); return; }
+    const st = z.status || {};
+    showMsg('status', (st.zustand || '') + ' — ' + (st.text || ''), st.zustand !== 'fehler' && st.zustand !== 'zurueckgerollt');
+    if (['ok', 'fehler', 'zurueckgerollt'].indexOf(st.zustand) >= 0) {
+      clearInterval(t);
+      if (st.zustand === 'ok') setTimeout(function () { location.reload(); }, 1500);
+    }
+  }, 3000);
+}
+{% if z.status.zustand in ('wartet', 'laeuft') %}statusVerfolgen();{% endif %}
+</script>
+{% endblock %}

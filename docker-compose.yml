@@ -2,6 +2,10 @@ services:
   exo-smtp-relay:
     build: .
     image: exo-smtp-relay:latest
+    # Fertiges Abbild statt Selbstbau (ab dem ersten Release, amd64 + arm64):
+    # die beiden Zeilen oben ersetzen durch
+    #   image: ghcr.io/azitc-ac/exo-smtp-relay:stable    # oder :beta, :<version>
+    # Aktualisieren dann: docker compose pull && docker compose up -d
     container_name: exo-smtp-relay
     restart: unless-stopped
     ports:

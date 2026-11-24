@@ -85,7 +85,9 @@ DATA_DIR = Path(config.DATA_DIR)
 MANIFEST = "relay-backup.json"
 ART = "exo-smtp-relay"
 
-_EXCLUDE_DATA_SUBDIRS = {"logs", "le-config", "le-work", "le-logs", "acme-webroot"}
+# update/: heruntergeladene Release-Pakete und Zustand des Tauschers
+# (aktualisierung.py) — gehören zur Maschine, nicht zu den Daten des Relays.
+_EXCLUDE_DATA_SUBDIRS = {"logs", "le-config", "le-work", "le-logs", "acme-webroot", "update"}
 _EXCLUDE_DATA_FILES = {"settings.bak"}
 _EXCLUDE_ENDUNGEN = (".tmp", "-journal", "-wal", "-shm")
 

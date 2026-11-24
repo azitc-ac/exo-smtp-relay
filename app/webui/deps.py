@@ -123,6 +123,19 @@ def _tls_ablauf_tage() -> int | None:
 templates.env.globals["tls_ablauf_tage"] = _tls_ablauf_tage
 
 
+def _update_verfuegbar() -> str | None:
+    """Neuere Fassung im eingestellten Kanal (aus dem letzten Prüfergebnis,
+    ohne Netz) — für das Band „Aktualisierung verfügbar“ auf jeder Seite."""
+    try:
+        import aktualisierung
+        return aktualisierung.verfuegbare_version()
+    except Exception:                                         # noqa: BLE001
+        return None
+
+
+templates.env.globals["update_verfuegbar"] = _update_verfuegbar
+
+
 def _gateway_name() -> str:
     return settings_store.get("GATEWAY_NAME") or "EXO SMTP Relay"
 

@@ -2,7 +2,8 @@
 
 Stündlich: Postfachliste aus Exchange Online nachladen (wenn eingeschaltet),
            TLS-Zertifikat prüfen und über Let's Encrypt erneuern (`_tls_pruefen`,
-           höchstens ein Versuch je Tag).
+           höchstens ein Versuch je Tag), auf neue Fassung prüfen (im
+           Abstand UPDATE_PRUEF_STUNDEN, aktualisierung.planmaessig_pruefen).
 Täglich:   Mail-Protokoll und Tageszähler der Geräte aufräumen.
 
 Bewusst ohne Bibliothek: Zwei Takte rechtfertigen keinen Zeitplaner mit
@@ -42,6 +43,12 @@ def _stuendlich() -> None:
         rechte.nachmessen()
     except Exception as exc:                                  # noqa: BLE001
         log.error("Nachmessen der App-Rechte: %s", exc)
+    # Neue Fassung? Nur Anzeige (Band, Seite) — eingespielt wird nie von selbst.
+    import aktualisierung
+    try:
+        aktualisierung.planmaessig_pruefen()
+    except Exception as exc:                                  # noqa: BLE001
+        log.error("Prüfung auf neue Fassung: %s", exc)
     import exo_mailboxes
     import settings_store
     if settings_store.get("EXO_ABFRAGE_AN"):

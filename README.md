@@ -186,7 +186,8 @@ der Installer den Prozess. Der Dienst startet erst, wenn der Port frei ist.
 ### systemd (ohne Docker)
 
 Sieh dir `linux/exo-smtp-relay.service` an — die Unit erklärt die Schritte im
-Kopf. Für die Postfachabfrage installierst du `pwsh` getrennt.
+Kopf, ausgehend vom Linux-Archiv eines Releases. Für die Postfachabfrage
+installierst du `pwsh` getrennt.
 
 ---
 
@@ -220,7 +221,7 @@ App-Registrierung mit Adressen von Hand.
 
 ## Betrieb
 
-Seiten: **Dashboard**, **Relay**, **Einrichtung**, **Einstellungen**, **Backup**, **Protokolle**.
+Seiten: **Dashboard**, **Relay**, **Einrichtung**, **Einstellungen**, **Backup**, **Aktualisierung**, **Protokolle**.
 
 - **Dashboard**: Zähler für den gewählten Zeitraum (heute / 7 / 30 / 90 Tage);
   je Gerät die Einlieferungen mit **TLS** bzw. **Klartext** und an **interne**
@@ -241,6 +242,25 @@ Seiten: **Dashboard**, **Relay**, **Einrichtung**, **Einstellungen**, **Backup**
   Umzug zuerst Schritt 1 der Einrichtung, dann Backup einspielen, Dienst neu
   starten. Betriebszustände (Relay aus, keine Adressen, Zustellfehler) stehen
   als Band oben auf jeder Seite.
+
+- **Aktualisierung**: prüft über die GitHub-Releases-API, ob im gewählten
+  Kanal (`stable` oder `beta`, Einstellung `UPDATE_KANAL`) eine neuere Fassung
+  erschienen ist — von Hand oder planmässig (`UPDATE_PRUEF_STUNDEN`, Vorgabe
+  24; 0 = nie). Eine neue Fassung steht als Band auf jeder Seite. Eingespielt
+  wird nur auf Knopfdruck und nur mit gültiger Signatur:
+  - **Windows-Dienst**: Der Dienst-Wrapper lädt nichts selbst, sondern nimmt
+    den Auftrag der Oberfläche an, prüft Prüfsumme und Ed25519-Signatur ein
+    zweites Mal, hält den Prozess an, tauscht `app\`, `windows\` und die
+    Begleitdateien, startet neu und rollt zurück, wenn die neue Fassung nicht
+    stabil hochkommt. `data\` und `venv\` bleiben; die venv wird nur
+    angepasst, wenn sich `requirements.lock` ändert. Installationen vor 0.2.40
+    brauchen dafür einmal `windows\install.ps1` aus dem neuen Paket.
+  - **Linux/systemd**: dasselbe über `exo-smtp-relay-update.path` und
+    `exo-smtp-relay-update.service` (root; siehe Kopf der Unit). Der
+    Relay-Dienst selbst darf seine Programmdateien nicht beschreiben.
+  - **Docker**: kein Selbsttausch. `docker compose pull && docker compose up -d`
+    mit `image: ghcr.io/azitc-ac/exo-smtp-relay:stable` (bzw. `:beta`) in
+    `docker-compose.yml`, oder automatisch mit Watchtower.
 
 Über die Umgebung setzt du nur Startwerte, danach gilt `settings.json`:
 `DATA_DIR`, `SMTP_PORT`, `WEBUI_PORT`, `PWSH` (Pfad zur PowerShell),
@@ -303,6 +323,64 @@ cd app && DATA_DIR=../data SMTP_PORT=2525 WEBUI_PORT=8080 python main.py
 Speichere PowerShell-Skripte **mit BOM** und halte sie **PowerShell 5.1**-
 tauglich; `tests/test_ps_skripte.py` prüft beides, die Windows-CI parst sie mit
 5.1.
+
+## Releases
+
+Ein Release entsteht **nur** durch ein Tag `v*` (`.github/workflows/release.yml`):
+`vX.Y.Z` ist Kanal `stable`, `vX.Y.Z-beta[.N]` Kanal `beta` (Vorabfassung).
+Das Tag muss zu `VERSION` passen. Der Lauf baut
+
+- das Windows-Paket `exo-smtp-relay-<version>-windows.zip` (entpacken,
+  `windows\install.ps1` als Administrator) und das Linux-Archiv
+  `exo-smtp-relay-<version>-linux.tar.gz` — gleicher Inhalt, jeweils mit
+  `LICENSE.md` und `NOTICE`,
+- `SHA256SUMS` und dessen Ed25519-Signatur `SHA256SUMS.sig`,
+- das Abbild `ghcr.io/azitc-ac/exo-smtp-relay` für amd64 und arm64 mit den
+  Tags `<version>` und `stable` bzw. `beta`.
+
+Signiert wird VOR jeder Veröffentlichung. Fehlt das Secret oder passt es nicht
+zum im Relay eingebauten Schlüssel, bricht der Lauf ab, bevor ein Abbild oder
+Release entsteht.
+
+### Signaturschlüssel anlegen (einmalig, durch den Herausgeber)
+
+1. Lokal, **ausserhalb** des Repositorys:
+   ```bash
+   python tools/release.py schluessel-erzeugen ~/sicher/exo-smtp-relay-release.pem
+   ```
+   Das legt den privaten Schlüssel an (Rechte 600) und gibt den öffentlichen
+   aus. Den privaten Schlüssel sicher aufbewahren (Passwortsafe, Offline-Kopie);
+   wer ihn hat, kann Fassungen signieren, die jedes Relay einspielt.
+   Alternativ mit OpenSSL: `openssl genpkey -algorithm ed25519 -out <datei.pem>`,
+   den öffentlichen Teil dann mit `python tools/release.py oeffentlich <datei.pem>`.
+2. Als Secret hinterlegen:
+   ```bash
+   gh secret set RELEASE_SIGNING_KEY -R azitc-ac/exo-smtp-relay < ~/sicher/exo-smtp-relay-release.pem
+   ```
+3. Den öffentlichen Schlüssel in `app/update_paket.py` bei `RELEASE_SCHLUESSEL`
+   eintragen, `VERSION` und `CHANGELOG.md` anheben, committen. Erst Fassungen
+   mit eingebautem Schlüssel können Aktualisierungen einspielen.
+4. Release auslösen: `git tag v<version> && git push origin v<version>`.
+
+Schlüsselwechsel: neuen Schlüssel zusätzlich eintragen, ein Release mit dem
+ALTEN signieren und ausliefern, danach das Secret tauschen und den alten
+Eintrag streichen.
+
+Prüfen von Hand: `sha256sum -c SHA256SUMS`.
+
+### Optional: Authenticode für die Windows-Skripte
+
+Die PowerShell-Skripte unter `windows\` lassen sich mit einem
+Code-Signing-Zertifikat (z. B. Certum Open Source über SimplySign) signieren.
+Das ist **nicht** Teil der CI — SimplySign verlangt die Bestätigung am Handy —
+und für den Betrieb nicht nötig. Ablauf, falls gewünscht: vor dem Tag auf einem
+Windows-Rechner mit verbundenem SimplySign
+```powershell
+$z = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object Subject -like "*<Name>*"
+Get-ChildItem windows\*.ps1 | Set-AuthenticodeSignature -Certificate $z -TimestampServer http://time.certum.pl -HashAlgorithm SHA256
+```
+und die signierten Skripte committen (die Signatur steht im Skript selbst;
+jede spätere Änderung macht sie ungültig).
 
 ## Lizenz
 

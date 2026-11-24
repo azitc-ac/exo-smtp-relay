@@ -97,7 +97,7 @@ def test_seiten_nach_anmeldung(client):
     assert r.status_code == 302 and r.headers["location"] == "/einrichtung", (
         "vor dem Abschluss der Einrichtung führt die Startseite dorthin")
     settings_store.update({"SETUP_COMPLETE": True})
-    for pfad in ("/", "/einrichtung", "/einstellungen", "/log"):
+    for pfad in ("/", "/einrichtung", "/einstellungen", "/log", "/aktualisierung"):
         r = client.get(pfad)
         assert r.status_code == 200, pfad
         assert "<nav" in r.text

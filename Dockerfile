@@ -61,6 +61,9 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 COPY LICENSE.md NOTICE /app/
 
 ENV DATA_DIR=/app/data
+# Betriebsart für die Aktualisierung (aktualisierung.betriebsart): Ein Container
+# tauscht sich nicht selbst aus, die Oberfläche zeigt stattdessen den Befehl.
+ENV RELAY_BETRIEBSART=docker
 
 # Mountpunkt VOR dem chown anlegen, sonst gehört er root und appuser kann beim
 # ersten Start nicht schreiben (Crash-Loop).

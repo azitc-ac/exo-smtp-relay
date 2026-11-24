@@ -1,0 +1,157 @@
+# Release — NUR durch ein Tag v* ausgelöst (kein workflow_dispatch, kein Zweig).
+#
+#   vX.Y.Z          → Kanal stable (GitHub-Release, Image-Tags X.Y.Z und stable)
+#   vX.Y.Z-beta[.N] → Kanal beta   (Vorabfassung,  Image-Tags X.Y.Z-beta.N und beta)
+#
+# Reihenfolge mit Absicht: Erst werden die Pakete gebaut und SIGNIERT. Fehlt das
+# Secret RELEASE_SIGNING_KEY oder passt es nicht zum im Relay eingebauten
+# Schlüssel (app/update_paket.py), bricht der Lauf HIER ab — bevor ein Image
+# nach GHCR geht oder ein Release entsteht. Ein Relay spielt ohne gültige
+# Signatur nichts ein; ein unsigniertes Release wäre also nur Ballast.
+#
+# Was Alex vor dem ersten Tag tun muss: README → Releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/azitc-ac/exo-smtp-relay
+
+jobs:
+  pakete:
+    name: Pakete bauen und signieren
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      kanal: ${{ steps.tag.outputs.kanal }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Werkzeuge (Fassung aus der Lock-Datei)
+        run: pip install "$(grep -E '^cryptography==' app/requirements.lock)"
+      - name: Tag, VERSION und Kanal
+        id: tag
+        run: python tools/release.py kanal "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+      - name: Windows-ZIP, Linux-Archiv, SHA256SUMS
+        run: python tools/release.py bauen dist
+      - name: Prüfsummen signieren (Ed25519)
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: python tools/release.py signieren dist/SHA256SUMS
+      - name: Gegenprobe mit dem im Relay eingebauten Schlüssel
+        run: python tools/release.py pruefen dist
+      - name: Release-Notizen
+        run: python tools/release.py notizen "${{ steps.tag.outputs.version }}" > dist-notizen.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/
+            dist-notizen.md
+
+  # Nativ je Architektur: pwsh unter QEMU stürzt beim Modul-Install ab
+  # (siehe Dockerfile). Erst Digests, dann EIN Manifest mit beiden.
+  image:
+    name: Image ${{ matrix.arch }}
+    needs: pakete
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bauen und nach Digest hochladen
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/azitc-ac/exo-smtp-relay
+            org.opencontainers.image.version=${{ needs.pakete.outputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.title=EXO SMTP Relay
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Digest merken
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+
+  manifest:
+    name: Image-Tags (Version und Kanal)
+    needs: [pakete, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Manifest amd64 + arm64
+        working-directory: digests
+        run: |
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ needs.pakete.outputs.version }}" \
+            -t "$IMAGE:${{ needs.pakete.outputs.kanal }}" \
+            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:${{ needs.pakete.outputs.version }}"
+
+  release:
+    name: GitHub-Release
+    needs: [pakete, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: Release mit Paketen, SHA256SUMS und Signatur
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vorab=""
+          [ "${{ needs.pakete.outputs.kanal }}" = "beta" ] && vorab="--prerelease"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "v${{ needs.pakete.outputs.version }}" \
+            --notes-file dist-notizen.md $vorab

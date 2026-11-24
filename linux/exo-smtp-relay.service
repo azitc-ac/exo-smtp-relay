@@ -1,13 +1,20 @@
 # systemd-Unit für den Betrieb OHNE Docker (Debian/Ubuntu, Raspberry Pi OS).
 #
-# Einrichten:
+# Einrichten aus dem Release-Archiv (exo-smtp-relay-<version>-linux.tar.gz,
+# vorher gegen SHA256SUMS prüfen — README → Releases):
 #   sudo useradd -r -s /usr/sbin/nologin -d /opt/exo-smtp-relay exo-relay
-#   sudo mkdir -p /opt/exo-smtp-relay && sudo cp -r app /opt/exo-smtp-relay/
+#   sudo mkdir -p /opt/exo-smtp-relay
+#   sudo tar -xzf exo-smtp-relay-<version>-linux.tar.gz --strip-components=1 -C /opt/exo-smtp-relay
 #   sudo python3 -m venv /opt/exo-smtp-relay/venv
 #   sudo /opt/exo-smtp-relay/venv/bin/pip install -r /opt/exo-smtp-relay/app/requirements.lock
-#   sudo mkdir -p /opt/exo-smtp-relay/data && sudo chown -R exo-relay /opt/exo-smtp-relay
-#   sudo cp linux/exo-smtp-relay.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now exo-smtp-relay
+#   sudo mkdir -p /opt/exo-smtp-relay/data && sudo chown -R exo-relay /opt/exo-smtp-relay/data
+#   sudo cp /opt/exo-smtp-relay/linux/*.service /opt/exo-smtp-relay/linux/*.path /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now exo-smtp-relay exo-smtp-relay-update.path
+#
+# Nur data/ gehört dem Dienstkonto; app/ und venv/ bleiben root, der Dienst
+# liest sie nur. Aktualisieren über die Weboberfläche (Aktualisierung →
+# Einspielen) übernimmt exo-smtp-relay-update.service.
 #
 # Port 25 ohne root: AmbientCapabilities gibt dem Prozess genau dieses eine
 # Recht (deckt auch Port 80 für Let's Encrypt über HTTP-01 ab; dafür
@@ -25,6 +32,7 @@ User=exo-relay
 Group=exo-relay
 WorkingDirectory=/opt/exo-smtp-relay/app
 Environment=DATA_DIR=/opt/exo-smtp-relay/data
+Environment=RELAY_BETRIEBSART=systemd
 ExecStart=/opt/exo-smtp-relay/venv/bin/python main.py
 Restart=on-failure
 RestartSec=5

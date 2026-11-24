@@ -90,6 +90,11 @@ DEFAULTS: dict = {
     "ACME_HTTP_PROXY": "",          # Proxy für Let's Encrypt (acme_client und certbot)
     "LE_LAUF": {},                  # letzter Vorgang {zeit, ok, text, weg: http01|dns01}
 
+    # ── Aktualisierung aus fertigen Releases (seit 0.2.40) ───────────────────
+    # Oberfläche: /aktualisierung. Ablauf siehe aktualisierung.py.
+    "UPDATE_KANAL": "stable",       # stable | beta (beta nimmt auch -beta-Fassungen)
+    "UPDATE_PRUEF_STUNDEN": 24,     # planmässig auf neue Fassung prüfen; 0 = nie
+
     # ── Relay ────────────────────────────────────────────────────────────────
     "SMTP_RELAY_ENABLED": True,
     "SMTP_RELAY_LERN_NETZE": [],

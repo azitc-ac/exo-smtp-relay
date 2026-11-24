@@ -296,6 +296,11 @@ async def _run_smtp() -> None:
     runtime_state.smtp_controller = controller
     log.info("SMTP-Listener auf %s:%d gestartet (STARTTLS: %s)",
              config.SMTP_BIND, config.SMTP_PORT, "ja" if tls_ctx else "nein")
+    # Lebenszeichen für den Tauscher (update_tausch.gesund_abwarten): Erst
+    # jetzt bedient der Listener — eine Fassung, die vorher abstürzt, wird
+    # zurückgerollt.
+    import update_tausch
+    update_tausch.lebenszeichen_schreiben(Path(config.DATA_DIR), config.VERSION)
 
     loop = asyncio.get_running_loop()
     # SIGTERM/SIGINT sauber beenden — add_signal_handler gibt es unter Windows

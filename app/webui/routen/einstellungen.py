@@ -50,6 +50,12 @@ async def api_einstellungen(request: Request, user: str = Depends(_require_admin
     if not uebernommen and verworfen:
         return JSONResponse({"ok": False, "error": "Unbekannte Einstellungen: " + ", ".join(verworfen)},
                             status_code=400)
+    import aktualisierung
+    if "UPDATE_KANAL" in uebernommen and uebernommen["UPDATE_KANAL"] not in aktualisierung.KANAELE:
+        return JSONResponse({"ok": False, "error": "Kanal muss stable oder beta sein."}, status_code=400)
+    if "UPDATE_PRUEF_STUNDEN" in uebernommen and \
+            str(uebernommen["UPDATE_PRUEF_STUNDEN"]) not in {str(h) for h in aktualisierung.INTERVALLE_H}:
+        return JSONResponse({"ok": False, "error": "Unzulässiges Prüfintervall."}, status_code=400)
     settings_store.update(uebernommen)
     if "ADRESSEN_ZUSAETZLICH" in uebernommen:
         exo_mailboxes.invalidate()

@@ -1,0 +1,22 @@
+# Tauscher für die Aktualisierung aus fertigen Releases (seit 0.2.40).
+#
+# Läuft als root, weil der Relay-Dienst selbst /opt/exo-smtp-relay/app nicht
+# beschreiben darf (ProtectSystem=strict) — und das soll so bleiben. Der
+# Tauscher vertraut dem Auftrag nicht: Er prüft Signatur und Prüfsumme selbst
+# noch einmal gegen den im Relay eingebauten Schlüssel, entpackt nach
+# .update-neu/, hält den Dienst an, tauscht app/ (data/ und venv/ bleiben),
+# startet ihn und rollt zurück, wenn die neue Fassung nicht stabil hochkommt.
+# Ablauf und Begründung: app/update_tausch.py.
+#
+# Einrichten (einmalig, zusätzlich zu exo-smtp-relay.service):
+#   sudo cp linux/exo-smtp-relay-update.service linux/exo-smtp-relay-update.path /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now exo-smtp-relay-update.path
+[Unit]
+Description=EXO SMTP Relay — Aktualisierung einspielen
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/exo-smtp-relay
+ExecStart=/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch.py ablauf --wurzel /opt/exo-smtp-relay --daten /opt/exo-smtp-relay/data --dienst exo-smtp-relay
+TimeoutStartSec=1800

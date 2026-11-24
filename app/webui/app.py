@@ -1,6 +1,6 @@
 """Die Weboberfläche — Dashboard, Einrichtung, Einstellungen, Protokoll.
 
-Sechs Routenmodule, ein Fundament (`deps.py`). Die Schnittstellenbeschreibung
+Sieben Routenmodule, ein Fundament (`deps.py`). Die Schnittstellenbeschreibung
 (/docs, /openapi.json) ist abgeschaltet: Für einen Dienst, der mit Port 25 im
 Netz steht, ist die Landkarte der eigenen Angriffsfläche keine Beigabe.
 """
@@ -20,6 +20,7 @@ from webui.deps import _NotAuthenticated, _KennwortZuerst, _STATIC_DIR, log  # n
 app = FastAPI(title="EXO SMTP Relay", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+from webui.routen import aktualisierung as _routen_aktualisierung  # noqa: E402
 from webui.routen import anmeldung as _routen_anmeldung        # noqa: E402
 from webui.routen import backup as _routen_backup              # noqa: E402
 from webui.routen import betrieb as _routen_betrieb            # noqa: E402
@@ -30,7 +31,7 @@ from webui.routen import relay as _routen_relay                # noqa: E402
 # EINE Quelle: hieraus werden die Router eingebunden, und die Tests zählen
 # daraus die Routen ab (include_router kopiert ab FastAPI 0.139 nicht mehr
 # nach app.routes).
-ROUTENMODULE = (_routen_anmeldung, _routen_backup, _routen_betrieb, _routen_einrichtung,
+ROUTENMODULE = (_routen_aktualisierung, _routen_anmeldung, _routen_backup, _routen_betrieb, _routen_einrichtung,
                 _routen_einstellungen, _routen_relay)
 for _modul in ROUTENMODULE:
     app.include_router(_modul.router)

@@ -1,5 +1,33 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.40 — 2026-11-24 — Aktualisierung aus fertigen Releases
+
+- **Release-Workflow** (`.github/workflows/release.yml`), ausgelöst NUR durch
+  ein Tag `v*`: Windows-ZIP und Linux-Archiv (beide mit `LICENSE.md` und
+  `NOTICE`), `SHA256SUMS`, Ed25519-Signatur `SHA256SUMS.sig`, Abbild
+  `ghcr.io/azitc-ac/exo-smtp-relay` für amd64 und arm64 (nativ gebaut) mit den
+  Tags `<version>` und `stable` bzw. `beta` (`-beta[.N]` im Tag). Ohne Secret
+  `RELEASE_SIGNING_KEY` oder mit einem Schlüssel, der nicht zum eingebauten
+  passt, bricht der Lauf vor jeder Veröffentlichung ab.
+- **Neue Seite Aktualisierung** mit Band auf jeder Seite, wenn eine neuere
+  Fassung im Kanal vorliegt. Einstellungen `UPDATE_KANAL` (stable/beta) und
+  `UPDATE_PRUEF_STUNDEN` (0/6/24/168, Vorgabe 24). Geprüft wird über die
+  GitHub-Releases-API; eingespielt nur auf Knopfdruck.
+- **Einspielen** je Betriebsart: Windows-Dienst über den Dienst-Wrapper,
+  Linux über die neue Unit `exo-smtp-relay-update.path/.service` (root),
+  beide mit zweiter Prüfung von Prüfsumme und Signatur, Austausch von `app/`
+  und Begleitdateien, Neustart, Rückfall, wenn die neue Fassung nicht stabil
+  hochkommt (`update_tausch.py`). `data/` bleibt unberührt, die venv wird nur
+  bei geänderter `requirements.lock` angepasst. Docker: Anzeige von
+  `docker compose pull && docker compose up -d` bzw. Hinweis auf Watchtower.
+- Ohne eingebauten Prüfschlüssel (`RELEASE_SCHLUESSEL` in
+  `app/update_paket.py`, noch leer) wird nichts eingespielt.
+- Backups lassen `data/update/` (geladene Pakete) aus.
+- systemd-Unit: Einrichtung aus dem Release-Archiv, `RELAY_BETRIEBSART=systemd`.
+
+**Zu tun:** Windows: einmal `windows\install.ps1` aus diesem Paket ausführen
+(neuer Dienst-Wrapper). Linux: `exo-smtp-relay-update.path` einrichten (Kopf
+von `linux/exo-smtp-relay-update.service`). Docker: nichts.
 ## 0.2.39 — 2026-11-24 — Lizenz: Apache License 2.0
 
 - Das Relay steht ab dieser Fassung unter der Apache License 2.0 und ist damit

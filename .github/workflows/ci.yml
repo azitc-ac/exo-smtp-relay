@@ -58,6 +58,13 @@ jobs:
       - name: Spiegelprüfung
         run: python tools/driftcheck.py
 
+      # Release-Pakete bauen wie in release.yml — ohne Signatur und ohne
+      # Veröffentlichung. Fällt hier auf, bevor ein Tag daran scheitert.
+      - name: Release-Pakete bauen (Probe)
+        run: |
+          python tools/release.py bauen dist-probe
+          cd dist-probe && sha256sum -c --strict SHA256SUMS
+
   windows:
     name: Tests unter Windows
     runs-on: windows-latest

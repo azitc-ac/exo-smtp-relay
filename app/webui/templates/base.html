@@ -30,6 +30,7 @@
                 <li><a href="/einrichtung" class="{% if active == 'einrichtung' %}active{% endif %}">Einrichtung</a></li>
                 <li><a href="/einstellungen" class="{% if active == 'einstellungen' %}active{% endif %}">Einstellungen</a></li>
                 <li><a href="/backup" class="{% if active == 'backup' %}active{% endif %}">Backup</a></li>
+                <li><a href="/aktualisierung" class="{% if active == 'aktualisierung' %}active{% endif %}">Aktualisierung</a></li>
                 <li><a href="/log" class="{% if active == 'log' %}active{% endif %}">Protokolle</a></li>
                 {% endif %}
             </ul>
@@ -127,6 +128,16 @@
         seit der letzten erfolgreichen Zustellung nicht an Exchange Online weitergegeben werden.
         Die Geräte erhielten 451 und versuchen es selbst erneut. Bleibt es dabei, prüfe den Rückweg.</span>
       <a href="/einstellungen#rueckweg" style="color:#991b1b;font-weight:700;margin-left:auto">Zum Rückweg</a>
+    </div>
+    {% endif %}
+    {% set _update_neu = update_verfuegbar() %}
+    {% if _update_neu and active != 'aktualisierung' %}
+    <div id="update-banner"
+         style="background:#eff6ff;border-bottom:2px solid #93c5fd;padding:9px 16px;
+                font-size:13px;color:#1e40af;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>Aktualisierung verfügbar</strong>
+      <span>v{{ _update_neu }} ist erschienen (laufend v{{ version }}).</span>
+      <a href="/aktualisierung" style="color:#1e40af;font-weight:700;margin-left:auto">Zur Aktualisierung</a>
     </div>
     {% endif %}
     {% set _lern_rest = lernmodus_rest_min() %}
