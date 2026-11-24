@@ -128,11 +128,41 @@ function Get-RelayKontoName($Identitaet) {
 
 function Reset-RelayAclErbe([string]$Pfad) {
     # icacls /reset: nur geerbte Rechte, Vererbung an; Eigentuemer bleibt unberuehrt.
-    $null = & icacls.exe $Pfad /reset /C /Q 2>&1
-    return ($LASTEXITCODE -eq 0)
+    # Labtest 0.2.45 (Datei: Eigentuemer SYSTEM, nur SYSTEM:F): Unter PS 5.1 wird mit
+    # ErrorActionPreference=Stop jede stderr-Zeile eines nativen Programms bei 2>&1 zum
+    # beendenden Fehler - install.ps1 brach ab, der Dienst blieb gestoppt. Deshalb EAP hier
+    # lokal Continue. Und KEIN /C: damit meldet icacls Exit 0 trotz "Failed processing".
+    # Getestet in tests\test_windows_data_acl.py (Nachbau und echter NTFS-Lauf).
+    $script:RelayIcaclsMeldung = ""
+    $vorher = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = -1
+    try {
+        $ausgabe = @(& icacls.exe $Pfad /reset /Q 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        $rc = $LASTEXITCODE
+    } catch {
+        $ausgabe = @("$($_.Exception.Message)")
+        $rc = -1
+    } finally {
+        $ErrorActionPreference = $vorher
+    }
+    if ($rc -eq 0) { return $true }
+    $script:RelayIcaclsMeldung = "Exit $rc$(if ($ausgabe.Count) { ': ' + ($ausgabe -join ' ') })"
+    return $false
 }
 
 function Set-RelayDataAcl([string]$Pfad) {
+    # Nie beendend (Labtest 0.2.45): Ein Fehler hier darf das Upgrade nicht abbrechen -
+    # er wird als WARNUNG gemeldet, der Installer laeuft weiter und startet den Dienst.
+    try {
+        Set-RelayDataAclKern -Pfad $Pfad
+    } catch {
+        Write-Warn "Rechte auf data\ nicht vollstaendig gesetzt: $($_.Exception.Message) - bitte pruefen: icacls `"$Pfad`""
+    }
+}
+
+function Set-RelayDataAclKern([string]$Pfad) {
+    $script:RelayIcaclsMeldung = ""
     $soll = @("S-1-5-18", "S-1-5-32-544")
     $sidTyp = [System.Security.Principal.SecurityIdentifier]
     $probleme = 0
@@ -170,12 +200,104 @@ function Set-RelayDataAcl([string]$Pfad) {
         if ($eigene.Count -eq 0 -and -not $geschuetzt) { continue }
         foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
         if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
-        if (Reset-RelayAclErbe $o.FullName) { $zurueck++ } else { Write-Warn "nicht zurueckgesetzt: $name (icacls `"$($o.FullName)`" /reset)"; $probleme++ }
+        if (Reset-RelayAclErbe $o.FullName) { $zurueck++ } else { Write-Warn "nicht zurueckgesetzt: $name ($($script:RelayIcaclsMeldung); von Hand: icacls `"$($o.FullName)`" /reset)"; $probleme++ }
     }
     if ($probleme -eq 0) {
         Write-Ok "data\ nur fuer SYSTEM und Administratoren lesbar ($entfernt fremde Eintraege entfernt, $zurueck Unterobjekte zurueckgesetzt)"
     } else {
         Write-Warn "data\ auf SYSTEM und Administratoren gesetzt, aber $probleme Unterobjekt(e) weichen ab - siehe oben"
+    }
+}
+
+# Was install.ps1 aus dem Paket nach InstallDir kopiert - und beim Upgrade vorher nach
+# .install-alt\ sichert. data\ und venv\ stehen nie darin.
+$RelayTeile = @("app", "windows", "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")
+
+# Natives Programm aufrufen und den Exit-Code PRUEFEN (Labtest 0.2.45: venv, pip und service.py
+# meldeten nach einem Fehler trotzdem "OK"). EAP lokal Continue: unter PS 5.1 wird stderr bei 2>&1
+# sonst zum beendenden Fehler, bevor der Exit-Code ausgewertet ist. Rueckgabe: stdout-Zeilen.
+function Invoke-RelayNativ([string]$Was, [scriptblock]$Befehl) {
+    $vorher = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = -1
+    try {
+        $roh = @(& $Befehl 2>&1)
+        $rc = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $vorher
+    }
+    $fehlerTyp = [System.Management.Automation.ErrorRecord]
+    $aus = @($roh | Where-Object { $_ -isnot $fehlerTyp } | ForEach-Object { "$_" })
+    if ($rc -ne 0) {
+        $letzte = @($roh | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Last 12)
+        throw "$Was fehlgeschlagen (Exit $rc): $($letzte -join ' | ')"
+    }
+    $aus
+}
+
+# Upgrade-Sicherung: bisherige Teile nach .install-alt\ VERSCHIEBEN (kein Kopieren, kein Loeschen).
+# Rueckgabe: die verschobenen Teile.
+function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
+    if (Test-Path -LiteralPath $Sicherung) {
+        Write-Warn "Rest eines frueheren Laufs entfernt: $Sicherung"
+        Remove-Item -LiteralPath $Sicherung -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $Sicherung | Out-Null
+    foreach ($teil in $Teile) {
+        $p = Join-Path $Ziel $teil
+        if (Test-Path -LiteralPath $p) {
+            Move-Item -LiteralPath $p -Destination (Join-Path $Sicherung $teil)
+            $teil
+        }
+    }
+}
+
+# Gegenstueck: gesicherte Teile zurueck an ihren Platz, das Neue davor weg.
+function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
+    foreach ($teil in $Teile) {
+        $alt = Join-Path $Sicherung $teil
+        if (-not (Test-Path -LiteralPath $alt)) { continue }
+        $p = Join-Path $Ziel $teil
+        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+        Move-Item -LiteralPath $alt -Destination $p
+    }
+    Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Aus dem catch des Hauptablaufs: vorige Fassung zurueck, Abhaengigkeiten zurueck, Dienst wieder
+# starten, wenn er vorher lief. Liest die Ablaufvariablen ($gesichert, $pipGelaufen ...).
+function Restore-RelayNachAbbruch {
+    try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
+    if (@($gesichert).Count -gt 0) {
+        try {
+            Restore-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $gesichert
+            Write-Warn "Vorige Fassung $altVersion zurueckgeholt ($($gesichert -join ', '))"
+        } catch {
+            Write-Warn "Ruecknahme unvollstaendig: $($_.Exception.Message) - Sicherung unter $sicherung"
+        }
+        $lock = Join-Path $InstallDir "app\requirements.lock"
+        if ($pipGelaufen -and (Test-Path $venvPython) -and (Test-Path $lock)) {
+            try {
+                Invoke-RelayNativ "pip (Ruecknahme)" { & $venvPython -m pip install --quiet --disable-pip-version-check -r $lock } | Out-Null
+                Write-Warn "Abhaengigkeiten auf Fassung $altVersion zurueckgesetzt"
+            } catch {
+                Write-Warn "Abhaengigkeiten nicht zurueckgesetzt: $($_.Exception.Message)"
+            }
+        }
+    } elseif ($istUpgrade) {
+        Write-Warn "Abbruch vor dem Austausch - die installierte Fassung ist unveraendert."
+    } else {
+        Write-Warn "Erstinstallation unvollstaendig - Ursache beheben und install.ps1 erneut ausfuehren."
+    }
+    if ($dienstLief) {
+        try {
+            Start-Service -Name "ExoSmtpRelay"
+            $v = ""
+            if (Test-Path (Join-Path $InstallDir "VERSION")) { $v = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
+            Write-Warn "Dienst laeuft wieder (Fassung $v)"
+        } catch {
+            Write-Warn "Dienst startet nicht: $($_.Exception.Message) - Protokoll: $dataDir\logs\app.log"
+        }
     }
 }
 
@@ -261,128 +383,163 @@ Write-Ok "Python: $PythonExe"
 # -- Dienst anhalten, falls vorhanden -------------------------------------------
 $dienst = Get-Service -Name "ExoSmtpRelay" -ErrorAction SilentlyContinue
 $istUpgrade = [bool]$dienst
-if ($dienst -and $dienst.Status -eq "Running") {
+$dienstLief = [bool]($dienst -and $dienst.Status -eq "Running")
+if ($dienstLief) {
     Write-Step "Halte laufenden Dienst an"
     Stop-Service -Name "ExoSmtpRelay" -Force
     Write-Ok "angehalten"
 }
 
-# -- Dateien kopieren ---------------------------------------------------------------
-Write-Step "Kopiere Anwendung nach $InstallDir"
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "data") | Out-Null
-foreach ($teil in @("app", "windows")) {
-    $ziel = Join-Path $InstallDir $teil
-    if (Test-Path $ziel) { Remove-Item -Recurse -Force $ziel }
-    Copy-Item -Recurse -Force (Join-Path $quelle $teil) $ziel
-}
-foreach ($datei in @("VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")) {
-    $q = Join-Path $quelle $datei
-    if (Test-Path $q) { Copy-Item -Force $q (Join-Path $InstallDir $datei) }
-}
-# __pycache__ aus der Quelle nicht mitschleppen
-Get-ChildItem -Path (Join-Path $InstallDir "app") -Recurse -Directory -Filter "__pycache__" |
-    ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
-Write-Ok "kopiert"
-
-# -- venv und Abhaengigkeiten -------------------------------------------------------
+# Ab hier ist der Dienst gestoppt. Jeder Fehler bis zum Start landet im catch unten: die
+# vorige Fassung (app\, windows\, VERSION ...) kommt aus .install-alt\ zurueck, die
+# Abhaengigkeiten werden auf deren Lock-Datei zurueckgesetzt und der Dienst startet wieder
+# (Labtest 0.2.45: Abbruch nach dem Stopp liess ein gestopptes Relay mit neuer VERSION zurueck).
+# Getestet in tests\test_install_abbruch.py und im CI-Job "Installer echt".
 $venv = Join-Path $InstallDir "venv"
 $venvPython = Join-Path $venv "Scripts\python.exe"
-if (-not (Test-Path $venvPython)) {
-    Write-Step "Erstelle virtuelle Umgebung"
-    & $PythonExe -m venv $venv
-    Write-Ok "venv: $venv"
-}
-Write-Step "Installiere Abhaengigkeiten (requirements.lock)"
-& $venvPython -m pip install --quiet --upgrade pip
-& $venvPython -m pip install --quiet -r (Join-Path $InstallDir "app\requirements.lock")
-# pywin32: Nachinstallation registriert die Dienst-DLLs
-$post = Join-Path $venv "Scripts\pywin32_postinstall.py"
-if (Test-Path $post) { & $venvPython $post -install -silent | Out-Null }
-Write-Ok "Abhaengigkeiten installiert"
-
-# -- Datenverzeichnis absichern: nur SYSTEM und Administratoren ----------------
-Write-Step "Setze Rechte auf data\"
 $dataDir = Join-Path $InstallDir "data"
-Set-RelayDataAcl -Pfad $dataDir
+$sicherung = Join-Path $InstallDir ".install-alt"
+$altVersion = ""
+if (Test-Path (Join-Path $InstallDir "VERSION")) { $altVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
+$gesichert = @()
+$pipGelaufen = $false
+$schritt = "Kopieren"
+try {
+    # -- Dateien kopieren -----------------------------------------------------------
+    Write-Step "Kopiere Anwendung nach $InstallDir"
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
+    foreach ($teil in $RelayTeile) {
+        $q = Join-Path $quelle $teil
+        if (Test-Path $q) { Copy-Item -Recurse -Force $q (Join-Path $InstallDir $teil) }
+    }
+    # __pycache__ aus der Quelle nicht mitschleppen
+    Get-ChildItem -Path (Join-Path $InstallDir "app") -Recurse -Directory -Filter "__pycache__" |
+        ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
+    Write-Ok "kopiert"
 
-# -- ExchangeOnlineManagement ---------------------------------------------------------
-if (-not $SkipExoModule) {
-    Write-Step "Pruefe PowerShell-Modul ExchangeOnlineManagement"
-    $modul = Get-Module -ListAvailable ExchangeOnlineManagement | Sort-Object Version -Descending | Select-Object -First 1
-    if ($modul) {
-        Write-Ok "vorhanden: $($modul.Version)"
-    } else {
-        $antwort = if ($Unattended) { "j" } else { Read-Host "Modul fehlt. Jetzt aus der PowerShell Gallery installieren? (j/n)" }
-        if ($antwort -match "^[jJyY]") {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
-            Install-Module ExchangeOnlineManagement -Scope AllUsers -Force -AllowClobber
-            Write-Ok "installiert"
+    # -- venv und Abhaengigkeiten -------------------------------------------------------
+    $schritt = "venv"
+    if (-not (Test-Path $venvPython)) {
+        Write-Step "Erstelle virtuelle Umgebung"
+        Invoke-RelayNativ "venv anlegen" { & $PythonExe -m venv $venv } | Out-Null
+        Write-Ok "venv: $venv"
+    }
+    $schritt = "Abhaengigkeiten"
+    Write-Step "Installiere Abhaengigkeiten (requirements.lock)"
+    try {
+        Invoke-RelayNativ "pip aktualisieren" { & $venvPython -m pip install --quiet --upgrade pip } | Out-Null
+    } catch {
+        Write-Warn "pip nicht aktualisiert (weiter mit der vorhandenen Fassung): $($_.Exception.Message)"
+    }
+    $pipGelaufen = $true
+    Invoke-RelayNativ "pip install (requirements.lock)" { & $venvPython -m pip install --quiet --disable-pip-version-check -r (Join-Path $InstallDir "app\requirements.lock") } | Out-Null
+    # pywin32: Nachinstallation registriert die Dienst-DLLs
+    $post = Join-Path $venv "Scripts\pywin32_postinstall.py"
+    if (Test-Path $post) {
+        try { Invoke-RelayNativ "pywin32_postinstall" { & $venvPython $post -install -silent } | Out-Null }
+        catch { Write-Warn "$($_.Exception.Message)" }
+    }
+    Write-Ok "Abhaengigkeiten installiert"
+
+    # -- Datenverzeichnis absichern: nur SYSTEM und Administratoren (nie beendend) --
+    $schritt = "Rechte"
+    Write-Step "Setze Rechte auf data\"
+    Set-RelayDataAcl -Pfad $dataDir
+
+    # -- ExchangeOnlineManagement ---------------------------------------------------------
+    if (-not $SkipExoModule) {
+        Write-Step "Pruefe PowerShell-Modul ExchangeOnlineManagement"
+        $modul = Get-Module -ListAvailable ExchangeOnlineManagement | Sort-Object Version -Descending | Select-Object -First 1
+        if ($modul) {
+            Write-Ok "vorhanden: $($modul.Version)"
         } else {
-            Write-Warn "Ohne das Modul gibt es keine Postfachabfrage - Adressen dann von Hand eintragen."
+            $antwort = if ($Unattended) { "j" } else { Read-Host "Modul fehlt. Jetzt aus der PowerShell Gallery installieren? (j/n)" }
+            if ($antwort -match "^[jJyY]") {
+                # Nie beendend: ohne Modul laeuft das Relay, nur die Postfachabfrage fehlt.
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+                    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
+                    Install-Module ExchangeOnlineManagement -Scope AllUsers -Force -AllowClobber
+                    Write-Ok "installiert"
+                } catch {
+                    Write-Warn "ExchangeOnlineManagement nicht installiert: $($_.Exception.Message) - spaeter: Install-Module ExchangeOnlineManagement -Scope AllUsers"
+                }
+            } else {
+                Write-Warn "Ohne das Modul gibt es keine Postfachabfrage - Adressen dann von Hand eintragen."
+            }
         }
     }
+
+    # -- Dienst registrieren ------------------------------------------------------------
+    $schritt = "Dienst registrieren"
+    Write-Step "Registriere Dienst ExoSmtpRelay"
+    $service = Join-Path $InstallDir "windows\service.py"
+    if ($dienst) {
+        Invoke-RelayNativ "service.py update" { & $venvPython $service update } | Out-Null
+    } else {
+        Invoke-RelayNativ "service.py install" { & $venvPython $service --startup auto install } | Out-Null
+    }
+    # Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
+    # findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
+    # ZUSAMMENFUEHREN statt ueberschreiben (windows\dienst_umgebung.py): eigene Eintraege wie
+    # WEBUI_PASSWORD bleiben, ohne -WebPort bleibt der bisherige Port (8443 nur bei Erstinstallation).
+    $sp = Join-Path $venv "Lib\site-packages"
+    $umgebungArgs = @((Join-Path $InstallDir "windows\dienst_umgebung.py"), "--setzen", "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
+    if ($PSBoundParameters.ContainsKey("WebPort")) { $umgebungArgs += @("--port", "$WebPort") }
+    $umgebungAusgabe = @(Invoke-RelayNativ "Dienst-Umgebung (dienst_umgebung.py)" { & $venvPython @umgebungArgs })
+    $WebPort = [int]($umgebungAusgabe[-1])
+    Write-Ok "Web-Port: $WebPort"
+    if ($istUpgrade) { Write-Ok "Dienst aktualisiert (Starttyp unveraendert)" } else { Write-Ok "Dienst registriert (Autostart)" }
+
+    $schritt = "Firewall und Start"
+    # -- Firewall ---------------------------------------------------------------------
+    if (-not $SkipFirewall) {
+        Write-Step "Firewall-Regeln"
+        Sync-RelayFirewall -WebPort $WebPort
+    }
+
+    # -- Port 25 frei? -----------------------------------------------------------------
+    $belegt = Get-NetTCPConnection -LocalPort 25 -State Listen -ErrorAction SilentlyContinue
+    if ($belegt) {
+        $prozess = Get-Process -Id $belegt[0].OwningProcess -ErrorAction SilentlyContinue
+        Write-Warn "Port 25 ist bereits belegt (Prozess: $($prozess.ProcessName)). Der Dienst kann nicht starten, bis er frei ist."
+    }
+
+    # -- Web-Port frei? ------------------------------------------------------------------
+    $belegtWeb = Get-NetTCPConnection -LocalPort $WebPort -State Listen -ErrorAction SilentlyContinue
+    if ($belegtWeb) {
+        $prozessWeb = Get-Process -Id $belegtWeb[0].OwningProcess -ErrorAction SilentlyContinue
+        Write-Warn "Web-Port $WebPort ist bereits belegt (Prozess: $($prozessWeb.ProcessName)). Anderen Port waehlen: .\install.ps1 -WebPort <Port>"
+    }
+
+    # -- Starten ------------------------------------------------------------------------
+    # -- Startmenue-Eintrag (alle Benutzer): oeffnet die Weboberflaeche ---------------
+    Write-Step "Startmenue-Eintrag"
+    $startmenue = [Environment]::GetFolderPath("CommonPrograms")
+    $verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
+    # Rechnername statt localhost: das selbstsignierte TLS-Zertifikat des Dienstes traegt FQDN und kurzen
+    # Rechnernamen als SAN (tls_cert.rechnernamen), nie "localhost" - der Link zeigt auf den FQDN.
+    try { $rechnername = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $rechnername = "" }
+    if (-not $rechnername) { $rechnername = "localhost" }
+    Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")
+    Write-Ok "$verknuepfung"
+
+    Write-Step "Starte Dienst"
+    Start-Service -Name "ExoSmtpRelay"
+    Start-Sleep -Seconds 3
+    $dienst = Get-Service -Name "ExoSmtpRelay"
+    if ($dienst.Status -ne "Running") { throw "Dienst laeuft nach dem Start nicht (Status: $($dienst.Status)) - Protokoll: $dataDir\logs\app.log" }
+    Write-Ok "Status: $($dienst.Status)"
+} catch {
+    $grund = $_
+    Write-Host ""
+    Write-Warn "ABBRUCH im Schritt '$schritt': $($grund.Exception.Message)"
+    Restore-RelayNachAbbruch
+    throw "Installation abgebrochen im Schritt '$schritt': $($grund.Exception.Message)"
 }
-
-# -- Dienst registrieren ------------------------------------------------------------
-Write-Step "Registriere Dienst ExoSmtpRelay"
-$service = Join-Path $InstallDir "windows\service.py"
-if ($dienst) {
-    & $venvPython $service update | Out-Null
-} else {
-    & $venvPython $service --startup auto install | Out-Null
-}
-# Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
-# findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
-# ZUSAMMENFUEHREN statt ueberschreiben (windows\dienst_umgebung.py): eigene Eintraege wie
-# WEBUI_PASSWORD bleiben, ohne -WebPort bleibt der bisherige Port (8443 nur bei Erstinstallation).
-$sp = Join-Path $venv "Lib\site-packages"
-$umgebungArgs = @((Join-Path $InstallDir "windows\dienst_umgebung.py"), "--setzen", "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
-if ($PSBoundParameters.ContainsKey("WebPort")) { $umgebungArgs += @("--port", "$WebPort") }
-$umgebungAusgabe = @(& $venvPython @umgebungArgs)
-if ($LASTEXITCODE -ne 0) { throw "Dienst-Umgebung nicht gesetzt: $($umgebungAusgabe -join ' ')" }
-$WebPort = [int]($umgebungAusgabe[-1])
-Write-Ok "Web-Port: $WebPort"
-if ($istUpgrade) { Write-Ok "Dienst aktualisiert (Starttyp unveraendert)" } else { Write-Ok "Dienst registriert (Autostart)" }
-
-# -- Firewall ---------------------------------------------------------------------
-if (-not $SkipFirewall) {
-    Write-Step "Firewall-Regeln"
-    Sync-RelayFirewall -WebPort $WebPort
-}
-
-# -- Port 25 frei? -----------------------------------------------------------------
-$belegt = Get-NetTCPConnection -LocalPort 25 -State Listen -ErrorAction SilentlyContinue
-if ($belegt) {
-    $prozess = Get-Process -Id $belegt[0].OwningProcess -ErrorAction SilentlyContinue
-    Write-Warn "Port 25 ist bereits belegt (Prozess: $($prozess.ProcessName)). Der Dienst kann nicht starten, bis er frei ist."
-}
-
-# -- Web-Port frei? ------------------------------------------------------------------
-$belegtWeb = Get-NetTCPConnection -LocalPort $WebPort -State Listen -ErrorAction SilentlyContinue
-if ($belegtWeb) {
-    $prozessWeb = Get-Process -Id $belegtWeb[0].OwningProcess -ErrorAction SilentlyContinue
-    Write-Warn "Web-Port $WebPort ist bereits belegt (Prozess: $($prozessWeb.ProcessName)). Anderen Port waehlen: .\install.ps1 -WebPort <Port>"
-}
-
-# -- Starten ------------------------------------------------------------------------
-# -- Startmenue-Eintrag (alle Benutzer): oeffnet die Weboberflaeche ---------------
-Write-Step "Startmenue-Eintrag"
-$startmenue = [Environment]::GetFolderPath("CommonPrograms")
-$verknuepfung = Join-Path $startmenue "EXO SMTP Relay.url"
-# Rechnername statt localhost: das selbstsignierte TLS-Zertifikat des Dienstes traegt FQDN und kurzen
-# Rechnernamen als SAN (tls_cert.rechnernamen), nie "localhost" - der Link zeigt auf den FQDN.
-try { $rechnername = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $rechnername = "" }
-if (-not $rechnername) { $rechnername = "localhost" }
-Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")
-Write-Ok "$verknuepfung"
-
-Write-Step "Starte Dienst"
-Start-Service -Name "ExoSmtpRelay"
-Start-Sleep -Seconds 3
-$dienst = Get-Service -Name "ExoSmtpRelay"
-Write-Ok "Status: $($dienst.Status)"
+if (Test-Path $sicherung) { Remove-Item -Recurse -Force $sicherung -ErrorAction SilentlyContinue }
 
 # Kennwort-Hinweis nach DERSELBEN Regel wie die Oberflaeche (app\kennwort_stand.py):
 # nach einem Upgrade mit eigenem Kennwort kein "admin / admin" mehr (Labtest 0.2.43).

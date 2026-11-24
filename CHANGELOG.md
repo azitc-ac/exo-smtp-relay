@@ -1,9 +1,11 @@
 # Changelog — EXO SMTP Relay
 
-## 0.2.45 — 2026-11-24 — Stable: Labtest-Korrekturen aus 0.2.43-beta, 0.2.44-beta und 0.2.45
+## 0.2.46 — 2026-11-24 — Stable-Kandidat: Labtest-Korrekturen aus 0.2.43-beta, 0.2.44-beta, 0.2.45 und 0.2.46
 
-Fasst die Betas 0.2.43 und 0.2.44 zusammen (Einzelheiten in deren Abschnitten unten)
-und bringt zwei weitere Korrekturen aus dem Labtest von 0.2.44.
+**0.2.45 wurde nicht veröffentlicht** — der Labtest hat sie gestoppt (siehe unten). Ihr
+Inhalt geht vollständig in 0.2.46 auf.
+
+Fasst die Betas 0.2.43 und 0.2.44 zusammen (Einzelheiten in deren Abschnitten unten).
 
 **Wichtig für bestehende Windows-Installationen:** Fehlen auf dem Server die
 nachgeladenen Wurzelzertifikate (typisch: frischer Server, auf dem nie ein Browser
@@ -12,7 +14,33 @@ GitHub aufgerufen hat), scheitert „Aktualisierung prüfen“ der alten Fassung
 Paket als Administrator ausführen. Danach geht das Update per Knopf. Das Upgrade
 per `install.ps1` behält Kennwort, Port, Dienst-Umgebung und Firewall-Einschränkungen.
 
-Neu in 0.2.45:
+Neu in 0.2.46 (Labtest von 0.2.45, Windows PowerShell 5.1):
+
+- **`install.ps1` brach an einer Datei ab, die der Administrator nicht zurücksetzen
+  darf** (Eigentümer SYSTEM, nur SYSTEM:F). `icacls /reset` schreibt dann „Access is
+  denied“ nach stderr; mit `2>&1` und `ErrorActionPreference=Stop` wird das unter PS 5.1
+  zum beendenden Fehler. Folge: Exit 1, Dienst blieb **gestoppt**, VERSION schon neu —
+  ein halbes Upgrade. Jetzt läuft icacls mit lokal `Continue`, ohne `/C` (damit meldete
+  icacls Exit 0 trotz „Failed processing“, die WARNUNG kam nie), Exit-Code und Ausgabe
+  stehen in der Warnung. Der ganze Rechte-Schritt ist nie beendend.
+- **Abbruch nach dem Dienststopp: Rücknahme statt halbem Upgrade.** Die bisherige
+  Fassung (`app\`, `windows\`, `VERSION` …) wandert vor dem Kopieren nach
+  `.install-alt\`. Scheitert danach irgendein Schritt, kommt sie zurück, die
+  Abhängigkeiten werden auf ihre Lock-Datei zurückgesetzt und der Dienst startet
+  wieder, wenn er vorher lief — mit klarer Meldung („ABBRUCH im Schritt …“, „Vorige
+  Fassung … zurückgeholt“, „Dienst laeuft wieder“). `data\` und `venv\` bleiben an Ort und Stelle.
+- **Exit-Codes werden geprüft**: venv, pip, `service.py install/update` und
+  `dienst_umgebung.py` meldeten nach einem Fehler trotzdem „OK“. Ein Fehler führt jetzt
+  zum Abbruch samt Rücknahme. Läuft der Dienst nach dem Start nicht, ebenso.
+  Nicht beendend bleiben: pip-Selbstaktualisierung, pywin32-Nachinstallation und
+  ExchangeOnlineManagement (jeweils WARNUNG).
+- Tests: Der Nachbau ersetzt nicht mehr die icacls-Funktion, sondern nur icacls.exe
+  selbst (Exit-Codes wie gemessen); Gegenproben für 0.2.45, „/C zurück“ und „EAP
+  zurück“. Neuer CI-Job **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation,
+  Gegenprobe mit 0.2.45 (muss abbrechen), Upgrade mit gesperrter Datei (Exit 0,
+  WARNUNG), an pip scheiterndes Upgrade (Rücknahme, Dienst läuft mit alter Fassung).
+
+Aus 0.2.45 (nicht veröffentlicht):
 
 - **Windows: Rechte auf `data\` werden erzwungen** (sicherheitsrelevant). Bisher
   schaltete `install.ps1` nur die Vererbung ab und fügte SYSTEM und Administratoren

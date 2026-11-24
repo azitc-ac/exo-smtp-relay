@@ -187,6 +187,8 @@ Das Skript:
 
 Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7. Für Skripte und Fernausführung gibt es `-Unattended` (keine Rückfragen).
 
+**Upgrade mit Rücknahme:** Vor dem Kopieren wandert die installierte Fassung nach `.install-alt\`. Scheitert danach ein Schritt (pip, Dienstregistrierung, Start …), holt der Installer sie zurück, setzt die Abhängigkeiten auf ihre Lock-Datei zurück und startet den Dienst wieder, wenn er vorher lief; Exit-Code ungleich 0 und „ABBRUCH im Schritt …“. Rechte auf `data\`, die sich nicht setzen lassen, und ein fehlendes ExchangeOnlineManagement sind nur WARNUNGEN.
+
 **Deinstallation:** `.\windows\uninstall.ps1`
 
 **Hinweis:** Ist Port 25 bereits belegt (IIS-SMTP, Virenscanner, anderer Mail-Relay), nennt dir

@@ -185,7 +185,8 @@ def test_install_ps1_fuehrt_umgebung_zusammen():
     # Port nur bei ausdrücklichem -WebPort weiterreichen, danach den wirksamen übernehmen.
     assert '$PSBoundParameters.ContainsKey("WebPort")' in code
     assert "$WebPort = [int]($umgebungAusgabe[-1])" in code
-    assert "$LASTEXITCODE -ne 0" in code
+    # Exit-Code geprüft (seit 0.2.46 über Invoke-RelayNativ, dort `$rc -ne 0` → throw).
+    assert '$umgebungAusgabe = @(Invoke-RelayNativ "Dienst-Umgebung (dienst_umgebung.py)"' in code
     # Zuweisung vor der ersten Nutzung (Firewall).
     assert code.index("$WebPort = [int]") < code.index("Sync-RelayFirewall -WebPort $WebPort")
 

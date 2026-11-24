@@ -61,6 +61,23 @@ docker exec exo-smtp-relay grep -E '^(Uid|CapEff)' /proc/1/status   # Uid 1000
 Alle drei: `curl -sk https://<host>:<port>/health` →
 `{"ok":true,"smtp":true,"version":"<v>"}`.
 
+**Windows-Upgrade mit gesperrter Datei** (Labtest 0.2.45): in `data\` eine Datei, die
+der Administrator nicht zurücksetzen darf, dann `install.ps1 -Unattended` erneut:
+```powershell
+$f = 'C:\ProgramData\exo-smtp-relay\data\gesperrt.json'; Set-Content $f '{}'
+icacls $f /setowner *S-1-5-18; icacls $f /inheritance:r /grant:r *S-1-5-18:F
+powershell.exe -ExecutionPolicy Bypass -File .\windows\install.ps1 -Unattended   # Exit 0
+```
+Erwartet: `WARNUNG: nicht zurueckgesetzt: gesperrt.json (Exit 5: …)` oder
+`WARNUNG: Rechte nicht lesbar: gesperrt.json`, Dienst `Running`. Aufräumen:
+`takeown /f $f; icacls $f /reset; Remove-Item $f`.
+
+**Windows-Upgrade, das scheitert**: Paket entpacken, in `app\requirements.lock` eine
+Zeile `gibt-es-nicht==0.0.1` anhängen, `install.ps1 -Unattended` → Exit ≠ 0,
+„ABBRUCH im Schritt 'Abhaengigkeiten'“, „Vorige Fassung <alt> zurueckgeholt“, „Dienst
+laeuft wieder (Fassung <alt>)“; `/health` meldet `<alt>`, kein `.install-alt\` bleibt.
+(Beides läuft auch im CI-Job „Installer echt“.)
+
 ## 2 Oberfläche
 
 1. `/` ohne Anmeldung → Weiterleitung zu `/auth/login`.

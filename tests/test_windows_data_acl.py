@@ -6,8 +6,15 @@ Meldung „nur fuer SYSTEM und Administratoren lesbar“ stimmte nicht. Jetzt (S
 genau SYSTEM und Administratoren, jeder andere explizite Eintrag wird entfernt und gemeldet,
 Unterobjekte erben wieder (eigene Einträge weg, Vererbung an) — ebenfalls gemeldet.
 
-Drei Ebenen: Nachbau von Get-Acl/Set-Acl (läuft mit pwsh auch unter Linux), ein echter Lauf
-gegen NTFS (nur Windows) und ein statischer Test.
+Labtest 0.2.45: `& icacls.exe … /reset /C /Q 2>&1` unter ErrorActionPreference=Stop — in PS 5.1
+wird die stderr-Zeile („Access is denied“) zum beendenden Fehler, install.ps1 brach nach dem
+Dienststopp ab. Und `/C` liefert Exit 0 trotz „Failed processing“, die WARNUNG kam nie. Der
+frühere Nachbau ersetzte Reset-RelayAclErbe ganz und sah das nicht. Jetzt läuft die ECHTE
+Funktion gegen ein nachgebautes icacls.exe (Exit-Codes wie gemessen), und der echte NTFS-Lauf
+nimmt eine wirklich unzugängliche Datei (Eigentümer SYSTEM, nur SYSTEM:F).
+
+Drei Ebenen: Nachbau von Get-Acl/Set-Acl/icacls (läuft mit pwsh auch unter Linux), ein echter
+Lauf gegen NTFS (nur Windows) und ein statischer Test.
 """
 import json
 import os
@@ -21,7 +28,8 @@ import pytest
 from conftest import WURZEL
 
 INSTALL = WURZEL / "windows" / "install.ps1"
-_HILFEN = ("New-RelayVollzugriff", "Get-RelayKontoName", "Reset-RelayAclErbe", "Set-RelayDataAcl")
+_HILFEN = ("New-RelayVollzugriff", "Get-RelayKontoName", "Reset-RelayAclErbe", "Set-RelayDataAcl",
+           "Set-RelayDataAclKern")
 
 
 def _ps() -> str | None:
@@ -74,18 +82,32 @@ function Get-ChildItem { [CmdletBinding()] param([string]$LiteralPath, [switch]$
     foreach ($k in @($global:Acls.Keys | Sort-Object)) { if ($k.StartsWith("$LiteralPath\")) { [pscustomobject]@{ FullName = $k } } } }
 '''
 
+# Nachbau der Hilfen, die SIDs brauchen (gibt es unter Linux nicht). Reset-RelayAclErbe bleibt
+# ECHT; nachgebaut ist nur icacls.exe — mit den im Labtest gemessenen Exit-Codes: gesperrtes
+# Objekt → stderr „Access is denied“, Exit 5; mit /C trotzdem Exit 0.
 _MOCK_HILFEN = r'''
 $global:Namen = @{ "S-1-5-18" = "NT AUTHORITY\SYSTEM"; "S-1-5-32-544" = "BUILTIN\Administratoren";
     "S-1-5-32-551" = "BUILTIN\Backup Operators"; "S-1-5-32-545" = "BUILTIN\Benutzer"; "S-1-1-0" = "Jeder" }
 function New-RelayVollzugriff([string]$Sid) { Ace $Sid "FullControl" }
 function Get-RelayKontoName($Identitaet) { $global:Namen[$Identitaet.Value] }
-function Reset-RelayAclErbe([string]$Pfad) {
-    if ($global:Gesperrt -contains $Pfad) { return $false }
-    [void]$global:Zurueckgesetzt.Add($Pfad)
-    $a = $global:Acls[$Pfad]
+$global:IcaclsAufrufe = New-Object System.Collections.ArrayList
+function icacls.exe {
+    $pfad = "$($args[0])"
+    [void]$global:IcaclsAufrufe.Add(($args -join " "))
+    if ($global:Gesperrt -contains $pfad) {
+        $global:LASTEXITCODE = $(if ($args -contains "/C") { 0 } else { 5 })
+        Write-Error "${pfad}: Access is denied."
+        "Successfully processed 0 files; Failed processing 1 files"
+        return
+    }
+    [void]$global:Zurueckgesetzt.Add($pfad)
+    $a = $global:Acls[$pfad]
     foreach ($r in @($a.Regeln | Where-Object { -not $_.IsInherited })) { $a.Regeln.Remove($r) }
     $a.Geschuetzt = $false
-    $true }
+    "processed file: $pfad"
+    "Successfully processed 1 files; Failed processing 0 files"
+    $global:LASTEXITCODE = 0
+}
 '''
 
 _GEERBT = 'Ace "S-1-5-32-545" "ReadAndExecute" "Allow" "ContainerInherit, ObjectInherit" $true'
@@ -101,6 +123,8 @@ _BESTAND = {
               'Objekt "C:\\d\\settings.json" $false @((Ace "S-1-1-0" "Read" "Allow" "None"))\n'),
     "sauber": (f'Objekt "C:\\d" $true @({_SOLL})\n'
                'Objekt "C:\\d\\logs" $false @()\n'),
+    # data\ selbst nicht lesbar (Get-Acl wirft): der Schritt darf nie beendend sein.
+    "wurzel_kaputt": 'Objekt "C:\\anders" $false @()\n',
     "gesperrt": (f'Objekt "C:\\d" $true @({_SOLL})\n'
                  'Objekt "C:\\d\\alt" $true @((Ace "S-1-5-32-545" "Modify"))\n'
                  '$global:Gesperrt = @("C:\\d\\alt")\n'),
@@ -114,7 +138,7 @@ foreach ($k in @($global:Acls.Keys | Sort-Object)) {
         Explizit = @($a.Regeln | Where-Object { -not $_.IsInherited } | ForEach-Object { "$($_.IdentityReference.Value) $($_.AccessControlType) $($_.FileSystemRights)" } | Sort-Object)
         Geerbt = @($a.Regeln | Where-Object { $_.IsInherited }).Count }
 }
-ConvertTo-Json -Compress -Depth 5 -InputObject ([ordered]@{ Acls = $zustand; Meldungen = @($global:Meldungen); Zurueck = @($global:Zurueckgesetzt) })
+ConvertTo-Json -Compress -Depth 5 -InputObject ([ordered]@{ Acls = $zustand; Meldungen = @($global:Meldungen); Zurueck = @($global:Zurueckgesetzt); Icacls = @($global:IcaclsAufrufe) })
 '''
 
 # Die Logik bis 0.2.44 — nur für die eingebaute Gegenprobe (Konten als SID wie im Nachbau).
@@ -170,6 +194,12 @@ def _pruefen(tmp_path, funktionen: str) -> list[str]:
     if not e["Meldungen"] or not e["Meldungen"][-1].startswith("WARN: ") or \
             not any("nicht zurueckgesetzt: alt" in m for m in e["Meldungen"]):
         fehler.append("gesperrt_warnt")
+    # Der ECHTE Exit-Code und die icacls-Meldung stehen in der Warnung (EAP lokal Continue —
+    # sonst bricht PS 5.1 an der stderr-Zeile ab, bevor der Exit-Code gelesen ist).
+    if not any("nicht zurueckgesetzt: alt (Exit 5: " in m and "Access is denied" in m for m in e["Meldungen"]):
+        fehler.append("gesperrt_exitcode")
+    if any(" /C" in a for a in e.get("Icacls") or []):
+        fehler.append("icacls_ohne_C")
     return fehler
 
 
@@ -182,7 +212,44 @@ def test_data_acl_wird_erzwungen_und_gemeldet(tmp_path):
 def test_data_acl_gegenprobe_alte_logik_faellt_durch(tmp_path):
     """Trennscharf: die Logik bis 0.2.44 lässt den fremden Eintrag stehen und meldet trotzdem Erfolg."""
     assert _pruefen(tmp_path, _ALT) == ["fremd_wurzel", "fremd_unterobjekte", "fremd_meldungen",
-                                        "nur_abweichende_anfassen", "sauber", "gesperrt_warnt"]
+                                        "nur_abweichende_anfassen", "sauber", "gesperrt_warnt",
+                                        "gesperrt_exitcode"]
+
+
+# Reset-RelayAclErbe wie in 0.2.45 (Labtest: Abbruch an „Access is denied“, /C verschluckt den Fehler).
+_RESET_0245 = r'''
+function Reset-RelayAclErbe([string]$Pfad) {
+    $null = & icacls.exe $Pfad /reset /C /Q 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+'''
+
+
+def _mit_reset(reset: str) -> str:
+    return _alle_funktionen().replace(_funktion("Reset-RelayAclErbe"), reset)
+
+
+def _ohne_zeile(text: str, zeile: str) -> str:
+    assert zeile in text, zeile
+    return text.replace(zeile, "")
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+@pytest.mark.parametrize("variante, erwartet", [
+    ("0.2.45", ["gesperrt_warnt", "gesperrt_exitcode", "icacls_ohne_C"]),
+    ("nur /C zurueck", ["gesperrt_warnt", "gesperrt_exitcode", "icacls_ohne_C"]),
+    ("nur EAP zurueck", ["gesperrt_exitcode"]),
+])
+def test_reset_gegenprobe(tmp_path, variante, erwartet):
+    """Trennscharf: jede Rücknahme des Fixes fällt durch."""
+    echt = _funktion("Reset-RelayAclErbe")
+    if variante == "0.2.45":
+        reset = _RESET_0245
+    elif variante == "nur /C zurueck":
+        reset = echt.replace("/reset /Q", "/reset /C /Q")
+    else:
+        reset = _ohne_zeile(echt, '    $ErrorActionPreference = "Continue"\n')
+    assert _pruefen(tmp_path, _mit_reset(reset)) == erwartet
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
@@ -240,7 +307,8 @@ def test_data_acl_echt_auf_ntfs(tmp_path):
 
 def test_data_acl_statisch():
     code = INSTALL.read_text(encoding="utf-8-sig")
-    funktion = _funktion("Set-RelayDataAcl")
+    huelle = _funktion("Set-RelayDataAcl")
+    funktion = _funktion("Set-RelayDataAclKern")
     rest = code
     for n in _HILFEN:
         rest = rest.replace(_funktion(n), "")
@@ -249,14 +317,72 @@ def test_data_acl_statisch():
     assert "Set-RelayDataAcl -Pfad $dataDir" in rest
     for verboten in ("Set-Acl", "SetAccessRuleProtection", "icacls"):
         assert verboten not in rest, verboten
-    assert rest.index("Set-RelayDataAcl -Pfad $dataDir") < rest.index('Start-Service -Name "ExoSmtpRelay"')
+    assert rest.index("Set-RelayDataAcl -Pfad $dataDir") < rest.index('Write-Step "Starte Dienst"')
     # Wurzel: Vererbung ab, alle expliziten Einträge raus, genau die zwei SIDs rein.
     assert "$acl.SetAccessRuleProtection($true, $false)" in funktion
     assert "[void]$acl.RemoveAccessRuleSpecific($r)" in funktion
     assert '$soll = @("S-1-5-18", "S-1-5-32-544")' in funktion
     # Unterobjekte: rekursiv, Rücksetzen per icacls /reset (Eigentümer bleibt).
     assert "Get-ChildItem -LiteralPath $Pfad -Recurse -Force" in funktion
-    assert "/reset" in _funktion("Reset-RelayAclErbe")
+    reset = "\n".join(z for z in _funktion("Reset-RelayAclErbe").splitlines() if not z.lstrip().startswith("#"))
+    assert "/reset /Q" in reset and "/C" not in reset
+    # Nie beendend: der Kern läuft in try/catch, ein Fehler wird zur WARNUNG.
+    assert "try {\n        Set-RelayDataAclKern -Pfad $Pfad" in huelle
     # Konten per SID, nie per (sprachabhaengigem) Namen.
     ohne_kommentare = "\n".join(z for z in code.splitlines() if not z.lstrip().startswith("#"))
     assert "BUILTIN\\Administrators" not in ohne_kommentare and "NT AUTHORITY\\SYSTEM" not in ohne_kommentare
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
+def test_data_acl_echt_unzugaengliche_datei(tmp_path):
+    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Der Administrator
+    darf sie nicht zurücksetzen — icacls schreibt „Access is denied“ nach stderr. Unter PS 5.1 mit
+    ErrorActionPreference=Stop brach das install.ps1 ab. Erwartet: kein Abbruch, WARNUNG mit dem
+    echten Exit-Code, das Skript läuft weiter (Exit 0)."""
+    data = tmp_path / "data"
+    data.mkdir()
+    gesperrt = data / "gesperrt.json"
+    gesperrt.write_text("{}")
+
+    def icacls(*args):
+        r = subprocess.run(["icacls", *map(str, args)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    icacls(gesperrt, "/setowner", "*S-1-5-18")                    # solange wir noch erben: Vollzugriff
+    icacls(gesperrt, "/inheritance:r", "/grant:r", "*S-1-5-18:F")
+    try:
+        ps = shutil.which("powershell") or _ps()                   # Ziel ist Windows PowerShell 5.1
+        skript = tmp_path / "c2.ps1"
+        skript.write_text(
+            "Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+            "$global:M = New-Object System.Collections.ArrayList\n"
+            "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
+            "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
+            + _alle_funktionen()
+            + f"$direkt = Reset-RelayAclErbe '{gesperrt}'\n"
+            "$direktMeldung = $script:RelayIcaclsMeldung\n"
+            f"Set-RelayDataAcl -Pfad '{data}'\n"
+            "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $direkt; DirektMeldung = $direktMeldung;"
+            " Meldungen = @($global:M) })\n",
+            encoding="utf-8-sig")
+        umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+        r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
+                           capture_output=True, text=True, timeout=120, env=umgebung)
+        assert r.returncode == 0, r.stderr + r.stdout
+        e = json.loads(r.stdout.strip().splitlines()[-1])
+        assert e["Direkt"] is False, e
+        assert e["DirektMeldung"].startswith("Exit ") and not e["DirektMeldung"].startswith("Exit 0"), e
+        assert not e["DirektMeldung"].startswith("Exit -1"), f"Exit-Code nicht gelesen (EAP?): {e}"
+        assert e["Meldungen"] and e["Meldungen"][-1].startswith("WARN: "), e
+        assert any("gesperrt.json" in m for m in e["Meldungen"] if m.startswith("WARN: ")), e
+    finally:
+        subprocess.run(["takeown", "/f", str(gesperrt)], capture_output=True)
+        subprocess.run(["icacls", str(gesperrt), "/reset"], capture_output=True)
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+def test_data_acl_nie_beendend(tmp_path):
+    """Labtest 0.2.45: Ein Fehler im Rechte-Schritt brach install.ps1 nach dem Dienststopp ab.
+    Jetzt WARNUNG, das Skript läuft weiter (Exit 0 prüft _lauf)."""
+    e = _lauf(tmp_path, _alle_funktionen(), "wurzel_kaputt")
+    assert e["Meldungen"] and e["Meldungen"][-1].startswith("WARN: Rechte auf data\\ nicht vollstaendig gesetzt: "), e

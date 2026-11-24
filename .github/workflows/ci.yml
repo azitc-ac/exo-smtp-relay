@@ -82,12 +82,37 @@ jobs:
       - name: PowerShell 5.1 parst die Skripte
         shell: powershell
         run: |
-          foreach ($s in (Get-ChildItem app\scripts\*.ps1, windows\*.ps1)) {
+          foreach ($s in (Get-ChildItem app\scripts\*.ps1, windows\*.ps1, tests\*.ps1)) {
             $fehler = $null
             [System.Management.Automation.Language.Parser]::ParseFile($s.FullName, [ref]$null, [ref]$fehler) | Out-Null
             if ($fehler.Count -gt 0) { $fehler | ForEach-Object { Write-Host $_.ToString() }; throw "Parse-Fehler in $($s.Name)" }
             Write-Host "OK $($s.Name)"
           }
+
+  # Labtest 0.2.45: install.ps1 brach unter PS 5.1 an einer Datei ab, die der Administrator
+  # nicht zuruecksetzen darf (Eigentuemer SYSTEM, nur SYSTEM:F) — Dienst blieb gestoppt, VERSION
+  # schon neu. Hier ECHT: Erstinstallation, Gegenprobe mit 0.2.45 (muss abbrechen), Upgrade mit
+  # der gesperrten Datei (WARNUNG, Exit 0) und ein an pip scheiterndes Upgrade (Ruecknahme).
+  installer:
+    name: Installer echt (Windows, PS 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Stand 0.2.45 fuer die Gegenprobe
+        shell: powershell
+        run: git worktree add "$env:RUNNER_TEMP\stand-0245" 4d78c34
+      - name: Installieren, Upgrade mit gesperrter Datei, Abbruch mit Ruecknahme
+        shell: powershell
+        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245"
+      - name: Protokoll des Dienstes
+        if: always()
+        shell: powershell
+        run: Get-Content C:\ProgramData\exo-smtp-relay\data\logs\app.log -Tail 80 -ErrorAction SilentlyContinue
 
   build:
     name: Container baut
