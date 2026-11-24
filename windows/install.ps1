@@ -24,7 +24,8 @@
     Pfad zu python.exe. Ohne Angabe wird "py -3" bzw. "python" gesucht.
 
 .PARAMETER WebPort
-    Port der Weboberflaeche. Vorgabe: 8443
+    Port der Weboberflaeche. Vorgabe: 8443 bei der Erstinstallation; bei einem Upgrade
+    ohne Angabe bleibt der bisherige Port.
 
 .PARAMETER SkipFirewall
     Keine Firewall-Regeln anlegen.
@@ -220,11 +221,15 @@ if ($dienst) {
 }
 # Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
 # findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
+# ZUSAMMENFUEHREN statt ueberschreiben (windows\dienst_umgebung.py): eigene Eintraege wie
+# WEBUI_PASSWORD bleiben, ohne -WebPort bleibt der bisherige Port (8443 nur bei Erstinstallation).
 $sp = Join-Path $venv "Lib\site-packages"
-$dienstUmgebung = @("PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
-$dienstUmgebung += "WEBUI_PORT=$WebPort"
-New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -Name "Environment" `
-    -PropertyType MultiString -Value $dienstUmgebung -Force | Out-Null
+$umgebungArgs = @((Join-Path $InstallDir "windows\dienst_umgebung.py"), "--setzen", "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
+if ($PSBoundParameters.ContainsKey("WebPort")) { $umgebungArgs += @("--port", "$WebPort") }
+$umgebungAusgabe = @(& $venvPython @umgebungArgs)
+if ($LASTEXITCODE -ne 0) { throw "Dienst-Umgebung nicht gesetzt: $($umgebungAusgabe -join ' ')" }
+$WebPort = [int]($umgebungAusgabe[-1])
+Write-Ok "Web-Port: $WebPort"
 if ($istUpgrade) { Write-Ok "Dienst aktualisiert (Starttyp unveraendert)" } else { Write-Ok "Dienst registriert (Autostart)" }
 
 # -- Firewall ---------------------------------------------------------------------

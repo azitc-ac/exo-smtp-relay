@@ -15,6 +15,14 @@
   `PYTHONIOENCODING=utf-8` für den Kindprozess. `app.log` war schon UTF-8.
   Nebenbei schließt der Wrapper seinen Handle auf service.log nach dem Start
   des Kindes (vorher blieb je Neustart einer offen).
+- **Windows: Upgrade per `install.ps1` verliert nichts mehr.** Bisher schrieb
+  der Installer die Dienst-Umgebung (Registry, `Environment`) jedesmal neu:
+  eigene Einträge wie `WEBUI_PASSWORD` gingen verloren, und ohne `-WebPort`
+  sprang ein eigener Port auf 8443 zurück. Jetzt führt `windows/dienst_umgebung.py`
+  zusammen: gesetzt werden nur `PYTHONPATH` und `WEBUI_PORT`, alles andere
+  bleibt. Ohne `-WebPort` bleibt der bisherige Port, 8443 gilt nur bei der
+  Erstinstallation. Wichtig, weil bestehende Windows-Installationen ohne
+  nachgeladene Wurzelzertifikate für 0.2.43+ einmal `install.ps1` ausführen müssen.
 
 **Zu tun:** nichts. Die UTF-8-Ausgabe greift nach einem Knopf-Update erst mit
 dem nächsten Neustart des Dienstes (der laufende Wrapper bleibt bis dahin der

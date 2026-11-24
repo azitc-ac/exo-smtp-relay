@@ -122,3 +122,69 @@ def test_service_log_ist_utf8_auch_bei_ansi_codepage(tmp_path, monkeypatch):
     assert proc.wait(timeout=60) == 0
     roh = (tmp_path / "data" / "logs" / "service.log").read_bytes()
     assert "übersprungen — Grund".encode("utf-8") in roh, roh
+
+
+# ── 3. Dienst-Umgebung beim Upgrade zusammenführen, Port behalten ──────────────
+# Bestehende Installationen ohne nachgeladene Wurzeln MÜSSEN für 0.2.43+ einmal
+# install.ps1 ausführen — dieser Weg darf weder Port noch eigene Einträge verlieren.
+
+def _umgebung():
+    spec = importlib.util.spec_from_file_location("_dienst_umgebung",
+                                                  WURZEL / "windows" / "dienst_umgebung.py")
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
+def _lauf(alt, *args):
+    du = _umgebung()
+    geschrieben = []
+    rc = du.main(["dienst_umgebung.py", "--setzen", "PYTHONPATH=C:\\neu\\sp", *args],
+                 lesen=lambda: list(alt), schreiben=geschrieben.append)
+    return rc, geschrieben
+
+
+def test_upgrade_behaelt_eigene_eintraege_und_port(capsys):
+    alt = ["PYTHONPATH=C:\\alt\\sp", "WEBUI_PORT=9443", "WEBUI_PASSWORD=geheim", "EIGENE=1"]
+    rc, geschrieben = _lauf(alt)
+    assert (rc, capsys.readouterr().out.strip()) == (0, "9443")
+    assert geschrieben == [["PYTHONPATH=C:\\neu\\sp", "WEBUI_PORT=9443",
+                            "WEBUI_PASSWORD=geheim", "EIGENE=1"]]
+
+
+def test_ausdruecklicher_port_gewinnt(capsys):
+    rc, geschrieben = _lauf(["WEBUI_PORT=9443", "WEBUI_PASSWORD=geheim"], "--port", "10443")
+    assert (rc, capsys.readouterr().out.strip()) == (0, "10443")
+    assert geschrieben == [["WEBUI_PORT=10443", "WEBUI_PASSWORD=geheim", "PYTHONPATH=C:\\neu\\sp"]]
+
+
+def test_erstinstallation_8443(capsys):
+    rc, geschrieben = _lauf([])
+    assert (rc, capsys.readouterr().out.strip()) == (0, "8443")
+    assert geschrieben == [["PYTHONPATH=C:\\neu\\sp", "WEBUI_PORT=8443"]]
+
+
+def test_doppelte_und_klein_geschriebene_installer_schluessel(capsys):
+    rc, geschrieben = _lauf(["webui_port=7443", "Pythonpath=x", "PYTHONPATH=y", "A=b=c"])
+    assert rc == 0 and capsys.readouterr().out.strip() == "7443"
+    assert geschrieben == [["WEBUI_PORT=7443", "PYTHONPATH=C:\\neu\\sp", "A=b=c"]]
+
+
+def test_fehler_ohne_schreiben_und_ohne_stderr(capsys):
+    rc, geschrieben = _lauf(["WEBUI_PORT=9443"], "--port", "99999")
+    aus = capsys.readouterr()
+    assert rc == 1 and geschrieben == [] and aus.err == "" and "Fehler" in aus.out
+
+
+def test_install_ps1_fuehrt_umgebung_zusammen():
+    ps = (WURZEL / "windows" / "install.ps1").read_text(encoding="utf-8-sig")
+    code = "\n".join(z for z in ps.splitlines() if not z.lstrip().startswith("#"))
+    assert "windows\\dienst_umgebung.py" in code
+    # Kein direktes Überschreiben des Registry-Werts mehr.
+    assert '-Name "Environment"' not in code and "Set-ItemProperty" not in code
+    # Port nur bei ausdrücklichem -WebPort weiterreichen, danach den wirksamen übernehmen.
+    assert '$PSBoundParameters.ContainsKey("WebPort")' in code
+    assert "$WebPort = [int]($umgebungAusgabe[-1])" in code
+    assert "$LASTEXITCODE -ne 0" in code
+    # Zuweisung vor der ersten Nutzung (Firewall).
+    assert code.index("$WebPort = [int]") < code.index('"EXO SMTP Relay - Web $WebPort"')
