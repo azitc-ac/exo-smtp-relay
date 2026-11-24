@@ -91,8 +91,10 @@ jobs:
 
   # Labtest 0.2.45: install.ps1 brach unter PS 5.1 an einer Datei ab, die der Administrator
   # nicht zuruecksetzen darf (Eigentuemer SYSTEM, nur SYSTEM:F) — Dienst blieb gestoppt, VERSION
-  # schon neu. Hier ECHT: Erstinstallation, Gegenprobe mit 0.2.45 (muss abbrechen), Upgrade mit
-  # der gesperrten Datei (WARNUNG, Exit 0) und ein an pip scheiterndes Upgrade (Ruecknahme).
+  # schon neu. Hier ECHT: Erstinstallation, Upgrade mit SYSTEM-eigener Datei (Exit 0), Gegenprobe
+  # mit 0.2.45 (meldet ein an pip gescheitertes Upgrade als Erfolg) und dasselbe Upgrade mit dem
+  # aktuellen Installer (Ruecknahme, Dienst laeuft mit alter Fassung). Der Runner-Administrator
+  # darf die SYSTEM-eigene Datei zuruecksetzen - der Labtest-Fall c2 ist hier nicht nachstellbar.
   installer:
     name: Installer echt (Windows, PS 5.1)
     runs-on: windows-latest

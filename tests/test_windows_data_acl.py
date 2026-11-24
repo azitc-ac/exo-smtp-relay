@@ -333,29 +333,15 @@ def test_data_acl_statisch():
     assert "BUILTIN\\Administrators" not in ohne_kommentare and "NT AUTHORITY\\SYSTEM" not in ohne_kommentare
 
 
-def _ps51_lauf(skript, als_standardbenutzer: bool = False) -> dict:
-    """Skript unter Windows PowerShell 5.1; Ergebnis-JSON aus <skript>.json. Mit
-    `als_standardbenutzer` über `runas /trustlevel:0x20000` (eingeschränktes Token ohne
-    Administratorrechte und Privilegien): Auf dem CI-Runner darf der Administrator eine
-    SYSTEM-eigene Datei sonst trotzdem zurücksetzen — im Labtest durfte er es nicht."""
-    import time
+def _ps51_lauf(skript) -> dict:
+    """Skript unter Windows PowerShell 5.1; Ergebnis-JSON aus <skript>.json."""
     ps = shutil.which("powershell") or _ps()
     aus = skript.with_suffix(".json")
-    aufruf = [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript), str(aus)]
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
-    if not als_standardbenutzer:
-        r = subprocess.run(aufruf, capture_output=True, text=True, timeout=120, env=umgebung)
-        assert r.returncode == 0 and aus.is_file(), r.stderr + r.stdout
-        return json.loads(aus.read_text(encoding="utf-8-sig"))
-    befehl = subprocess.list2cmdline(aufruf)
-    r = subprocess.run(["runas", "/trustlevel:0x20000", befehl], capture_output=True, text=True, timeout=60, env=umgebung)
-    assert r.returncode == 0, f"runas /trustlevel: {r.stdout} {r.stderr}"
-    for _ in range(90):
-        if aus.is_file():
-            time.sleep(1)
-            return json.loads(aus.read_text(encoding="utf-8-sig"))
-        time.sleep(1)
-    raise AssertionError("kein Ergebnis vom eingeschränkten Prozess")
+    r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript), str(aus)],
+                       capture_output=True, text=True, timeout=120, env=umgebung)
+    assert r.returncode == 0 and aus.is_file(), r.stderr + r.stdout
+    return json.loads(aus.read_text(encoding="utf-8-sig"))
 
 
 _C2_KOPF = ("param([string]$Aus)\nSet-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
@@ -395,9 +381,12 @@ def test_reset_echt_gegenprobe_ohne_eap(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
 def test_data_acl_echt_unzugaengliche_datei(tmp_path):
-    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F, Lauf OHNE die
-    Rechte, sie zurückzusetzen (eingeschränktes Token). icacls schreibt „Access is denied“ nach
-    stderr. Erwartet: kein Abbruch, WARNUNG mit echtem Exit-Code, Skript läuft weiter."""
+    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Im Labtest durfte
+    der Administrator sie nicht zurücksetzen (stderr „Access is denied“, Abbruch). Auf dem
+    CI-Runner DARF er es (gemessen 25.11.2026, auch unter `runas /trustlevel:0x20000`) — dort
+    prüft dieser Test nur: kein Abbruch, Exit 0; scheitert icacls doch, dann mit echtem
+    Exit-Code und WARNUNG. Den Fehlerweg selbst deckt test_reset_echt_icacls_fehler_unter_ps51
+    mit einem echten icacls-Fehler ab (samt Gegenprobe ohne EAP)."""
     data = tmp_path / "data"
     data.mkdir()
     gesperrt = data / "gesperrt.json"
@@ -417,10 +406,12 @@ def test_data_acl_echt_unzugaengliche_datei(tmp_path):
                           "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $d; DirektMeldung = $dm;"
                           " Meldungen = @($global:M) }) | Set-Content -Encoding UTF8 $Aus\n",
                           encoding="utf-8-sig")
-        e = _ps51_lauf(skript, als_standardbenutzer=True)
-        assert e["Direkt"] is False, e
-        assert re.match(r"^Exit [1-9]\d*: ", e["DirektMeldung"]), f"Exit-Code nicht gelesen (EAP?): {e}"
-        assert e["Meldungen"] and e["Meldungen"][-1].startswith("WARN: "), e
+        e = _ps51_lauf(skript)                                     # Exit 0 prüft _ps51_lauf
+        if e["Direkt"] is False:
+            assert re.match(r"^Exit [1-9]\d*: ", e["DirektMeldung"]), f"Exit-Code nicht gelesen (EAP?): {e}"
+            assert any(m.startswith("WARN: ") and "gesperrt.json" in m for m in e["Meldungen"]), e
+        else:
+            assert e["DirektMeldung"] == "", e
     finally:
         subprocess.run(["takeown", "/f", str(gesperrt)], capture_output=True)
         subprocess.run(["icacls", str(gesperrt), "/reset"], capture_output=True)

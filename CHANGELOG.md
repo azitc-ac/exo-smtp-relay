@@ -40,11 +40,21 @@ Neu in 0.2.46 (Labtest von 0.2.45, Windows PowerShell 5.1):
   `-3.12`, `-3.11` vor `py -3` und `python` und nimmt nur Fassungen, für die
   `requirements.lock` Wheels hat; `-PythonExe` mit anderer Fassung bricht mit klarer
   Meldung ab. Ohne passende Fassung bietet er wie bisher Python 3.12 an.
+- **Dienst startet auch mit Python ohne PATH-Eintrag.** `pythonservice.exe` liegt im
+  venv-Stamm und lädt `python3XX.dll` nur über den Maschinen-PATH; fehlt die
+  Python-Basis dort (Installation ohne „Add python.exe to PATH“, per `py` gefunden),
+  hing der Dienst beim Start bis zum Zeitlimit (CI: SCM-Ereignis 7009). Jetzt legt der
+  Installer in diesem Fall die DLLs neben `pythonservice.exe` (gemerkt in
+  `venv\relay-dienst-dlls.txt`) und entfernt genau diese Kopien wieder, sobald die Basis
+  im PATH steht.
 - Tests: Der Nachbau ersetzt nicht mehr die icacls-Funktion, sondern nur icacls.exe
   selbst (Exit-Codes wie gemessen); Gegenproben für 0.2.45, „/C zurück“ und „EAP
-  zurück“. Neuer CI-Job **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation,
-  Gegenprobe mit 0.2.45 (muss abbrechen), Upgrade mit gesperrter Datei (Exit 0,
-  WARNUNG), an pip scheiterndes Upgrade (Rücknahme, Dienst läuft mit alter Fassung).
+  zurück“; unter echtem PS 5.1 ein echter icacls-Fehler samt Gegenprobe. Neuer CI-Job
+  **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation, Upgrade mit
+  SYSTEM-eigener Datei (Exit 0), Gegenprobe mit 0.2.45 (meldet ein an pip gescheitertes
+  Upgrade als Erfolg), an pip scheiterndes Upgrade (Rücknahme, Dienst läuft mit alter
+  Fassung). Hinweis: Auf dem CI-Runner darf der Administrator die SYSTEM-eigene Datei
+  zurücksetzen; der Labtest-Fall selbst ist dort nicht nachstellbar.
 
 Aus 0.2.45 (nicht veröffentlicht):
 

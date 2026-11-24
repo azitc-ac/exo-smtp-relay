@@ -324,6 +324,33 @@ function Test-RelayPythonPasst([string]$Fassung) {
     return ([version]$Fassung -ge [version]$RelayPythonMin) -and ([version]$Fassung -le [version]$RelayPythonMax)
 }
 
+# pythonservice.exe liegt im venv-Stamm (pywin32 kopiert es dorthin) und laedt python3XX.dll.
+# Die findet es nur ueber den Maschinen-PATH (Python-Installer "Add python.exe to PATH") - sonst
+# haengt der Dienst beim Start bis zum Zeitlimit (CI 0.2.46: SCM 7009, Python ohne PATH-Eintrag).
+# Dann legt der Installer die DLLs neben pythonservice.exe und merkt sich, welche; liegt die
+# Basis (wieder) im PATH, entfernt er genau diese Kopien. Getestet in tests\test_install_abbruch.py.
+function Sync-RelayDienstDlls([string]$Venv, [string]$Basis, [string]$MaschinenPfad) {
+    $merker = Join-Path $Venv "relay-dienst-dlls.txt"
+    $bisher = @()
+    if (Test-Path -LiteralPath $merker) { $bisher = @(Get-Content -LiteralPath $merker | Where-Object { $_ }) }
+    $norm = $Basis.TrimEnd("\", "/")
+    $imPfad = @($MaschinenPfad -split ";" | ForEach-Object { $_.Trim().TrimEnd("\", "/") } | Where-Object { $_ -ieq $norm }).Count -gt 0
+    if ($imPfad) {
+        foreach ($n in $bisher) { Remove-Item -LiteralPath (Join-Path $Venv $n) -Force -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $merker -Force -ErrorAction SilentlyContinue
+        Write-Ok "Python-DLL ueber den Maschinen-PATH ($Basis)"
+        return
+    }
+    $dlls = @(Get-ChildItem -LiteralPath $Basis -Filter "*.dll" | Where-Object { $_.Name -match '^(python3\d*|vcruntime140(_1)?)\.dll$' })
+    if ($dlls.Count -eq 0) { throw "Keine python3*.dll unter $Basis - Dienst koennte nicht starten." }
+    foreach ($d in $dlls) { Copy-Item -LiteralPath $d.FullName -Destination (Join-Path $Venv $d.Name) -Force }
+    foreach ($n in $bisher) {
+        if (@($dlls | Where-Object { $_.Name -eq $n }).Count -eq 0) { Remove-Item -LiteralPath (Join-Path $Venv $n) -Force -ErrorAction SilentlyContinue }
+    }
+    Set-Content -LiteralPath $merker -Value @($dlls | ForEach-Object { $_.Name }) -Encoding ASCII
+    Write-Ok "Python-DLLs neben pythonservice.exe gelegt ($Basis steht nicht im Maschinen-PATH): $(($dlls | ForEach-Object { $_.Name }) -join ', ')"
+}
+
 # -- Administrator? ---------------------------------------------------------------
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -509,6 +536,8 @@ try {
     } else {
         Invoke-RelayNativ "service.py install" { & $venvPython $service --startup auto install } | Out-Null
     }
+    $pyBasis = @(Invoke-RelayNativ "Python-Basis ermitteln" { & $venvPython -c "import sys; print(sys.base_prefix)" })[-1].Trim()
+    Sync-RelayDienstDlls -Venv $venv -Basis $pyBasis -MaschinenPfad ([Environment]::GetEnvironmentVariable("Path", "Machine"))
     # Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
     # findet die Pakete der venv (servicemanager, pywin32) sonst nicht - Dienst startet nie.
     # ZUSAMMENFUEHREN statt ueberschreiben (windows\dienst_umgebung.py): eigene Eintraege wie

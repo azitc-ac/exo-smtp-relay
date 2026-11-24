@@ -220,3 +220,44 @@ def test_python_suche_fragt_unterfassungen_zuerst():
     code = _code()
     assert '@("-3.13", "-3.12", "-3.11", "-3")' in code
     assert "Test-RelayPythonPasst $ver" in code
+
+
+def _dll_lauf(tmp_path, venv, basis, pfad: str) -> dict:
+    skript = tmp_path / "dll.ps1"
+    skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+                      "$global:M = New-Object System.Collections.ArrayList\n"
+                      "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
+                      + _funktion("Sync-RelayDienstDlls")
+                      + f"\nSync-RelayDienstDlls -Venv '{venv}' -Basis '{basis}' -MaschinenPfad '{pfad}'\n"
+                      f"ConvertTo-Json -Compress -InputObject ([ordered]@{{ Dateien = @(Get-ChildItem '{venv}' -Name | Sort-Object | ForEach-Object {{ \"$_\" }}); Meldungen = @($global:M) }})\n",
+                      encoding="utf-8-sig")
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
+                       capture_output=True, text=True, timeout=120, env=umgebung)
+    assert r.returncode == 0, r.stderr + r.stdout
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_dienst_dlls_nur_ohne_path_und_wieder_weg(tmp_path):
+    """CI 0.2.46: Python nicht im Maschinen-PATH → pythonservice.exe findet python313.dll nicht,
+    der Dienst hängt bis zum Zeitlimit. Dann DLLs neben pythonservice.exe — und wieder weg,
+    sobald die Basis im PATH steht (anlegen und entfernen über denselben Merker)."""
+    basis, venv = tmp_path / "Python313", tmp_path / "venv"
+    basis.mkdir()
+    venv.mkdir()
+    for n in ("python313.dll", "python3.dll", "vcruntime140.dll", "vcruntime140_1.dll", "sqlite3.dll"):
+        (basis / n).write_text(n)
+    (venv / "pythonservice.exe").write_text("x")
+    e = _dll_lauf(tmp_path, venv, basis, r"C:\Windows\system32;C:\Windows")
+    assert sorted(e["Dateien"]) == ["python3.dll", "python313.dll", "pythonservice.exe", "relay-dienst-dlls.txt",
+                                    "vcruntime140.dll", "vcruntime140_1.dll"], e
+    e = _dll_lauf(tmp_path, venv, basis, rf"C:\Windows;{basis}\\")
+    assert e["Dateien"] == ["pythonservice.exe"], e
+    assert e["Meldungen"][-1].startswith("OK: Python-DLL ueber den Maschinen-PATH"), e
+
+
+def test_dienst_dlls_vor_dem_start_abgeglichen():
+    h = _hauptteil(_code())
+    assert h.index("Sync-RelayDienstDlls -Venv $venv") < h.index('Start-Service -Name "ExoSmtpRelay"')
+    assert '[Environment]::GetEnvironmentVariable("Path", "Machine")' in h
