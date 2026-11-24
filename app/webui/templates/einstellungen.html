@@ -205,7 +205,7 @@
     <label style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="tls-uebergehen"> Hostnamen-Prüfung übergehen</label>
   </div>
   <div id="tls-result" style="display:none;margin-top:10px"></div>
-  <p class="hint">Ein neues Zertifikat wirkt nach einem Neustart des Dienstes. Es dient zugleich als Client-Zertifikat gegenüber dem Smarthost.</p>
+  <p class="hint">Ein neues Zertifikat nutzt der SMTP-Listener ab der nächsten Verbindung, ebenso der Rückweg zu Exchange (dort dient es als Client-Zertifikat). Die Weboberfläche zeigt es erst nach einem Neustart des Dienstes.</p>
 </div>
 
 <!-- ── Passwort ──────────────────────────────────────────────────────────── -->
@@ -338,7 +338,7 @@ async function tlsSelbst(btn) {
   btn.disabled = false;
   const box = document.getElementById('tls-result');
   if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler')); return; }
-  showAlert(box, 'success', 'Erzeugt für <code>' + esc((r.hostnames || []).join(', ')) + '</code> — wirkt nach Neustart des Dienstes.');
+  showAlert(box, 'success', 'Erzeugt für <code>' + esc((r.hostnames || []).join(', ')) + '</code> — SMTP sofort, Weboberfläche nach Neustart des Dienstes.');
 }
 async function tlsImport(input) {
   if (!input.files.length) return;
@@ -351,7 +351,7 @@ async function tlsImport(input) {
   if (!d) return;
   showAlert(box, d.warnung ? 'warn' : 'success',
     'Importiert: <code>' + esc((d.hostnames || []).join(', ')) + '</code>, gültig bis ' + esc((d.not_after || '').slice(0, 10))
-    + (d.warnung ? '<br>' + esc(d.warnung) : '') + ' — wirkt nach Neustart des Dienstes.');
+    + (d.warnung ? '<br>' + esc(d.warnung) : '') + ' — SMTP sofort, Weboberfläche nach Neustart des Dienstes.');
 }
 async function connectorEinrichten(btn) {
   const alt = btn.textContent;

@@ -102,7 +102,7 @@ async def api_setup_hostname(request: Request, user: str = Depends(_require_admi
             tls_cert.selbstsigniert_erzeugen(hostname)
             neu = True
     log.info("Hostname durch %s auf %s gesetzt%s", user, hostname,
-             " — TLS-Zertifikat neu ausgestellt (wirkt nach Neustart)" if neu else "")
+             " — TLS-Zertifikat neu ausgestellt (SMTP sofort, Weboberfläche nach Neustart)" if neu else "")
     return JSONResponse({"ok": True, "tls_neu": neu, "tls": tls_cert.info()})
 
 

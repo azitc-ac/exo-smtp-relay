@@ -140,8 +140,8 @@ async def api_tls_selbstsigniert(request: Request, user: str = Depends(_require_
     daten = await request.json()
     hostname = (daten.get("hostname") or settings_store.get("PUBLIC_HOSTNAME") or "").strip()
     info = tls_cert.selbstsigniert_erzeugen(hostname)
-    log.info("TLS-Zertifikat durch %s neu erzeugt (%s) — wirkt nach Neustart", user, hostname)
-    return JSONResponse({"ok": True, "neustart": True, **info})
+    log.info("TLS-Zertifikat durch %s neu erzeugt (%s) — SMTP sofort, Weboberfläche nach Neustart", user, hostname)
+    return JSONResponse({"ok": True, "neustart_webui": True, **info})
 
 
 @router.post("/api/tls/import")
@@ -154,5 +154,5 @@ async def api_tls_import(user: str = Depends(_require_admin), datei: UploadFile 
                                     allow_mismatch=uebergehen in ("1", "true", "on"))
     except ValueError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-    log.info("TLS-Zertifikat durch %s importiert — wirkt nach Neustart", user)
-    return JSONResponse({"ok": True, "neustart": True, **info})
+    log.info("TLS-Zertifikat durch %s importiert — SMTP sofort, Weboberfläche nach Neustart", user)
+    return JSONResponse({"ok": True, "neustart_webui": True, **info})

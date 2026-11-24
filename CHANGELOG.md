@@ -1,5 +1,20 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.37 — 2026-11-24 — Neues TLS-Zertifikat wirkt ohne Neustart
+
+- Der SMTP-Listener baute seinen TLS-Kontext nur beim Start. Ein neues
+  Zertifikat (selbstsigniert neu, PFX-Import, Wiederherstellung) bot er erst
+  nach einem Neustart des Dienstes an. Jetzt prüft er vor jeder neuen
+  Verbindung, ob sich Zertifikat oder Schlüssel auf der Platte geändert
+  haben, und lädt sie dann neu. Passt das Paar (noch) nicht zusammen, bleibt
+  das bisherige — STARTTLS fällt nie aus. Voraussetzung für die automatische
+  Erneuerung mit Let's Encrypt (nächster Schritt).
+- Der Rückweg zu Exchange las das Zertifikat schon bisher bei jedem Versand.
+  Nur die Weboberfläche braucht für ein neues Zertifikat weiter einen
+  Neustart; die Hinweise sagen das jetzt so.
+
+**Zu tun:** nichts.
+
 ## 0.2.36 — 2026-11-24 — Backup: Datenbanken auch bei laufendem Dienst unter Windows
 
 - Die Wiederherstellung tauschte `relay_hosts.db` und `mail_audit.db` als

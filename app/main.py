@@ -151,8 +151,59 @@ class _LenientSMTP(_BaseSMTP):
         await self.push(status)
 
 
+def _tls_stempel() -> tuple | None:
+    """Kennung des Zertifikatspaares auf der Platte (Änderungszeit, Größe) —
+    None, solange eines der beiden fehlt."""
+    try:
+        return tuple((s.st_mtime_ns, s.st_size) for s in
+                     (Path(config.SMTP_TLS_CERT).stat(), Path(config.SMTP_TLS_KEY).stat()))
+    except OSError:
+        return None
+
+
 class _LenientController(Controller):
+    """Controller, der ein geändertes TLS-Zertifikat ohne Neustart übernimmt.
+
+    ⚠️ Bis v0.2.36 baute `_run_smtp` den TLS-Kontext EINMAL beim Start. Ein neues
+    Zertifikat (PFX-Import, selbstsigniert neu, Let's Encrypt samt automatischer
+    Erneuerung, Wiederherstellung aus dem Backup) lag danach auf der Platte, der
+    Listener bot aber bis zum nächsten Neustart das alte an — bei einer
+    Erneuerung nachts im Zeitplaner also das ablaufende.
+
+    Jetzt vergleicht `factory()` vor jeder neuen Verbindung die Kennung der
+    beiden Dateien (`_tls_stempel`) und baut bei einer Änderung den Kontext neu.
+    Das deckt JEDEN Schreibweg ab, auch künftige, ohne dass einer daran denken
+    muss. Passen Zertifikat und Schlüssel (noch) nicht zusammen — zwischen den
+    beiden atomaren Schreibvorgängen —, bleibt der alte Kontext und die nächste
+    Verbindung versucht es erneut. Bestehende Verbindungen behalten ihren.
+    Der Rückweg zu Exchange (`smarthost._client_tls_context`) liest das
+    Zertifikat ohnehin bei jedem Versand."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Aufrufer übergeben den Kontext aus den aktuellen Dateien.
+        self._tls_stempel = _tls_stempel()
+
+    def tls_auffrischen(self) -> bool:
+        """Kontext neu bauen, falls sich das Zertifikat geändert hat. True = neu."""
+        stempel = _tls_stempel()
+        if stempel == self._tls_stempel:
+            return False
+        try:
+            ctx = _build_tls_context()
+        except Exception as exc:                              # noqa: BLE001
+            log.warning("TLS-Zertifikat geändert, aber nicht ladbar (%s) — "
+                        "bisheriges bleibt", exc)
+            return False
+        self.SMTP_kwargs["tls_context"] = ctx
+        self.SMTP_kwargs["require_starttls"] = ctx is not None
+        self._tls_stempel = stempel
+        log.info("TLS-Zertifikat neu geladen — neue Verbindungen nutzen es (STARTTLS: %s)",
+                 "ja" if ctx else "nein")
+        return True
+
     def factory(self):
+        self.tls_auffrischen()
         return _LenientSMTP(self.handler, **self.SMTP_kwargs)
 
     def _trigger_server(self):

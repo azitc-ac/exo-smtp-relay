@@ -299,7 +299,7 @@ async function passwortSetzen(btn) {
 }
 async function hostnameSpeichern() {
   const r = await postJSON('/api/setup/hostname', { hostname: document.getElementById('hostname').value });
-  wacheFertig('hostname-btn', r.ok, r.ok ? (r.tls_neu ? 'gespeichert — Zertifikat neu ausgestellt (wirkt nach Neustart)' : undefined) : (r.error || 'nicht gespeichert'));
+  wacheFertig('hostname-btn', r.ok, r.ok ? (r.tls_neu ? 'gespeichert — Zertifikat neu ausgestellt (SMTP sofort, Weboberfläche nach Neustart)' : undefined) : (r.error || 'nicht gespeichert'));
   if (r.ok) setTimeout(function () { location.reload(); }, 1200);
 }
 async function bootstrapSpeichern() {
