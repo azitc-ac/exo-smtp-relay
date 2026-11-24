@@ -8,6 +8,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Wöchentlich auch ohne Push: Neue Lücken in den festgenagelten
+  # Abhängigkeiten (pip-audit unten) entstehen, ohne dass sich der Code ändert.
+  schedule:
+    - cron: "17 4 * * 1"
 
 jobs:
   tests:
@@ -24,6 +28,33 @@ jobs:
           pip install -r app/requirements.lock -r tests/requirements.txt
       - name: Tests
         run: pytest tests/ -v
+
+      # Standardwerkzeuge wie im Gateway (seit v1.11.6). Fassungen gepinnt wie
+      # alles andere. pip-audit prüft GENAU den Baum, der installiert wird
+      # (Lock-Datei); --no-deps, weil die Lock-Datei bereits vollständig
+      # aufgelöst ist.
+      - name: Bekannte Lücken in Abhängigkeiten (pip-audit)
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r app/requirements.lock --no-deps --disable-pip --progress-spinner off
+
+      # Nur hohe Schwere UND hohe Sicherheit — sonst geht das Signal im
+      # Rauschen unter (subprocess, assert …). Bewusste Ausnahmen stehen
+      # als `# nosec Bxxx` mit Begründung an der Stelle.
+      - name: Sicherheitsmuster (bandit)
+        run: |
+          pip install bandit==1.9.4
+          bandit -q -r app -lll -iii
+
+      # Fehlerklassen, die zur Laufzeit erst knallen (undefinierte Namen,
+      # unbenutzte Zuweisungen …). F401/F811 (unbenutzte bzw. doppelte
+      # Importe) bleiben aus wie im Gateway: Sie treffen auch gespiegelte
+      # Dateien (secure_io.py), die nur dort geändert werden dürfen.
+      - name: Python-Fehlerklassen (ruff)
+        run: |
+          pip install ruff==0.17.4
+          ruff check app --select F --ignore F401,F811
+
       - name: Spiegelprüfung
         run: python tools/driftcheck.py
 

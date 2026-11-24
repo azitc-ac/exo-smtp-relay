@@ -1,6 +1,7 @@
 # VOLLSTÄNDIG aufgelöster Abhängigkeitsbaum — HIERAUS wird installiert.
 #
-# Ausgeschnitten aus app/requirements.lock des grossen Gateways (Stand 09.08.2026):
+# Ausgeschnitten aus app/requirements.lock des grossen Gateways (Stand 09.08.2026, Lücken-Pakete
+# certifi, cryptography, PyJWT, urllib3 am 24.11.2026 auf Gateway-Stand v1.11.6):
 # dieselben Fassungen, nur die hier benötigten Pakete. tests/test_abhaengigkeiten.py
 # prüft, dass requirements.txt und diese Datei dieselben Fassungen nennen.
 #
@@ -15,12 +16,12 @@ annotated-types==0.8.0
 anyio==4.14.2
 cffi==2.1.1
 click==8.4.2
-cryptography==49.0.0
+cryptography==50.0.0
 fastapi==0.139.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
-certifi==2026.7.22
+certifi==2026.10.18
 idna==3.18
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -35,9 +36,9 @@ typing-inspection==0.4.2
 uvicorn==0.51.0
 # OAuth2 (XOAUTH2) für den submit-Modus — msal samt Abhängigkeiten, Fassungen wie im Gateway.
 msal==1.37.0
-PyJWT==2.13.0
+PyJWT==2.15.0
 requests==2.34.2
 charset-normalizer==3.4.9
-urllib3==2.7.0
+urllib3==2.8.0
 tzdata==2025.2; sys_platform == "win32"
 pywin32==311; sys_platform == "win32"

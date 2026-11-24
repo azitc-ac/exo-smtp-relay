@@ -8,7 +8,7 @@
 aiosmtpd==1.4.6
 
 # ── Kryptografie (TLS-Zertifikat, Auth-Zertifikat, PKCS#12) ─────────────────
-cryptography==49.0.0
+cryptography==50.0.0
 
 # ── Web-UI ───────────────────────────────────────────────────────────────────
 fastapi==0.139.0
@@ -24,7 +24,7 @@ httpx==0.28.1
 msal==1.37.0
 # PoP-Nachweis für die Selbsterneuerung des App-Zertifikats (auth_cert.beweis);
 # kam bisher nur indirekt über msal mit — jetzt direkt benutzt, also direkt gepinnt.
-PyJWT==2.13.0
+PyJWT==2.15.0
 
 # ── Windows ──────────────────────────────────────────────────────────────────
 # tzdata: Windows hat keine IANA-Zonendatenbank; ohne das Paket fiele

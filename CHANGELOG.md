@@ -1,5 +1,19 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.28 — 2026-11-24 — Lücken-Pakete angehoben, pip-audit/bandit/ruff in der CI
+
+- Wie im Gateway (v1.11.6): `cryptography` 50.0.0, `certifi` 2026.10.18,
+  `PyJWT` 2.15.0, `urllib3` 2.8.0. `pip-audit` meldete gegen den alten Stand
+  22 bekannte Lücken in diesen vier Paketen, gegen den neuen keine.
+- Die CI prüft jetzt zusätzlich mit `pip-audit` (Lock-Datei), `bandit`
+  (hohe Schwere und Sicherheit) und `ruff` (Fehlerklassen F ohne
+  F401/F811), dieselben Fassungen und Schalter wie im Gateway. Sie läuft
+  ausserdem wöchentlich, weil neue Lücken ohne Codeänderung entstehen.
+  bandit und ruff finden im Relay derzeit nichts.
+
+**Zu tun:** Relay aktualisieren (neue Paketstände im Container bzw. in der
+Windows-Installation).
+
 ## 0.2.27 — 2026-11-24 — PowerShell-Werte nur als Literal
 
 - Wie im Gateway (v1.10.117): Neuer Baustein `ps_text.py` (1:1 vom
