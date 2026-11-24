@@ -1,5 +1,16 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.24 — 2026-11-24 — Ziel nach der Anmeldung geprüft
+
+- Wie im Gateway (v1.9.138): Das Ziel nach der Anmeldung (`next`) wird an
+  EINER Stelle geprüft (`anmeldung._sicheres_ziel`). Erlaubt sind nur Pfade
+  auf diesem Server; `//fremd.example`, `/\fremd.example`, `javascript:` und
+  Steuerzeichen führen auf die Startseite. Bisher setzte die Anmeldeseite das
+  Ziel ungeprüft aus der Adresszeile in `location.href`, und eine schon
+  angemeldete Sitzung wurde ungeprüft weitergeleitet.
+
+**Zu tun:** nichts.
+
 ## 0.2.23 — 2026-11-21 — Gemeinsame Frontend-Helfer vom Gateway
 
 - `common.js` vom Gateway übernommen (v1.12.144): Ein langer Hinweis, dessen

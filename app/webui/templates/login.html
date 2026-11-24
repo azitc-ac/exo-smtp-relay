@@ -22,6 +22,10 @@
   </div>
 </div>
 <script>
+// Ziel nach der Anmeldung: vom Server geprüft (anmeldung._sicheres_ziel), NIE
+// selbst aus location.search lesen — dort stünde auch `javascript:` oder
+// `//fremd.example`, und location.href führte es aus.
+const ANMELDE_ZIEL = {{ next | tojson }};
 async function localLogin() {
   var u = document.getElementById('local-user').value;
   var p = document.getElementById('local-pw').value;
@@ -32,8 +36,7 @@ async function localLogin() {
     body: JSON.stringify({username: u, password: p}),
   });
   if (resp.ok) {
-    var next = new URLSearchParams(window.location.search).get('next') || '/';
-    window.location.href = next;
+    window.location.href = ANMELDE_ZIEL;
   } else {
     var d = await resp.json().catch(function() { return {}; });
     errEl.textContent = d.detail || 'Anmeldung fehlgeschlagen';

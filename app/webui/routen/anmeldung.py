@@ -6,6 +6,7 @@ besteht: `/auth/login` (die Seite) und `/auth/local` (das Formular).
 """
 from __future__ import annotations
 
+import re
 import secrets
 from pathlib import Path
 
@@ -26,13 +27,36 @@ def _cookie_secure() -> bool:
     return Path(config.SMTP_TLS_CERT).exists()
 
 
+_ZIEL_RE = re.compile(r"^/(?![/\\])[^\s\\\x00-\x1f\x7f]*$")
+
+
+def _sicheres_ziel(ziel) -> str:
+    """Wohin nach der Anmeldung weitergeleitet werden darf: nur ein Pfad auf
+    DIESEM Server, sonst "/".
+
+    `next` kommt aus der Adresszeile und ist damit frei wählbar. Ohne Prüfung
+    führt ein präparierter Anmeldelink nach dem Login woandershin — auf eine
+    fremde Seite (`//fremd.example`, `/\\fremd.example`: Browser lesen beides
+    als Host) oder, wo das Ziel im Browser per `location.href` gesetzt wird, in
+    ein `javascript:`-Ziel mit der frischen Sitzung.
+
+    EINE Prüfung für alle Wege (wie im Gateway seit v1.9.138): die
+    Weiterleitung einer schon angemeldeten Sitzung und das Ziel, das die
+    Anmeldeseite nach dem Formular ansteuert.
+    """
+    if not isinstance(ziel, str) or not _ZIEL_RE.match(ziel):
+        return "/"
+    return ziel
+
+
 @router.get("/auth/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = "", next: str = "/"):
     if _get_session_user(request):
-        return RedirectResponse(next or "/", status_code=302)
+        return RedirectResponse(_sicheres_ziel(next), status_code=302)
     return templates.TemplateResponse(
         request=request, name="login.html",
-        context={"active": "login", "gateway_name": _gateway_name(), "error": error})
+        context={"active": "login", "gateway_name": _gateway_name(), "error": error,
+                 "next": _sicheres_ziel(next)})
 
 
 @router.post("/auth/local")
