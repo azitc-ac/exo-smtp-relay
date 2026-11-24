@@ -1,5 +1,16 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.32 — 2026-11-24 — SMTP-Antworten nur in ASCII
+
+- Wie im Gateway (v1.12.24): Antwortzeilen des SMTP-Listeners gehen nur
+  noch in ASCII hinaus (RFC 5321). Umlaute werden umgeschrieben
+  (`Absenderdomaene fuer …`), andere Zeichen durch `?` ersetzt. Bisher kamen
+  die Ablehnungen des Relays („Absenderdomäne … nicht zulässig“, „Relay
+  temporär nicht verfügbar“ u. a.) als UTF-8 an; manche Geräte und Outlook
+  zeigen das verstümmelt an.
+
+**Zu tun:** nichts.
+
 ## 0.2.31 — 2026-11-24 — Postfachliste: „abgelaufen“ auch kurz nach dem Systemstart
 
 - Wie im Gateway (v1.12.68): Der Zeitstempel der Postfachliste steht für

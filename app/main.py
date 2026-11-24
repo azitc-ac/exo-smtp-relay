@@ -35,6 +35,15 @@ from handler import RelayHandler                              # noqa: E402
 log = logging.getLogger(__name__)
 
 
+_ASCII_ERSATZ = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue",
+                               "ß": "ss", "—": "-", "–": "-", "„": '"', "“": '"', "”": '"', "…": "..."})
+
+
+def smtp_ascii(text: str) -> str:
+    """SMTP-Antworttext als ASCII: Umlaute umschreiben, Rest durch „?“."""
+    return text.translate(_ASCII_ERSATZ).encode("ascii", "replace").decode("ascii")
+
+
 class _LenientSMTP(_BaseSMTP):
     """aiosmtpd.SMTP mit zwei Anpassungen aus dem Gateway.
 
@@ -45,7 +54,18 @@ class _LenientSMTP(_BaseSMTP):
        Verbindung neu (Sperre oder Entfernen wirken ohne Neustart).
     2. `smtp_MAIL`: unbekannte MAIL-FROM-Parameter werden übergangen statt mit
        555 abgewiesen. Manche Geräte senden `AUTH=<>` oder Ähnliches mit.
+    3. `push`: Antwortzeilen nur in ASCII (wie Gateway v1.12.24).
     """
+
+    async def push(self, status):
+        """Antwortzeilen nur in ASCII (RFC 5321 §4.2) — Texte im Code dürfen
+        Umlaute tragen. aiosmtpd schickt sonst UTF-8 (Outlook zeigte im Gateway
+        „Kein Senderecht fÃ¼r …“) oder wirft bei abgeschaltetem SMTPUTF8; dann
+        kommt statt der Ablehnung ein generisches „500 Error: (UnicodeEncodeError)“.
+        Bytes (mehrzeilige Antworten als Einzelzeilen) laufen unverändert durch."""
+        if isinstance(status, str):
+            status = smtp_ascii(status)
+        await super().push(status)
 
     def connection_made(self, transport) -> None:
         super().connection_made(transport)

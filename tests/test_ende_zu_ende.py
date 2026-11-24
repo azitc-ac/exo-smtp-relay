@@ -129,3 +129,22 @@ def test_mail_from_mit_fremden_parametern_wird_angenommen(dienst):
         code, _ = s.docmd("RCPT TO:<chefin@firma.de>")
         assert code == 250
         s.rset()
+
+
+def test_smtp_ascii():
+    import main
+    assert main.smtp_ascii("550 5.7.1 Absenderdomäne für das Relay — „nicht“ zulässig…") == \
+        '550 5.7.1 Absenderdomaene fuer das Relay - "nicht" zulaessig...'
+    assert main.smtp_ascii("451 Zeichen € bleibt erkennbar") == "451 Zeichen ? bleibt erkennbar"
+
+
+def test_ablehnung_mit_umlaut_kommt_als_ascii_an(dienst):
+    """Wie Gateway v1.12.24: Die Texte in smtp_relay.py (gespiegelt) tragen
+    Umlaute. Ohne Umschreibung warf aiosmtpd (SMTPUTF8 aus) beim Senden, und
+    das Gerät bekam „500 Error: (UnicodeEncodeError)“ statt der 550."""
+    dienst["relay_hosts"].speichern("127.0.0.1")
+    with smtplib.SMTP("127.0.0.1", dienst["port"], timeout=10) as s:
+        with pytest.raises(smtplib.SMTPDataError) as e:
+            s.sendmail("rechnung@paypal.com", ["chefin@firma.de"], NACHRICHT)
+    assert e.value.smtp_code == 550, e.value
+    assert e.value.smtp_error.decode("ascii") == "5.7.1 Absenderdomaene fuer das Relay nicht zulaessig"
