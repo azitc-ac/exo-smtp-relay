@@ -44,7 +44,11 @@ CACHE_PATH = Path(config.DATA_DIR) / "mailboxes.json"
 _TTL = 3600
 _lock = threading.RLock()
 _cache: list[dict] = []
-_cache_ts: float = 0.0
+# Zeitstempel „abgelaufen“: NICHT 0.0 — time.monotonic() zählt ab Systemstart; in der
+# ersten Stunde nach einem Neustart (CI-Runner, Pi) wäre 0 noch „frisch“ und
+# invalidate() wirkungslos (wie Gateway v1.12.68).
+_ABGELAUFEN = float("-inf")
+_cache_ts: float = _ABGELAUFEN
 _letzter_fehler: str = ""
 _letzter_erfolg: str = ""
 
@@ -180,7 +184,7 @@ def _cache_laden() -> None:
         if isinstance(daten, dict) and isinstance(daten.get("mailboxes"), list):
             _cache = daten["mailboxes"]
             # Alt genug, dass der Zeitplaner sofort nachlädt — aber vorhanden.
-            _cache_ts = 0.0
+            _cache_ts = _ABGELAUFEN
             log.info("EXO-Postfachliste: %d Postfächer aus %s geladen", len(_cache), CACHE_PATH)
     except Exception as exc:                                  # noqa: BLE001
         log.warning("EXO-Postfachliste: Cache %s unlesbar: %s", CACHE_PATH, exc)
@@ -249,4 +253,4 @@ def zustand() -> dict:
 def invalidate() -> None:
     global _cache_ts
     with _lock:
-        _cache_ts = 0.0
+        _cache_ts = _ABGELAUFEN

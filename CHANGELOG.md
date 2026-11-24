@@ -1,5 +1,16 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.31 — 2026-11-24 — Postfachliste: „abgelaufen“ auch kurz nach dem Systemstart
+
+- Wie im Gateway (v1.12.68): Der Zeitstempel der Postfachliste steht für
+  „abgelaufen“ jetzt auf minus unendlich statt 0. Die Zeitbasis zählt ab
+  Systemstart; in der ersten Stunde nach einem Neustart galt 0 noch als
+  frisch. Dann wirkte „neu abfragen“ (z. B. nach dem Ändern der
+  Handeinträge) nicht, und ein von der Platte geladener Stand wurde nicht
+  sofort nachgeladen.
+
+**Zu tun:** nichts.
+
 ## 0.2.30 — 2026-11-24 — Protokollstufe wirkt sofort
 
 - Wie im Gateway (v1.11.55): Die Protokollstufe aus Einstellungen → Betrieb
