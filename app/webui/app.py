@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 import settings_store
 
-from webui.deps import _NotAuthenticated, _STATIC_DIR, log  # noqa: F401
+from webui.deps import _NotAuthenticated, _KennwortZuerst, _STATIC_DIR, log  # noqa: F401
 
 app = FastAPI(title="EXO SMTP Relay", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -41,6 +41,14 @@ async def _not_authenticated_handler(request: Request, exc: _NotAuthenticated):
         return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)
     next_url = urllib.parse.quote(str(request.url.path), safe="")
     return RedirectResponse(f"/auth/login?next={next_url}", status_code=302)
+
+
+@app.exception_handler(_KennwortZuerst)
+async def _kennwort_zuerst_handler(request: Request, exc: _KennwortZuerst):
+    if exc.is_api:
+        return JSONResponse({"detail": "Zuerst das Auslieferungs-Kennwort ändern "
+                                       "(Einrichtung → Schritt 1)."}, status_code=403)
+    return RedirectResponse("/einrichtung#step-1", status_code=302)
 
 
 @app.middleware("http")

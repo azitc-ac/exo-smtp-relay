@@ -60,6 +60,40 @@ class _NotAuthenticated(Exception):
         self.is_api = is_api
 
 
+class _KennwortZuerst(Exception):
+    """Angemeldet mit dem Auslieferungs-Kennwort — erst ändern (v0.2.25).
+
+    Behandler in `app.py`: Seiten leiten zur Einrichtung (Schritt 1), API-
+    Aufrufe bekommen 403 mit Hinweis."""
+
+    def __init__(self, is_api: bool = False):
+        self.is_api = is_api
+
+
+# Was mit dem Auslieferungs-Kennwort erreichbar bleibt: die Einrichtungsseite
+# (dort steht Schritt 1) und das Ändern selbst. Anders als im Gateway prüft die
+# Einrichtungsseite ihre Anmeldung über `_check_auth`, deshalb steht sie hier.
+NUR_MIT_VORGABE_KENNWORT = frozenset({"/einrichtung", "/api/password"})
+
+
+def _vorgabe_kennwort_sperre(request: Request, user: str) -> None:
+    """Angemeldet mit Vorgabe-Kennwort → nur Kennwort ändern.
+
+    ⚠️ Bis v0.2.24 meldete das Auslieferungs-Kennwort (`admin`) voll an; der
+    Hinweis darauf im Kopfbanner sperrte nichts. Wer ein frisch aufgesetztes
+    Relay erreichte, bevor der Betreiber Schritt 1 abgeschlossen hatte, hatte
+    die Verwaltung — und damit die Geräteliste, also wer Post einliefern darf.
+
+    Das Relay kennt nur die örtliche Anmeldung; anders als im Gateway gibt es
+    keine Entra-Kennung, die ausgenommen werden müsste.
+    """
+    if request.url.path in NUR_MIT_VORGABE_KENNWORT:
+        return
+    if _password_change_required():
+        path = request.url.path
+        raise _KennwortZuerst(is_api=path.startswith("/api/") or path.startswith("/log/"))
+
+
 # ── Passwörter ────────────────────────────────────────────────────────────────
 
 def _hash_password(password: str) -> str:
@@ -87,10 +121,19 @@ def _check_password(password: str) -> bool:
     return secrets.compare_digest(password.encode(), config.WEBUI_PASSWORD.encode())
 
 
+_DEFAULT_PASSWORDS = {"admin", "changeme", ""}
+
+
 def _password_change_required() -> bool:
-    """Solange kein eigenes Passwort gesetzt ist, gilt `admin` — das darf nicht
-    still so bleiben."""
-    return not (settings_store.get("ADMIN_PASSWORD_HASH") or "")
+    """True, solange noch ein Vorgabe-/Platzhalterkennwort gilt (wie Gateway
+    `hilfen._password_change_required`).
+
+    Ein eigenes Kennwort über `WEBUI_PASSWORD` in der Umgebung zählt als
+    geändert — sonst bliebe ein so eingerichtetes Relay dauerhaft gesperrt."""
+    stored_hash = settings_store.get("ADMIN_PASSWORD_HASH") or ""
+    if stored_hash:
+        return False  # wurde geändert
+    return config.WEBUI_PASSWORD in _DEFAULT_PASSWORDS
 
 
 templates.env.globals["password_change_required"] = _password_change_required
@@ -111,6 +154,7 @@ def _check_auth(request: Request,
     """Sitzungskeks → HTTP-Basic (Notzugang, gedrosselt) → 401 bzw. Weiterleitung."""
     user = _get_session_user(request)
     if user:
+        _vorgabe_kennwort_sperre(request, user)
         return user
     if credentials and credentials.username and credentials.password:
         import login_drossel
@@ -121,6 +165,7 @@ def _check_auth(request: Request,
         if (secrets.compare_digest(credentials.username.encode(), username.encode())
                 and _check_password(credentials.password)):
             login_drossel.erfolg(ip)
+            _vorgabe_kennwort_sperre(request, credentials.username)
             return credentials.username
         login_drossel.fehlversuch(ip)
         log.warning("Fehlgeschlagene Basic-Anmeldung von %s", ip)

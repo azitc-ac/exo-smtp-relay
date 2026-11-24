@@ -151,7 +151,8 @@ docker compose up -d --build
 ```
 
 Die Weboberfläche erreichst du unter `https://<host>:8443` (selbstsigniert),
-Anmeldung `admin` / `admin` — ändere das beim ersten Aufruf. Port 25 ist im
+Anmeldung `admin` / `admin`. Mit diesem Auslieferungs-Kennwort ist nur Schritt 1
+der Einrichtung erreichbar, bis du ein eigenes gesetzt hast. Port 25 ist im
 Container freigegeben; das Abbild enthält PowerShell 7 und das
 ExchangeOnlineManagement-Modul.
 

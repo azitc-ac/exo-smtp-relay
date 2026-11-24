@@ -1,5 +1,19 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.25 — 2026-11-24 — Mit dem Auslieferungs-Kennwort nur Kennwort ändern
+
+- Wie im Gateway (v1.10.113): Wer mit dem Auslieferungs-Kennwort (`admin`,
+  auch `changeme` oder leer) angemeldet ist, erreicht nur noch die
+  Einrichtung (Schritt 1) und das Ändern des Kennworts. Andere Seiten leiten
+  dorthin, API-Aufrufe bekommen 403. Bisher wies nur das Kopfbanner darauf
+  hin, gesperrt war nichts. Das gilt für Sitzung und HTTP-Basic gleichermassen
+  und auch für den Rückruf der Microsoft-Anmeldung.
+- Ein eigenes Kennwort über `WEBUI_PASSWORD` in der Umgebung zählt jetzt als
+  geändert; das Banner „Vorgabepasswort aktiv“ erscheint dann nicht mehr.
+
+**Zu tun:** Läuft ein Relay noch mit `admin`, nach dem Update einmal das
+Kennwort in der Einrichtung (Schritt 1) setzen.
+
 ## 0.2.24 — 2026-11-24 — Ziel nach der Anmeldung geprüft
 
 - Wie im Gateway (v1.9.138): Das Ziel nach der Anmeldung (`next`) wird an

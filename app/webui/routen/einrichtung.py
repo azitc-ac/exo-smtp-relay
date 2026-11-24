@@ -193,6 +193,11 @@ async def auth_callback(request: Request, code: str = "", state: str = "", error
     if not _get_session_user(request):
         return HTMLResponse(_callback_page(False, "Nicht angemeldet — bitte die Adresse dieser Seite "
                                                   "kopieren und im Assistenten unter „Per Localhost anmelden“ einfügen."))
+    # Läuft nicht über `_check_auth` — die Sperre des Auslieferungs-Kennworts
+    # (deps._vorgabe_kennwort_sperre) gilt hier deshalb ausdrücklich.
+    if _password_change_required():
+        return HTMLResponse(_callback_page(False, "Zuerst das Auslieferungs-Kennwort ändern "
+                                                  "(Einrichtung → Schritt 1)."))
     try:
         await _nach_login(code, state)
     except Exception as exc:                                  # noqa: BLE001

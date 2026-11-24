@@ -14,7 +14,10 @@ sys.path.insert(0, str(WURZEL / "app"))
 # Passwortfeld, das in derselben Zeile einen Wert bekommt — auch das
 # Startpasswort und auch, wenn der Wert nur ein Variablenname ist.
 STARTKENNUNG = "admin"
-STARTWERT = "admin"
+# Ein eigenes Startkennwort aus der Umgebung (WEBUI_PASSWORD): Mit dem
+# Auslieferungs-Kennwort wäre seit v0.2.25 nur Schritt 1 erreichbar
+# (tests/test_vorgabe_kennwort.py prüft das gesondert).
+STARTWERT = "start-wert-1"
 PROBEWERT = "geheim123"
 NEUER_WERT = "lang-und-neu-1"
 FELDER_ANMELDUNG = ("username", "password")
@@ -52,6 +55,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(exo_mailboxes, "CACHE_PATH", tmp_path / "mailboxes.json")
     monkeypatch.setattr(config, "SMTP_TLS_CERT", str(tmp_path / "cert.pem"))
     monkeypatch.setattr(config, "SMTP_TLS_KEY", str(tmp_path / "key.pem"))
+    monkeypatch.setattr(config, "WEBUI_PASSWORD", STARTWERT)
     settings_store.init({})
     mail_audit.init_db()
     import login_drossel
