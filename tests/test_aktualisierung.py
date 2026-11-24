@@ -12,6 +12,7 @@ Geprüft mit nachgebauten Releases (API-Antwort + Assets, echte Pakete aus
 6. Derselbe Ablauf mit Phasen als eigenen Prozessen (Betriebsweg).
 7. Release-Workflow: nur Tag-Auslöser, Signatur vor jeder Veröffentlichung.
 """
+import re
 import base64
 import hashlib
 import io
@@ -362,8 +363,11 @@ def test_ablauf_mit_phasen_als_prozess(anlage, schluessel, tmp_path):
     app = anlage["wurzel"] / "app"
     shutil.copy(WURZEL / "app" / "update_tausch.py", app / "update_tausch.py")
     text = (WURZEL / "app" / "update_paket.py").read_text(encoding="utf-8")
-    text = text.replace("RELEASE_SCHLUESSEL: tuple[str, ...] = ()",
-                        f"RELEASE_SCHLUESSEL: tuple[str, ...] = ({up.RELEASE_SCHLUESSEL[0]!r},)")
+    # Eingebaute Schlüssel (leer oder mehrzeilig) durch den Testschlüssel ersetzen
+    text, n = re.subn(r"RELEASE_SCHLUESSEL: tuple\[str, \.\.\.\] = \((?:\)|.*?\n\))",
+                      f"RELEASE_SCHLUESSEL: tuple[str, ...] = ({up.RELEASE_SCHLUESSEL[0]!r},)",
+                      text, count=1, flags=re.S)
+    assert n == 1
     assert up.RELEASE_SCHLUESSEL[0] in text
     (app / "update_paket.py").write_text(text, encoding="utf-8")
     dist = _release(tmp_path, schluessel)
@@ -518,12 +522,11 @@ def test_signieren_und_pruefen_rund(tmp_path, schluessel):
     assert r.returncode == 0, r.stderr
     up.paket_pruefen(dist / up.paket_name(NEU_V, "linux"), (dist / up.SUMMEN).read_bytes(),
                      (dist / up.SIGNATUR).read_bytes())
-    # Gegenprobe der CI gegen den EINGEBAUTEN Schlüssel: solange keiner
-    # eingebaut ist, scheitert sie — ein Release ohne passenden Schlüssel bricht ab.
+    # Gegenprobe der CI gegen die EINGEBAUTEN Schlüssel: Der Testschlüssel ist
+    # keiner davon, also muss sie scheitern — ein Release, das mit einem nicht
+    # eingebauten Schlüssel signiert ist, bricht ab.
     r = _release_tool("pruefen", str(dist))
-    leer = "RELEASE_SCHLUESSEL: tuple[str, ...] = ()" in \
-        (WURZEL / "app" / "update_paket.py").read_text(encoding="utf-8")
-    assert (r.returncode != 0) == leer, r.stderr
+    assert r.returncode != 0 and "Signatur" in r.stderr, r.stderr
 
 
 def test_tag_muss_zu_version_passen():

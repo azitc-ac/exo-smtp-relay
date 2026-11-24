@@ -1,5 +1,17 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.42 — 2026-11-24 — Release-Schlüssel eingebaut
+
+- `app/update_paket.py`: zwei öffentliche Prüfschlüssel in `RELEASE_SCHLUESSEL`.
+  Der Hauptschlüssel signiert die Releases (GitHub-Secret `RELEASE_SIGNING_KEY`),
+  der Reserveschlüssel liegt offline und hält Releases möglich, falls der
+  Hauptschlüssel verloren geht.
+- Test `test_signieren_und_pruefen_rund`: Die CI-Gegenprobe erwartet jetzt
+  immer eine Ablehnung, weil der Testschlüssel nie eingebaut ist. Der Test zum
+  Phasenablauf ersetzt die eingebauten Schlüssel unabhängig davon, ob das
+  Tupel leer oder mehrzeilig ist.
+
+**Zu tun:** nichts.
 ## 0.2.41 — 2026-11-24 — Testkorrektur unter Windows
 
 - `tests/test_aktualisierung.py` liest und schreibt Dateien ausdrücklich als

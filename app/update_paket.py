@@ -38,10 +38,13 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 # ── Öffentliche Prüfschlüssel (Ed25519, 32 Byte roh, Base64) ─────────────────
-# Leer, bis der Release-Schlüssel angelegt ist (README → Releases). Mehrere
+# Angelegt am 24.11.2026 (README → Releases). Mehrere
 # Einträge erlauben einen Schlüsselwechsel: neuen dazunehmen, ein Release mit
 # beiden ausliefern, dann den alten streichen.
-RELEASE_SCHLUESSEL: tuple[str, ...] = ()
+RELEASE_SCHLUESSEL: tuple[str, ...] = (
+    "BW4h8umUvD5H4PZ6k5E3qIITyEUhoP3gQQUaLYLZD84=",  # Hauptschlüssel (GitHub-Secret RELEASE_SIGNING_KEY)
+    "AvB4kdUIcqtnvJLftPOGpRcsLjnJffrCGiJVIdkDEvk=",  # Reserve, offline verwahrt – für den Fall, dass der Hauptschlüssel verloren geht
+)
 
 NAME = "exo-smtp-relay"
 
