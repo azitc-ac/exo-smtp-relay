@@ -88,7 +88,7 @@ def test_sicherung_und_ruecknahme(tmp_path):
     (ziel / "data" / "settings.json").write_text("{}")
     e = _lauf(tmp_path, f'''
 $g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{sich}" -Teile $RelayTeile)
-$nachSicherung = @(Get-ChildItem "{ziel}" -Name -Force | Sort-Object)
+$nachSicherung = @(Get-ChildItem "{ziel}" -Name -Force | Sort-Object | ForEach-Object {{ "$_" }})
 New-Item -ItemType Directory "{ziel}/app" | Out-Null
 Set-Content "{ziel}/app/main.py" "neu"
 Set-Content "{ziel}/VERSION" "0.2.46"

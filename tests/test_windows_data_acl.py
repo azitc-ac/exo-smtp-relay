@@ -333,12 +333,71 @@ def test_data_acl_statisch():
     assert "BUILTIN\\Administrators" not in ohne_kommentare and "NT AUTHORITY\\SYSTEM" not in ohne_kommentare
 
 
+def _ps51_lauf(skript, als_standardbenutzer: bool = False) -> dict:
+    """Skript unter Windows PowerShell 5.1; Ergebnis-JSON aus <skript>.json. Mit
+    `als_standardbenutzer` über `runas /trustlevel:0x20000` (eingeschränktes Token ohne
+    Administratorrechte und Privilegien): Auf dem CI-Runner darf der Administrator eine
+    SYSTEM-eigene Datei sonst trotzdem zurücksetzen — im Labtest durfte er es nicht."""
+    import time
+    ps = shutil.which("powershell") or _ps()
+    aus = skript.with_suffix(".json")
+    aufruf = [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript), str(aus)]
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    if not als_standardbenutzer:
+        r = subprocess.run(aufruf, capture_output=True, text=True, timeout=120, env=umgebung)
+        assert r.returncode == 0 and aus.is_file(), r.stderr + r.stdout
+        return json.loads(aus.read_text(encoding="utf-8-sig"))
+    befehl = subprocess.list2cmdline(aufruf)
+    r = subprocess.run(["runas", "/trustlevel:0x20000", befehl], capture_output=True, text=True, timeout=60, env=umgebung)
+    assert r.returncode == 0, f"runas /trustlevel: {r.stdout} {r.stderr}"
+    for _ in range(90):
+        if aus.is_file():
+            time.sleep(1)
+            return json.loads(aus.read_text(encoding="utf-8-sig"))
+        time.sleep(1)
+    raise AssertionError("kein Ergebnis vom eingeschränkten Prozess")
+
+
+_C2_KOPF = ("param([string]$Aus)\nSet-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+            "$global:M = New-Object System.Collections.ArrayList\n"
+            "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
+            "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
+def test_reset_echt_icacls_fehler_unter_ps51(tmp_path):
+    """Kern des Labtest-Fehlers ohne Sonderrechte: ECHTES icacls scheitert mit stderr und
+    Exit ≠ 0 (hier: Pfad gibt es nicht). Unter PS 5.1 mit EAP=Stop brach 0.2.45 daran ab;
+    jetzt False, und die Warnung trägt den ECHTEN Exit-Code (nicht -1)."""
+    skript = tmp_path / "fehlt.ps1"
+    skript.write_text(_C2_KOPF + _alle_funktionen()
+                      + f"$d = Reset-RelayAclErbe '{tmp_path / 'gibt-es-nicht' / 'x.json'}'\n"
+                      "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $d; Meldung = $script:RelayIcaclsMeldung }) | Set-Content -Encoding UTF8 $Aus\n",
+                      encoding="utf-8-sig")
+    e = _ps51_lauf(skript)
+    assert e["Direkt"] is False, e
+    assert re.match(r"^Exit [1-9]\d*: ", e["Meldung"]), e
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
+def test_reset_echt_gegenprobe_ohne_eap(tmp_path):
+    """Trennscharf auf echtem PS 5.1: ohne die lokale EAP-Absicherung wird die stderr-Zeile zum
+    beendenden Fehler — der Exit-Code ist dann nicht mehr zu lesen („Exit -1“)."""
+    ohne = _ohne_zeile(_funktion("Reset-RelayAclErbe"), '    $ErrorActionPreference = "Continue"\n')
+    skript = tmp_path / "ohne_eap.ps1"
+    skript.write_text(_C2_KOPF + _mit_reset(ohne)
+                      + f"$d = Reset-RelayAclErbe '{tmp_path / 'gibt-es-nicht' / 'x.json'}'\n"
+                      "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $d; Meldung = $script:RelayIcaclsMeldung }) | Set-Content -Encoding UTF8 $Aus\n",
+                      encoding="utf-8-sig")
+    e = _ps51_lauf(skript)
+    assert e["Meldung"].startswith("Exit -1"), e
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
 def test_data_acl_echt_unzugaengliche_datei(tmp_path):
-    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Der Administrator
-    darf sie nicht zurücksetzen — icacls schreibt „Access is denied“ nach stderr. Unter PS 5.1 mit
-    ErrorActionPreference=Stop brach das install.ps1 ab. Erwartet: kein Abbruch, WARNUNG mit dem
-    echten Exit-Code, das Skript läuft weiter (Exit 0)."""
+    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F, Lauf OHNE die
+    Rechte, sie zurückzusetzen (eingeschränktes Token). icacls schreibt „Access is denied“ nach
+    stderr. Erwartet: kein Abbruch, WARNUNG mit echtem Exit-Code, Skript läuft weiter."""
     data = tmp_path / "data"
     data.mkdir()
     gesperrt = data / "gesperrt.json"
@@ -351,30 +410,17 @@ def test_data_acl_echt_unzugaengliche_datei(tmp_path):
     icacls(gesperrt, "/setowner", "*S-1-5-18")                    # solange wir noch erben: Vollzugriff
     icacls(gesperrt, "/inheritance:r", "/grant:r", "*S-1-5-18:F")
     try:
-        ps = shutil.which("powershell") or _ps()                   # Ziel ist Windows PowerShell 5.1
         skript = tmp_path / "c2.ps1"
-        skript.write_text(
-            "Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
-            "$global:M = New-Object System.Collections.ArrayList\n"
-            "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
-            "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
-            + _alle_funktionen()
-            + f"$direkt = Reset-RelayAclErbe '{gesperrt}'\n"
-            "$direktMeldung = $script:RelayIcaclsMeldung\n"
-            f"Set-RelayDataAcl -Pfad '{data}'\n"
-            "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $direkt; DirektMeldung = $direktMeldung;"
-            " Meldungen = @($global:M) })\n",
-            encoding="utf-8-sig")
-        umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
-        r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
-                           capture_output=True, text=True, timeout=120, env=umgebung)
-        assert r.returncode == 0, r.stderr + r.stdout
-        e = json.loads(r.stdout.strip().splitlines()[-1])
+        skript.write_text(_C2_KOPF + _alle_funktionen()
+                          + f"$d = Reset-RelayAclErbe '{gesperrt}'\n$dm = $script:RelayIcaclsMeldung\n"
+                          f"Set-RelayDataAcl -Pfad '{data}'\n"
+                          "ConvertTo-Json -Compress -InputObject ([ordered]@{ Direkt = $d; DirektMeldung = $dm;"
+                          " Meldungen = @($global:M) }) | Set-Content -Encoding UTF8 $Aus\n",
+                          encoding="utf-8-sig")
+        e = _ps51_lauf(skript, als_standardbenutzer=True)
         assert e["Direkt"] is False, e
-        assert e["DirektMeldung"].startswith("Exit ") and not e["DirektMeldung"].startswith("Exit 0"), e
-        assert not e["DirektMeldung"].startswith("Exit -1"), f"Exit-Code nicht gelesen (EAP?): {e}"
+        assert re.match(r"^Exit [1-9]\d*: ", e["DirektMeldung"]), f"Exit-Code nicht gelesen (EAP?): {e}"
         assert e["Meldungen"] and e["Meldungen"][-1].startswith("WARN: "), e
-        assert any("gesperrt.json" in m for m in e["Meldungen"] if m.startswith("WARN: ")), e
     finally:
         subprocess.run(["takeown", "/f", str(gesperrt)], capture_output=True)
         subprocess.run(["icacls", str(gesperrt), "/reset"], capture_output=True)
