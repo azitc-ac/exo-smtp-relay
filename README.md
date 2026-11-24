@@ -217,7 +217,7 @@ App-Registrierung mit Adressen von Hand.
 
 ## Betrieb
 
-Vier Seiten: **Dashboard**, **Einrichtung**, **Einstellungen**, **Protokolle**.
+Seiten: **Dashboard**, **Relay**, **Einrichtung**, **Einstellungen**, **Backup**, **Protokolle**.
 
 - **Dashboard**: Zähler für den gewählten Zeitraum (heute / 7 / 30 / 90 Tage);
   je Gerät die Einlieferungen mit **TLS** bzw. **Klartext** und an **interne**
@@ -232,6 +232,12 @@ Vier Seiten: **Dashboard**, **Einrichtung**, **Einstellungen**, **Protokolle**.
 - **Daten**: alles liegt unter `data/` (Einstellungen, Geräteliste,
   Mail-Protokoll, Zertifikate) — Rechte 600/700; unter Windows nur SYSTEM und
   Administratoren.
+- **Backup**: das ganze `data/` (ohne Logs) als ZIP, optional mit Passwort
+  verschlüsselt (`.relaybak`, AES-256). Ohne Passwort liegen Schlüssel und
+  Zugangsdaten im Klartext im Archiv. Wiederherstellen mit Auswahl; für einen
+  Umzug zuerst Schritt 1 der Einrichtung, dann Backup einspielen, Dienst neu
+  starten. Betriebszustände (Relay aus, keine Adressen, Zustellfehler) stehen
+  als Band oben auf jeder Seite.
 
 Über die Umgebung setzt du nur Startwerte, danach gilt `settings.json`:
 `DATA_DIR`, `SMTP_PORT`, `WEBUI_PORT`, `PWSH` (Pfad zur PowerShell),

@@ -27,11 +27,13 @@
   <div class="step-body">
     {% if e.password_ok %}
     <p class="hint" style="margin:0">Eigenes Passwort gesetzt. Ändern unter <a href="/einstellungen#passwort">Einstellungen → Anmeldung</a>.</p>
+    {% if not e.hostname %}<p class="hint" style="margin:6px 0 0">Umzug eines bestehenden Relays? Statt der weiteren Schritte das Backup unter <a href="/backup#backup-wiederherstellen">Backup</a> einspielen.</p>{% endif %}
     {% else %}
     <p class="hint" style="margin:0 0 10px">Die Anmeldung läuft noch mit <code>admin</code> / <code>admin</code>.</p>
     <div class="settings-row"><label for="pw-alt">Aktuelles Passwort</label><input type="password" id="pw-alt" style="width:200px" autocomplete="current-password"></div>
     <div class="settings-row"><label for="pw-neu">Neues Passwort</label><input type="password" id="pw-neu" style="width:200px" autocomplete="new-password"><span class="hint">Mindestens 10 Zeichen.</span></div>
     <div class="actions"><button class="btn primary" onclick="passwortSetzen(this)">Passwort setzen</button><span id="pw-result" style="font-size:12px;margin-left:8px"></span></div>
+    <p class="hint" style="margin:10px 0 0">Umzug eines bestehenden Relays? Erst hier ein Passwort setzen, dann unter <strong>Backup</strong> das alte Relay einspielen.</p>
     {% endif %}
   </div>
 </div>

@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Backup</h1>
+<p class="hint" style="max-width:720px;margin:0 0 16px">Sichern und Wiederherstellen aller Daten des Relays —
+  für den Umzug auf einen anderen Server (Docker, Linux oder Windows) oder als regelmäßige Sicherungskopie.</p>
+
+<!-- ── Backup erstellen ────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="backup-erstellen">
+  <h2 style="margin-top:0">Backup erstellen</h2>
+  <div class="alert warn" style="margin-bottom:16px">
+    <strong>Vertraulich:</strong> Das Archiv enthält alle Geheimnisse des Relays — den privaten
+    Schlüssel des TLS-Zertifikats, das Anmeldezertifikat bei Exchange Online, die Zugangsdaten
+    des Rückwegs und den Hash des Anmeldekennworts. <strong>Ohne Passwort liegen sie im Klartext
+    im ZIP.</strong> Bewahre ein unverschlüsseltes Archiv so sicher auf wie die Schlüssel selbst,
+    also nicht in einem geteilten Ordner oder Postfach.
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:16px;max-width:640px">
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
+      <div style="font-size:12px;font-weight:600;color:#334155;margin-bottom:8px">Im Backup enthalten</div>
+      <ul style="font-size:12px;color:#64748b;margin:0;padding-left:16px;line-height:1.8">
+        <li><code>settings.json</code> — Einstellungen, Rechte der App</li>
+        <li><code>relay_hosts.db</code> — Geräteliste</li>
+        <li><code>certs/</code> — TLS-Zertifikat und Schlüssel</li>
+        <li><code>auth.pfx</code> — Exchange-Anmeldezertifikat</li>
+        <li><code>mail_audit.db</code> — Mail-Protokoll</li>
+      </ul>
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
+      <div style="font-size:12px;font-weight:600;color:#334155;margin-bottom:8px">Nicht enthalten</div>
+      <ul style="font-size:12px;color:#64748b;margin:0;padding-left:16px;line-height:1.8">
+        <li><code>logs/</code> — Laufzeit-Logs</li>
+        <li>Zwischenstände (<code>settings.bak</code>)</li>
+      </ul>
+      <div style="font-size:12px;color:#64748b;margin-top:8px">Datenverzeichnis: <code>{{ data_dir }}</code></div>
+    </div>
+  </div>
+
+  <h3>Passwort (optional)</h3>
+  <p class="hint" style="margin-bottom:10px">
+    Mit Passwort wird das Backup verschlüsselt (AES-256, Datei <code>.relaybak</code>) und
+    lässt sich nur mit diesem Passwort wiederherstellen. <strong>Ohne das Passwort ist es
+    wertlos</strong> — es lässt sich nicht zurücksetzen. Leer lassen ergibt ein unverschlüsseltes ZIP.
+  </p>
+  <div class="settings-row">
+    <label for="backup-passwort">Passwort</label>
+    <div class="settings-control"><input type="password" id="backup-passwort"
+         autocomplete="new-password" minlength="8" placeholder="leer = unverschlüsselt"></div>
+  </div>
+  <div class="settings-row">
+    <label for="backup-passwort2">Passwort wiederholen</label>
+    <div class="settings-control"><input type="password" id="backup-passwort2"
+         autocomplete="new-password"></div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px">
+    <button class="btn secondary" id="backup-dl-btn" onclick="backupDownload()">Backup herunterladen</button>
+    <span id="backup-dl-spinner" hidden></span>
+    <span style="font-size:12px;color:#94a3b8">v{{ version }}</span>
+  </div>
+  <div id="backup-dl-result" style="display:none;margin-top:10px"></div>
+</div>
+
+<!-- ── Backup wiederherstellen ─────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="backup-wiederherstellen">
+  <h2 style="margin-top:0">Backup wiederherstellen</h2>
+  <div class="alert warn" style="margin-bottom:16px">
+    <strong>Achtung:</strong> Ausgewählte Elemente überschreiben die vorhandenen. Mit den
+    Einstellungen gilt auch das <strong>Anmeldekennwort des gesicherten Relays</strong> — du wirst
+    abgemeldet. Danach den Dienst neu starten (Windows: Dienst <code>ExoSmtpRelay</code>,
+    Docker: <code>docker compose restart</code>), damit Listener und Zertifikat den neuen Stand nutzen.
+  </div>
+  <p style="font-size:13px;color:#555;margin-bottom:14px;line-height:1.6">
+    Backup-Datei auswählen. Der Inhalt wird zunächst nur <em>angezeigt</em>; erst danach
+    entscheidest du, was zurückgeholt wird. Das TLS-Zertifikat wird an den Pfad geschrieben,
+    den dieses System verwendet (<code>{{ tls_cert }}</code>).
+  </p>
+
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <input type="file" id="backup-file-input" accept=".zip,.relaybak" onchange="backupInhaltLaden()"
+           style="font-size:13px;border:1px solid #e2e8f0;border-radius:6px;padding:6px 10px;background:#fff">
+    <span id="backup-inspect-spinner" hidden></span>
+  </div>
+  <div class="settings-row" id="backup-restore-pw-zeile" style="display:none">
+    <label for="backup-restore-passwort">Passwort des Backups</label>
+    <div class="settings-control"><input type="password" id="backup-restore-passwort"
+         autocomplete="off" onkeydown="if (event.key === 'Enter') backupInhaltLaden()">
+      <button type="button" class="btn secondary btn-sm" onclick="backupInhaltLaden()">Öffnen</button></div>
+  </div>
+
+  <!-- Auswahl — erscheint erst, wenn ein Backup gelesen wurde -->
+  <div id="backup-auswahl" style="display:none;margin-bottom:14px">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button type="button" class="btn secondary btn-sm" onclick="backupAlleWaehlen(true)">Alles</button>
+      <button type="button" class="btn secondary btn-sm" onclick="backupAlleWaehlen(false)">Nichts</button>
+      <span id="backup-auswahl-zahl" style="font-size:12px;color:#6b7280"></span>
+    </div>
+    <div id="backup-baum" style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;
+         max-height:340px;overflow:auto;background:#fff;font-size:13px"></div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn danger" id="backup-restore-btn" onclick="backupRestoreConfirm()" disabled>Wiederherstellen</button>
+    <span id="backup-restore-spinner" hidden></span>
+  </div>
+  <div id="backup-restore-result" style="display:none;margin-top:10px"></div>
+</div>
+
+<!-- ── Umzug ───────────────────────────────────────────────────────────────── -->
+<div class="settings-card" style="margin-bottom:20px" id="backup-umzug">
+  <h2 style="margin-top:0">Umzug auf einen neuen Server</h2>
+  <ol style="font-size:13px;color:#555;margin:0 0 0 18px;line-height:2">
+    <li>Backup auf dem alten Relay herunterladen (oben), am besten mit Passwort.</li>
+    <li>Relay auf dem neuen Server installieren (Docker, Linux oder Windows).</li>
+    <li>Anmelden und in der <a href="/einrichtung">Einrichtung</a> Schritt 1 abschließen (Startkennwort ändern).</li>
+    <li>Hier das Backup hochladen und wiederherstellen; danach gilt das Kennwort des alten Relays.</li>
+    <li>Dienst neu starten.</li>
+    <li>DNS-Eintrag und — bei Erkennung über die IP — den Inbound-Connector auf die neue Adresse umstellen;
+        die Geräte auf den neuen Server zeigen lassen.</li>
+  </ol>
+</div>
+
+<script>
+async function backupDownload() {
+  const result = document.getElementById('backup-dl-result');
+  result.style.display = 'none';
+  const pw  = document.getElementById('backup-passwort');
+  const pw2 = document.getElementById('backup-passwort2');
+  fieldClear(pw); fieldClear(pw2);
+  if (pw.value && pw.value.length < 8) { fieldMsg(pw, 'Mindestens 8 Zeichen.', false); return; }
+  if (pw.value !== pw2.value) { fieldMsg(pw2, 'Die Passwörter stimmen nicht überein.', false); return; }
+  if (!pw.value && !confirm('Ohne Passwort enthält das Archiv private Schlüssel und Zugangsdaten im Klartext.\n\nTrotzdem unverschlüsselt herunterladen?')) return;
+  const d = await knopfAktion('backup-dl-btn', pw.value ? 'Erstelle und verschlüssele…' : 'Erstelle ZIP…',
+    async () => {
+      if (!pw.value) return dateiHerunterladen('/api/backup/download', 'relay-backup.zip');
+      const e = await postJSON('/api/backup/erstellen', { passwort: pw.value });
+      if (!e.ok) return { ok: false, error: errText(e) };
+      return dateiHerunterladen('/api/backup/download?abruf=' + encodeURIComponent(e.abruf), e.name);
+    }, {anzeige: 'backup-dl-spinner'});
+  const verschluesselt = !!pw.value;
+  if (d.ok) { pw.value = ''; pw2.value = ''; }
+  result.innerHTML = d.ok
+    ? '<div class="alert ' + (verschluesselt ? 'success' : 'warn') + '"><strong>' + esc(d.name) + '</strong> heruntergeladen ('
+      + Math.round(d.groesse / 1024) + ' KB)' + (verschluesselt ? ', verschlüsselt.' : ' — <strong>unverschlüsselt</strong>.') + '</div>'
+    : `<div class="alert error"><strong>Fehler:</strong> ${esc(d.error)}</div>`;
+  result.style.display = 'block';
+}
+
+// ── Inhalt des Backups anzeigen und auswählen (wie Gateway) ──────────────────
+let _backupGruppen = [];
+
+async function backupInhaltLaden() {
+  const input   = document.getElementById('backup-file-input');
+  const bereich = document.getElementById('backup-auswahl');
+  const knopf   = document.getElementById('backup-restore-btn');
+  const result  = document.getElementById('backup-restore-result');
+  fieldClear(input);
+  result.style.display = 'none';
+  bereich.style.display = 'none';
+  knopf.disabled = true;
+  _backupGruppen = [];
+  if (!input.files.length) return;
+
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  const pwFeld = document.getElementById('backup-restore-passwort');
+  fieldClear(pwFeld);
+  fd.append('passwort', pwFeld.value);
+  const d = await knopfAktion(null, 'Inhalt wird gelesen…', () => sendeFormular('/api/backup/inspect', fd),
+                              {anzeige: 'backup-inspect-spinner'});
+  if (!d.ok) {
+    if (d.passwort_noetig) {
+      document.getElementById('backup-restore-pw-zeile').style.display = '';
+      fieldMsg(pwFeld, errText(d), false);
+      pwFeld.focus();
+    } else {
+      fieldMsg(input, errText(d), false);
+    }
+    return;
+  }
+  _backupGruppen = d.gruppen || [];
+  backupBaumZeichnen();
+  bereich.style.display = '';
+  knopf.disabled = false;
+}
+
+function backupGroesse(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function backupBaumZeichnen() {
+  const baum = document.getElementById('backup-baum');
+  baum.innerHTML = '';
+  _backupGruppen.forEach(g => {
+    const liste = document.createElement('div');
+    liste.style.cssText = 'display:flex;flex-direction:column;gap:3px';
+    g.eintraege.forEach(e => {
+      const zeile = document.createElement('label');
+      zeile.style.cssText = 'display:flex;align-items:baseline;gap:7px;cursor:pointer;line-height:1.5';
+      zeile.innerHTML =
+        '<input type="checkbox" class="bk-eintrag" data-dateien="' + escAttr(JSON.stringify(e.dateien)) + '" checked>'
+        + '<span style="flex:1;min-width:0">' + esc(e.titel)
+        + ' <span style="color:#6b7280;font-size:12px">' + (e.hinweis ? '— ' + esc(e.hinweis) : '') + '</span></span>'
+        + '<span style="color:#9ca3af;font-size:12px;white-space:nowrap">' + esc(backupGroesse(e.bytes)) + '</span>';
+      liste.appendChild(zeile);
+    });
+    baum.appendChild(liste);
+  });
+  baum.querySelectorAll('.bk-eintrag').forEach(e => e.addEventListener('change', backupAuswahlGezaehlt));
+  backupAuswahlGezaehlt();
+}
+
+function backupAlleWaehlen(an) {
+  document.querySelectorAll('#backup-baum .bk-eintrag').forEach(e => e.checked = an);
+  backupAuswahlGezaehlt();
+}
+
+function backupGewaehlteDateien() {
+  const dateien = [];
+  document.querySelectorAll('#backup-baum .bk-eintrag').forEach(e => {
+    if (!e.checked) return;
+    try { dateien.push(...JSON.parse(e.dataset.dateien)); } catch (err) { ursache(err, 'backup:auswahl'); }
+  });
+  return dateien;
+}
+
+function backupAuswahlGezaehlt() {
+  const eintraege = [...document.querySelectorAll('#backup-baum .bk-eintrag')];
+  const gewaehlt = eintraege.filter(e => e.checked).length;
+  document.getElementById('backup-auswahl-zahl').textContent =
+    gewaehlt + ' von ' + eintraege.length + ' Elementen (' + backupGewaehlteDateien().length + ' Datei(en))';
+  document.getElementById('backup-restore-btn').disabled = gewaehlt === 0;
+}
+
+function backupRestoreConfirm() {
+  const input = document.getElementById('backup-file-input');
+  fieldClear(input);
+  if (!input.files.length) { fieldMsg(input, 'Bitte zuerst eine Backup-Datei auswählen.', false); return; }
+  const eintraege = [...document.querySelectorAll('#backup-baum .bk-eintrag')];
+  const gewaehlt  = eintraege.filter(e => e.checked);
+  if (!gewaehlt.length) { fieldMsg(input, 'Nichts ausgewählt.', false); return; }
+  // Namen in die Rückfrage, nicht nur die Anzahl: „3 Elemente" sagt nicht,
+  // ob die Einstellungen dabei sind.
+  const namen = gewaehlt.map(e => e.parentElement.querySelector('span').firstChild.textContent.trim());
+  const liste = gewaehlt.length === eintraege.length ? 'ALLE Elemente des Backups' : '• ' + namen.join('\n• ');
+  if (!confirm('Aus "' + input.files[0].name + '" wiederherstellen:\n\n' + liste + '\n\n'
+               + 'Vorhandenes wird überschrieben. Danach den Dienst neu starten.\n\nFortfahren?')) return;
+  backupRestore();
+}
+
+async function backupRestore() {
+  const input  = document.getElementById('backup-file-input');
+  const result = document.getElementById('backup-restore-result');
+  result.style.display = 'none';
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  fd.append('auswahl', JSON.stringify(backupGewaehlteDateien()));
+  fd.append('passwort', document.getElementById('backup-restore-passwort').value);
+  const d = await knopfAktion('backup-restore-btn', 'Wird wiederhergestellt…',
+                              () => sendeFormular('/api/backup/restore', fd), {anzeige: 'backup-restore-spinner'});
+  if (d.ok) {
+    const warnItems = (d.warnings || []).map(w => `<li style="color:#92400e">${esc(w.replace(/^AUTH_PFX_RESTORED: /, ''))}</li>`).join('');
+    result.innerHTML = `<div class="alert success">
+      <strong>Wiederhergestellt:</strong> ${esc(d.restored_files)} Dateien.
+      ` + (warnItems ? '<ul style="margin:8px 0 0;padding-left:18px">' + warnItems + '</ul>' : '') + `
+      <div style="margin-top:10px">Jetzt den Dienst neu starten (Windows: <code>Restart-Service ExoSmtpRelay</code>,
+        Docker: <code>docker compose restart</code>) und danach neu anmelden.</div>
+    </div>`;
+  } else {
+    result.innerHTML = `<div class="alert error"><strong>Fehler:</strong> ${esc(errText(d))}</div>`;
+  }
+  result.style.display = 'block';
+}
+</script>
+{% endblock %}

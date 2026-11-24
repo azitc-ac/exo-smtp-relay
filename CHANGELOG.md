@@ -1,5 +1,30 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.35 — 2026-11-24 — Backup und Wiederherstellung, optional mit Passwort
+
+- Neue Seite **Backup** (wie Gateway f0c95af, gleiche Routen
+  `/api/backup/*`): Das Archiv enthält alles für einen Umzug —
+  Einstellungen samt Rechte-Stand der App, Geräteliste
+  (`relay_hosts.db`), TLS-Zertifikat mit Schlüssel, Anmeldezertifikat bei
+  Exchange Online (`auth.pfx`), Mail-Protokoll und den letzten Stand der
+  Postfachliste. Logs und `settings.bak` bleiben draußen.
+- **Mit Passwort** verschlüsselt (AES-256-GCM, Schlüssel per scrypt), Datei
+  `.relaybak`. **Ohne Passwort** ein ZIP mit allen Geheimnissen im Klartext —
+  die Seite warnt deutlich und fragt vor dem Herunterladen nach, das Archiv
+  selbst trägt den Hinweis in `README.txt`.
+- **Wiederherstellen** zeigt zuerst den Inhalt, dann wählst du aus. Jede
+  Datei wird mit Rechten 600 (Verzeichnis 700) geschrieben, unter Windows
+  mit der ACL von `data\`. Das TLS-Zertifikat geht an den Pfad, den das
+  neue System verwendet — auch wenn er dort per `SMTP_TLS_CERT` abweicht.
+  Datenbanken werden über SQLite gelesen, nicht als Datei kopiert.
+- Ein Backup des Signature Gateway wird abgelehnt (eigenes Kennzeichen
+  `relay-backup.json`).
+- Die Einrichtung weist in Schritt 1 auf den Umzugsweg hin.
+
+**Zu tun:** nichts. Für einen Umzug: Backup auf dem alten Relay ziehen,
+auf dem neuen Schritt 1 der Einrichtung abschließen, Backup einspielen,
+Dienst neu starten. Danach gilt das Kennwort des alten Relays.
+
 ## 0.2.34 — 2026-11-24 — Betriebsbänder auf jeder Seite
 
 - Wie im Gateway (5bd5b1b): Betriebszustände stehen als Band oben auf jeder
