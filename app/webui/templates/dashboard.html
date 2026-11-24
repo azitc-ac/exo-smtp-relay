@@ -118,9 +118,9 @@ function zeichneKarten(r) {
 }
 
 function zeichneWarnungen(r) {
+  // Relay abgeschaltet, keine Adressen, Zustellfehler: Band auf jeder Seite
+  // (base.html, deps.py) — hier stünden sie doppelt.
   const w = [];
-  if (!r.relay_an) w.push('<strong>Das Relay ist abgeschaltet.</strong> Jede Einlieferung wird abgewiesen. Einschalten unter <a href="/einstellungen#relay">Einstellungen</a>.');
-  if (r.adressen === 0) w.push('<strong>Keine Postfachadressen bekannt.</strong> Absender und Ziel lassen sich nicht prüfen — jede Einlieferung wird mit 451 abgewiesen. <a href="/einrichtung">Einrichtung</a> abschliessen oder Adressen unter <a href="/einstellungen#adressen">Einstellungen → Adressquelle</a> eintragen.');
   if (!r.rueckweg.konfiguriert) w.push('<strong>Kein Rückweg konfiguriert.</strong> Angenommene Post kann nicht zugestellt werden. <a href="/einstellungen#rueckweg">Einstellungen → Rückweg</a>.');
   if (!r.tls.vorhanden) w.push('<strong>Kein TLS-Zertifikat.</strong> Der Listener bietet kein STARTTLS an.');
   // Verwaltung (Lernmodus, Abweisungen) liegt auf /relay — hier nur der Hinweis.

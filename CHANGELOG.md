@@ -1,5 +1,23 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.34 — 2026-11-24 — Betriebsbänder auf jeder Seite
+
+- Wie im Gateway (5bd5b1b): Betriebszustände stehen als Band oben auf jeder
+  Seite statt nur in der Übersicht — keine Seite kann sie vergessen
+  (Jinja-Globals in `deps.py`, Ausgabe in `base.html`):
+  - **Relay abgeschaltet** (gelb) — jede Einlieferung wird abgewiesen. Das
+    Gegenstück zum Wartungsmodus des Gateways.
+  - **Keine Postfachadressen bekannt** (rot) — jede Einlieferung bekommt 451.
+  - **Zustellfehler** (rot) — Einlieferungen, die Exchange Online seit der
+    letzten erfolgreichen Zustellung nicht angenommen hat (höchstens 24
+    Stunden zurück). Klappt die nächste Zustellung, verschwindet das Band.
+- Beide ersten Bänder erst nach abgeschlossener Einrichtung. Die Hinweise
+  darauf in der Übersicht und auf der Geräteseite entfallen.
+- Die Anmeldeseite zeigt keinen Betriebszustand mehr; bisher stand dort das
+  Band des Lernmodus.
+
+**Zu tun:** nichts.
+
 ## 0.2.33 — 2026-11-24 — Connector am Zertifikat nur mit CA-Zertifikat
 
 - Der Modulkopf von `tls_cert.py` behauptete, ein selbstsigniertes

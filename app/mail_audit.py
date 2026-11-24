@@ -133,6 +133,35 @@ def zaehler_heute() -> dict[str, int]:
         return {}
 
 
+# Wie weit das Band „Zustellfehler“ zurückblickt. Ein Gerät, das nach einem
+# Tag noch immer 451 bekommt, hat längst aufgegeben; ein älterer Fehler sagt
+# über den jetzigen Rückweg nichts mehr.
+ZUSTELLFEHLER_STUNDEN = 24
+
+
+def zustellfehler_offen(stunden: int = ZUSTELLFEHLER_STUNDEN) -> int:
+    """Zustellfehler (`relay_fehler`) seit der letzten erfolgreichen Zustellung,
+    höchstens `stunden` zurück. Das Gegenstück zur Warteschlange des Gateways:
+    Klappt die nächste Zustellung, ist der Rückweg wieder offen, und das Band
+    verschwindet — ohne dass jemand etwas quittieren muss.
+
+    Verglichen wird über die laufende Nummer, nicht die Zeit: Fehler und
+    Erfolg in derselben Sekunde stünden sonst gleichauf."""
+    if not _initialised:
+        return 0
+    grenze = (datetime.now(timezone.utc) - timedelta(hours=stunden)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with _conn() as conn:
+            z = conn.execute(
+                "SELECT COUNT(*) AS n FROM mail_log WHERE action='relay_fehler' AND ts >= ? "
+                "AND id > COALESCE((SELECT MAX(id) FROM mail_log WHERE action='relay'), 0)",
+                (grenze,)).fetchone()
+        return int(z["n"] or 0)
+    except Exception as exc:                                  # noqa: BLE001
+        log.warning("mail_audit: Zustellfehler nicht zählbar: %s", exc)
+        return 0
+
+
 def auswertung(tage: int = 30) -> dict:
     """Für das Dashboard: je Gerät, was in den letzten `tage` Tagen geschah.
 

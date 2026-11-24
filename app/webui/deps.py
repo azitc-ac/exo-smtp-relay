@@ -51,6 +51,57 @@ def _lernmodus_rest_min() -> int:
 templates.env.globals["lernmodus_rest_min"] = _lernmodus_rest_min
 
 
+# ── Betriebszustände als Band auf JEDER Seite (wie Gateway 5bd5b1b) ──────────
+# Bis v0.2.33 standen „Relay abgeschaltet“ und „keine Postfachadressen“ nur in
+# der Übersicht (dashboard.html, zeichneWarnungen), Zustellfehler nur als Zahl
+# in einer Kachel. Wer auf einer anderen Seite arbeitete, sah sie nicht — und
+# ein vergessenes Abschalten weist stillschweigend jede Einlieferung ab.
+# Jinja-Globals wie `lernmodus_rest_min`: keine Route kann sie vergessen.
+# Erst nach abgeschlossener Einrichtung: Davor ist beides der Normalzustand,
+# und der Assistent sagt selbst, was noch fehlt.
+
+def _relay_aus_gemeldet() -> bool:
+    """Relay abgeschaltet? Das Gegenstück zum Wartungsmodus des Gateways —
+    nur dass hier nichts zurückgehalten, sondern alles abgewiesen wird."""
+    try:
+        return bool(settings_store.get("SETUP_COMPLETE")) \
+            and not settings_store.get("SMTP_RELAY_ENABLED")
+    except Exception:                                         # noqa: BLE001
+        return False
+
+
+templates.env.globals["relay_aus_gemeldet"] = _relay_aus_gemeldet
+
+
+def _adressen_gemeldet() -> bool:
+    """Keine Postfachadresse bekannt → `smtp_relay.pruefe` weist jede
+    Einlieferung mit 451 ab. `known_addresses()` fragt nie selbst ab."""
+    try:
+        if not settings_store.get("SETUP_COMPLETE"):
+            return False
+        import exo_mailboxes
+        return not exo_mailboxes.known_addresses()
+    except Exception:                                         # noqa: BLE001
+        return False
+
+
+templates.env.globals["adressen_gemeldet"] = _adressen_gemeldet
+
+
+def _zustellfehler_anzahl() -> int:
+    """Einlieferungen, die Exchange Online seit der letzten erfolgreichen
+    Zustellung nicht annahm (`mail_audit.zustellfehler_offen`). Das Relay hat
+    keine Warteschlange: Das Gerät bekam 451 und versucht es selbst erneut."""
+    try:
+        import mail_audit
+        return mail_audit.zustellfehler_offen()
+    except Exception:                                         # noqa: BLE001
+        return 0
+
+
+templates.env.globals["zustellfehler_anzahl"] = _zustellfehler_anzahl
+
+
 def _gateway_name() -> str:
     return settings_store.get("GATEWAY_NAME") or "EXO SMTP Relay"
 

@@ -82,6 +82,41 @@
       })();
     </script>
 
+    {# Betriebsbänder — auf JEDER Seite, aus Jinja-Globals in deps.py (wie
+       Gateway 5bd5b1b). Nicht auf der Anmeldeseite: Wer nicht angemeldet ist,
+       erfährt nichts über den Betriebszustand. Bis v0.2.33 stand der Lernmodus
+       auch dort. #}
+    {% if active != 'login' %}
+    {% if relay_aus_gemeldet() %}
+    <div id="relay-aus-banner"
+         style="background:#fffbeb;border-bottom:2px solid #fcd34d;padding:9px 16px;
+                font-size:13px;color:#92400e;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>Relay abgeschaltet</strong>
+      <span>Jede Einlieferung wird <strong>abgewiesen</strong> — auch von eingetragenen Geräten.</span>
+      <a href="/einstellungen#relay" style="color:#92400e;font-weight:700;margin-left:auto">Zum Schalter</a>
+    </div>
+    {% endif %}
+    {% if adressen_gemeldet() %}
+    <div id="adressen-banner"
+         style="background:#fef2f2;border-bottom:2px solid #fca5a5;padding:9px 16px;
+                font-size:13px;color:#991b1b;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>Keine Postfachadressen bekannt</strong>
+      <span>Absender und Ziel lassen sich nicht prüfen — jede Einlieferung wird mit 451 abgewiesen.</span>
+      <a href="/einstellungen#adressen" style="color:#991b1b;font-weight:700;margin-left:auto">Zur Adressquelle</a>
+    </div>
+    {% endif %}
+    {% set _zustellfehler = zustellfehler_anzahl() %}
+    {% if _zustellfehler %}
+    <div id="zustellfehler-banner"
+         style="background:#fef2f2;border-bottom:2px solid #fca5a5;padding:9px 16px;
+                font-size:13px;color:#991b1b;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>Zustellfehler</strong>
+      <span>{{ _zustellfehler }} Einlieferung{{ '' if _zustellfehler == 1 else 'en' }} konnte{{ '' if _zustellfehler == 1 else 'n' }}
+        seit der letzten erfolgreichen Zustellung nicht an Exchange Online weitergegeben werden.
+        Die Geräte erhielten 451 und versuchen es selbst erneut. Bleibt es dabei, prüfe den Rückweg.</span>
+      <a href="/einstellungen#rueckweg" style="color:#991b1b;font-weight:700;margin-left:auto">Zum Rückweg</a>
+    </div>
+    {% endif %}
     {% set _lern_rest = lernmodus_rest_min() %}
     {% if _lern_rest %}
     <div id="lernmodus-banner"
@@ -92,6 +127,7 @@
         aufgenommen — noch {{ _lern_rest }} Minute{{ '' if _lern_rest == 1 else 'n' }}.</span>
       <a href="/" style="color:#92400e;font-weight:700;margin-left:auto">Zum Dashboard</a>
     </div>
+    {% endif %}
     {% endif %}
 
     {% if active not in ('login',) and password_change_required() %}
