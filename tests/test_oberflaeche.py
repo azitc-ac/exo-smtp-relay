@@ -259,6 +259,27 @@ def test_protokollstufe_beim_start_und_unbekannte_stufe():
     assert "log_manager.stufe_anwenden()" in main_py
 
 
+def test_connector_am_zertifikat_nur_mit_ca_zertifikat(client, monkeypatch):
+    """Microsoft verlangt für die Zertifikatsvariante ein CA-signiertes
+    Zertifikat (Quelle im Modulkopf von tls_cert.py). Mit dem selbstsignierten
+    entstünde ein Connector, der das Relay nicht erkennt (bis v0.2.32 möglich)."""
+    import exo_setup
+    import settings_store
+    import tls_cert
+    _anmelden(client)
+    settings_store.update({"PUBLIC_HOSTNAME": "relay.firma.de"})
+    tls_cert.selbstsigniert_erzeugen("relay.firma.de")
+    monkeypatch.setattr(exo_setup, "_voraussetzungen", lambda: (True, ""))
+    skripte = []
+    monkeypatch.setattr(exo_setup, "_run", lambda args, **kw: skripte.append(args) or {"ok": False, "output": "x"})
+    for pfad in ("/api/setup/connector", "/api/exo/connector"):
+        r = client.post(pfad, json={"sender_ips": ""})
+        assert "selbstsigniert" in r.json()["output"], pfad
+    assert skripte == [], "kein Connector am selbstsignierten Zertifikat"
+    client.post("/api/setup/connector", json={"sender_ips": "203.0.113.10"})
+    assert len(skripte) == 1 and "203.0.113.10" in skripte[0], "die Adressvariante bleibt möglich"
+
+
 def test_keine_schnittstellenbeschreibung(client):
     for pfad in ("/docs", "/openapi.json", "/redoc"):
         assert client.get(pfad).status_code in (302, 404)

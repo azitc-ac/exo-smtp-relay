@@ -126,6 +126,17 @@ def connector_einrichten(hostname: str, sender_ips: list[str] | None = None) -> 
     ok, grund = _voraussetzungen()
     if not ok:
         return {"ok": False, "output": grund}
+    ips = [i.strip() for i in (sender_ips or []) if i.strip()]
+    # Zertifikatsvariante nur mit einem Zertifikat einer CA (Quelle im Modulkopf
+    # von tls_cert.py: Microsoft verlangt ein CA-signiertes). Mit dem
+    # selbstsignierten entstünde ein Connector, der das Relay nicht erkennt.
+    # Hier und nicht in den Routen: Assistent und Einstellungen rufen beide hierher.
+    import tls_cert
+    if not ips and tls_cert.info().get("selbstsigniert"):
+        return {"ok": False, "output": (
+            "Das TLS-Zertifikat ist selbstsigniert. Exchange Online erkennt das Relay "
+            "am Zertifikat nur mit einem Zertifikat einer öffentlichen CA. Trage die "
+            "öffentliche IP ein oder importiere unter Einstellungen → TLS ein CA-Zertifikat.")}
     skript = SCRIPTS / "setup_relay_connector.ps1"
     if not skript.exists():
         return {"ok": False, "output": f"Skript fehlt: {skript}"}
@@ -136,7 +147,6 @@ def connector_einrichten(hostname: str, sender_ips: list[str] | None = None) -> 
             "-CertPath", str(auth_cert.PFX_PATH),
             "-RelayHostname", hostname.strip(),
             "-ConnectorName", f"{name} - Inbound"]
-    ips = [i.strip() for i in (sender_ips or []) if i.strip()]
     if ips:
         args += ["-SenderIPAddresses", ",".join(ips)]
     r = _run(args)

@@ -5,10 +5,16 @@ Klartext. Deshalb erzeugt `sicherstellen()` beim ersten Start ein
 selbstsigniertes Zertifikat auf den konfigurierten Hostnamen. Für Geräte im
 eigenen Netz genügt das: Ein Drucker prüft den Aussteller nicht.
 
-Für den Rückweg zu Exchange zählt der NAME im Zertifikat, nicht der Aussteller:
-Der Inbound-Connector erkennt den Dienst an `TlsSenderCertificateName`. Ein
-selbstsigniertes Zertifikat mit dem richtigen CN funktioniert dort ebenso wie
-ein gekauftes. Wer eines von einer CA hat, importiert es als PFX.
+Für den Rückweg zu Exchange reicht ein selbstsigniertes Zertifikat NICHT, wenn
+der Inbound-Connector den Dienst am Zertifikat erkennt (`TlsSenderCertificateName`):
+Microsoft verlangt dafür „a valid certification authority-signed (CA-signed)
+certificate“, dessen Subject oder SAN eine akzeptierte Domäne des Tenants
+enthält (MS Learn: „Set up connectors to route mail …“, Prerequisites, Punkt 2;
+„How to set up a multifunction device or application …“, TLS certificate-based
+connector). Mit selbstsigniertem Zertifikat bleibt die Adressvariante
+(`SenderIPAddresses`, feste öffentliche IP); `exo_setup.connector_einrichten`
+lässt die Zertifikatsvariante dann nicht zu.
+Wer ein Zertifikat einer CA hat, importiert es als PFX.
 
 Alles mit `cryptography`, ohne `openssl`-Binary — das gibt es unter Windows
 nicht verlässlich.

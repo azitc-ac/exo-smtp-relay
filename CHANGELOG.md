@@ -1,5 +1,20 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.33 — 2026-11-24 — Connector am Zertifikat nur mit CA-Zertifikat
+
+- Der Modulkopf von `tls_cert.py` behauptete, ein selbstsigniertes
+  Zertifikat genüge für einen Inbound-Connector, der das Relay am Zertifikat
+  erkennt (`TlsSenderCertificateName`). Das widersprach dem Connector-Skript,
+  der Einrichtung und der README und der Microsoft-Dokumentation, die dafür
+  ein CA-signiertes Zertifikat verlangt, dessen Subject oder SAN eine
+  akzeptierte Domäne enthält. Der Text ist berichtigt und nennt die Quelle.
+- Mit selbstsigniertem Zertifikat und ohne öffentliche IP legt das Relay den
+  Connector nicht mehr an, weder über die Einrichtung noch über die
+  Einstellungen, sondern sagt, was fehlt. Bisher entstand ein Connector, der
+  das Relay nicht erkennt.
+
+**Zu tun:** nichts. Ein bestehender Connector bleibt unverändert.
+
 ## 0.2.32 — 2026-11-24 — SMTP-Antworten nur in ASCII
 
 - Wie im Gateway (v1.12.24): Antwortzeilen des SMTP-Listeners gehen nur
