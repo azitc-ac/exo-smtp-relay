@@ -47,3 +47,32 @@ def test_localhost_wird_nie_eingetragen(monkeypatch):
     _rechner(monkeypatch, "localhost.localdomain", "localhost")
     tls_cert.selbstsigniert_erzeugen("")
     assert _san() == [tls_cert.VORGABE_NAME]
+
+
+def test_langer_fqdn_scheitert_nicht(monkeypatch):
+    """CI 0.2.46: FQDN des Windows-Runners 65 Zeichen → „Attribute's length must be <= 64“,
+    kein Zertifikat, Oberfläche ohne TLS. Jetzt: CN ist der erste Name ≤ 64 Zeichen, der
+    lange FQDN steht trotzdem im SAN."""
+    import tls_cert
+    from cryptography import x509
+    lang = "runnervm0abcdefghijk." + "x" * 30 + ".internal.cloudapp.net"
+    assert len(lang) > 64
+    from pathlib import Path
+    import config
+    _rechner(monkeypatch, lang, "runnervm0abcdefghijk")
+    tls_cert.selbstsigniert_erzeugen("")
+    cert = x509.load_pem_x509_certificate(Path(config.SMTP_TLS_CERT).read_bytes())
+    cn = cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
+    assert cn == "runnervm0abcdefghijk"
+    assert _san() == [lang, "runnervm0abcdefghijk"]
+    assert tls_cert.cn_waehlen(["a" * 70]) == tls_cert.VORGABE_NAME
+
+
+def test_acme_csr_mit_langem_namen():
+    import tls_acme_dns
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import ec
+    lang = "a" * 40 + "." + "b" * 30 + ".example"
+    csr = x509.load_der_x509_csr(tls_acme_dns._build_csr(ec.generate_private_key(ec.SECP256R1()), lang))
+    assert csr.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME) == []
+    assert csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName) == [lang]

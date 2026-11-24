@@ -168,8 +168,11 @@ def _build_csr(domain_key, domain: str) -> bytes:
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
+    # CN höchstens 64 Zeichen (RFC 5280); längere Namen nur im SAN — Let's Encrypt nimmt
+    # CSRs ohne CN an. Geschwister von tls_cert.cn_waehlen (CI 0.2.46).
+    subjekt = [x509.NameAttribute(NameOID.COMMON_NAME, domain)] if len(domain) <= 64 else []
     csr = (x509.CertificateSigningRequestBuilder()
-           .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, domain)]))
+           .subject_name(x509.Name(subjekt))
            .add_extension(x509.SubjectAlternativeName([x509.DNSName(domain)]), critical=False)
            .sign(domain_key, hashes.SHA256()))
     return csr.public_bytes(serialization.Encoding.DER)

@@ -108,6 +108,20 @@ def rechnernamen() -> list[str]:
     return namen
 
 
+CN_MAX = 64                        # RFC 5280, ub-common-name; SAN-Namen dürfen länger sein
+
+
+def cn_waehlen(namen: list[str]) -> str:
+    """Erster Name, der als CN taugt (≤ 64 Zeichen). CI 0.2.46: Der FQDN des Windows-Runners
+    war 65 Zeichen lang, das Zertifikat scheiterte („Attribute's length must be >= 1 and <=
+    64“), die Oberfläche lief OHNE TLS. Die Clients prüfen ohnehin den SAN, der alle Namen
+    trägt; der CN ist nur Anzeige."""
+    for n in namen:
+        if 0 < len(n) <= CN_MAX:
+            return n
+    return VORGABE_NAME
+
+
 def selbstsigniert_erzeugen(hostname: str, tage: int = 3650) -> dict:
     """Selbstsigniert auf `hostname` (CN), dazu FQDN und kurzer Name des
     Rechners als SAN — damit passt es zum Startmenü-Link, auch solange kein
@@ -123,9 +137,8 @@ def selbstsigniert_erzeugen(hostname: str, tage: int = 3650) -> dict:
     namen += [n for n in rechnernamen() if n not in namen]
     if not namen:
         namen = [VORGABE_NAME]
-    hostname = namen[0]
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn_waehlen(namen))])
     jetzt = _dt.datetime.now(_dt.timezone.utc)
     cert = (x509.CertificateBuilder()
             .subject_name(name).issuer_name(name)

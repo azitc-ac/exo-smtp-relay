@@ -47,6 +47,11 @@ Neu in 0.2.46 (Labtest von 0.2.45, Windows PowerShell 5.1):
   Installer in diesem Fall die DLLs neben `pythonservice.exe` (gemerkt in
   `venv\relay-dienst-dlls.txt`) und entfernt genau diese Kopien wieder, sobald die Basis
   im PATH steht.
+- **Selbstsigniertes Zertifikat bei langem Rechnernamen.** Ein FQDN über 64 Zeichen
+  (CI-Runner: 65; Azure-VMs kommen leicht dahin) ließ die Erzeugung scheitern („Attribute's
+  length must be >= 1 and <= 64“) — die Oberfläche lief ohne TLS. Jetzt ist der CN der
+  erste Name bis 64 Zeichen (sonst `exo-smtp-relay.local`), alle Namen stehen wie bisher
+  im SAN. Dasselbe für den CSR an Let's Encrypt (DNS-01): Namen über 64 Zeichen nur im SAN.
 - Tests: Der Nachbau ersetzt nicht mehr die icacls-Funktion, sondern nur icacls.exe
   selbst (Exit-Codes wie gemessen); Gegenproben für 0.2.45, „/C zurück“ und „EAP
   zurück“; unter echtem PS 5.1 ein echter icacls-Fehler samt Gegenprobe. Neuer CI-Job
