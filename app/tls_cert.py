@@ -14,7 +14,15 @@ enthält (MS Learn: „Set up connectors to route mail …“, Prerequisites, Pu
 connector). Mit selbstsigniertem Zertifikat bleibt die Adressvariante
 (`SenderIPAddresses`, feste öffentliche IP); `exo_setup.connector_einrichten`
 lässt die Zertifikatsvariante dann nicht zu.
-Wer ein Zertifikat einer CA hat, importiert es als PFX.
+Wer ein Zertifikat einer CA hat, importiert es als PFX — oder holt eines von
+Let's Encrypt (`le_certbot.py` HTTP-01, `tls_acme_dns.py` DNS-01). Ein
+Zertifikat aus der TESTUMGEBUNG von Let's Encrypt („(STAGING)“ im Aussteller)
+stammt von einer nicht vertrauenswürdigen CA und zählt hier NICHT als
+CA-signiert (`info()["ca_signiert"]`).
+
+EIN SCHREIBWEG: Selbstsigniert, PFX, Let's Encrypt — alle schreiben über
+`_schreiben`. Der Listener lädt ein geändertes Paar bei der nächsten
+Verbindung von selbst (`main._LenientController.tls_auffrischen`).
 
 Alles mit `cryptography`, ohne `openssl`-Binary — das gibt es unter Windows
 nicht verlässlich.
@@ -143,10 +151,17 @@ def info() -> dict:
         from cryptography import x509
         cert = x509.load_pem_x509_certificate(cert_pfad.read_bytes())
         selbst = cert.issuer == cert.subject
+        aussteller = cert.issuer.rfc4514_string()
+        staging = "(STAGING)" in aussteller.upper()
+        rest = cert.not_valid_after_utc - _dt.datetime.now(_dt.timezone.utc)
         return {"vorhanden": True, "hostnames": cert_hostnames(cert),
                 "not_after": cert.not_valid_after_utc.isoformat(),
+                "tage_rest": rest.days,
                 "selbstsigniert": selbst,
-                "aussteller": cert.issuer.rfc4514_string()}
+                "staging": staging,
+                "ca_signiert": not selbst and not staging,
+                "lets_encrypt": "let's encrypt" in aussteller.lower(),
+                "aussteller": aussteller}
     except Exception as exc:                                  # noqa: BLE001
         return {"vorhanden": True, "fehler": str(exc)}
 

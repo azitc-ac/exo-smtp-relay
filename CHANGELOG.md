@@ -1,5 +1,41 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.38 — 2026-11-24 — TLS-Zertifikat von Let's Encrypt (wie Gateway)
+
+- **Einstellungen → TLS-Zertifikat → Let's Encrypt**, zwei Wege wie im Gateway:
+  - **HTTP-01 über certbot** (`le_certbot.py`) mit **automatischer
+    Erneuerung** im Zeitplaner (stündlich geprüft, höchstens ein Versuch je
+    Tag, ab `LE_RENEW_DAYS` vor Ablauf). Ausstellen und Erneuern nutzen
+    dieselben Verzeichnisse unter `data/` und dieselbe Übernahme. Port 80
+    öffnet das Relay nur während des certbot-Laufs und liefert dort nur
+    `/.well-known/acme-challenge/`. certbot steckt im Docker-Abbild; unter
+    Linux ohne Docker `apt install certbot`; **unter Windows gibt es certbot
+    nicht mehr** — dort DNS-01 oder PFX.
+  - **DNS-01 von Hand** (`tls_acme_dns.py`, alle Plattformen, kein offener
+    Port): TXT-Record anzeigen, nach dem Setzen ausstellen. Erneuerung von
+    Hand.
+- Schlüssel immer **RSA 2048** (Gateway: certbot-Vorgabe ECDSA bzw. EC):
+  Altgeräte mit nur statischem RSA-Schlüsseltausch bekämen sonst keinen
+  Handshake.
+- Das neue Zertifikat **nutzt der Listener sofort** (0.2.37), der Rückweg zu
+  Exchange ab dem nächsten Versand — ohne Neustart.
+- **Connector am Zertifikat:** Ein Zertifikat von Let's Encrypt gilt als
+  CA-signiert, die Sperre aus 0.2.33 greift nicht mehr. Eines aus der
+  Testumgebung (Staging) wird abgelehnt.
+- Eine Erneuerung überschreibt **kein später importiertes Zertifikat**
+  (Abgleich mit certbots Zertifikat — fehlt im Gateway).
+- Neues **Band auf jeder Seite**, wenn das TLS-Zertifikat binnen
+  `LE_RENEW_DAYS` abläuft — die Erinnerung für DNS-01 und PFX.
+- **Backup:** enthält die offene DNS-01-Bestellung, nicht certbots
+  Verzeichnisse (Symlinks, wie Gateway). Nach einer Wiederherstellung stellt
+  der Zeitplaner bei fälligem Ablauf über HTTP-01 neu aus.
+- Neue Einstellungen mit Oberflächenpunkt: `LE_DOMAIN`, `LE_EMAIL`,
+  `LE_AUTO_RENEW`, `LE_RENEW_DAYS`, `ACME_HTTP_PROXY`; Zustand `LE_LAUF`.
+  `acme_client.py` ist eine Spiegeldatei des Gateways (driftcheck).
+
+**Zu tun:** Für HTTP-01 Port 80 aus dem Internet zum Relay freigeben
+(`docker-compose.yml` bildet ihn jetzt ab). Ohne Let's Encrypt nichts.
+
 ## 0.2.37 — 2026-11-24 — Neues TLS-Zertifikat wirkt ohne Neustart
 
 - Der SMTP-Listener baute seinen TLS-Kontext nur beim Start. Ein neues

@@ -102,6 +102,27 @@ def _zustellfehler_anzahl() -> int:
 templates.env.globals["zustellfehler_anzahl"] = _zustellfehler_anzahl
 
 
+def _tls_ablauf_tage() -> int | None:
+    """Resttage des TLS-Zertifikats, wenn es binnen `LE_RENEW_DAYS` abläuft
+    (sonst None). Die Erinnerung für alles, was niemand selbst erneuert —
+    DNS-01 von Hand, PFX — und der sichtbare Hinweis, wenn die automatische
+    Erneuerung über certbot scheiterte (scheduler._tls_pruefen).
+    Anders als die Bänder oben auch vor abgeschlossener Einrichtung: Ein
+    ablaufendes Zertifikat ist nie der Normalzustand."""
+    try:
+        import tls_cert
+        st = tls_cert.info()
+        if not st.get("vorhanden") or st.get("fehler"):
+            return None
+        tage = int(st["tage_rest"])
+        return tage if tage <= int(settings_store.get("LE_RENEW_DAYS") or 14) else None
+    except Exception:                                         # noqa: BLE001
+        return None
+
+
+templates.env.globals["tls_ablauf_tage"] = _tls_ablauf_tage
+
+
 def _gateway_name() -> str:
     return settings_store.get("GATEWAY_NAME") or "EXO SMTP Relay"
 

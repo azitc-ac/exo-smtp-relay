@@ -64,7 +64,10 @@ Der Relay kann die angenommene Post auf zwei Wegen an Exchange Online übergeben
 
 **smarthost (Vorgabe)** — Port 25 + TLS-Zertifikat
   - Der Inbound-Connector erkennt dein Relay am TLS-Zertifikat
-  - Zertifikat: öffentliche CA (teuer) **oder** IP-basiert mit selbstsigniertem (feste Adresse nötig)
+  - Zertifikat: öffentliche CA — kostenlos über **Let's Encrypt** (Einstellungen → TLS:
+    HTTP-01 mit certbot und automatischer Erneuerung, Linux/Docker; oder DNS-01 von Hand,
+    auch unter Windows) bzw. als PFX importiert — **oder** IP-basiert mit selbstsigniertem
+    (feste Adresse nötig). Ein neues Zertifikat nutzt der Listener ohne Neustart.
   - Braucht ausgehenden **Port 25** (blockiert in vielen Netzen)
   - Dreier: `app/scripts/setup_relay_connector.ps1` richtet den Connector automatisch ein
 

@@ -80,6 +80,16 @@ DEFAULTS: dict = {
     "EXO_ABFRAGE_AN": True,         # Postfachliste stündlich per PowerShell holen
     "EXO_CONNECTOR_CREATED": False,
 
+    # ── TLS-Zertifikat über Let's Encrypt (seit 0.2.38, wie Gateway) ─────────
+    # Oberfläche: Einstellungen → TLS-Zertifikat. Ablauf siehe le_certbot.py
+    # (HTTP-01) und tls_acme_dns.py (DNS-01, manuell).
+    "LE_DOMAIN": "",                # Name im Zertifikat (leer = PUBLIC_HOSTNAME)
+    "LE_EMAIL": "",                 # Kontakt bei Let's Encrypt (Ablaufwarnungen)
+    "LE_AUTO_RENEW": True,          # HTTP-01: Zeitplaner erneuert über certbot
+    "LE_RENEW_DAYS": 14,            # so viele Tage vor Ablauf erneuern bzw. warnen (Band)
+    "ACME_HTTP_PROXY": "",          # Proxy für Let's Encrypt (acme_client und certbot)
+    "LE_LAUF": {},                  # letzter Vorgang {zeit, ok, text, weg: http01|dns01}
+
     # ── Relay ────────────────────────────────────────────────────────────────
     "SMTP_RELAY_ENABLED": True,
     "SMTP_RELAY_LERN_NETZE": [],

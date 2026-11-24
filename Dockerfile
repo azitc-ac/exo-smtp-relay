@@ -11,10 +11,12 @@ WORKDIR /app
 # ── Systempakete ──────────────────────────────────────────────────────────────
 # Bewusst nicht gepinnt (Debian entfernt alte Fassungen aus dem Spiegel) — der
 # Weg, auf dem Sicherheitsaktualisierungen von OpenSSL ins Abbild kommen.
-# KEIN certbot: Der Dienst steht im eigenen Netz; ein selbstsigniertes oder
-# importiertes Zertifikat genügt. libicu braucht PowerShell.
+# certbot für Let's Encrypt über HTTP-01 (le_certbot.py, seit 0.2.38): Der
+# Connector am Zertifikat verlangt ein CA-signiertes Zertifikat. certbot bindet
+# keinen Port (webroot), Port 80 öffnet der Dienst selbst — dafür das setcap
+# unten, das auch Port 25 abdeckt. libicu braucht PowerShell.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl libcap2-bin openssl wget ca-certificates libssl-dev libicu-dev \
+        curl libcap2-bin openssl wget ca-certificates libssl-dev libicu-dev certbot \
     && rm -rf /var/lib/apt/lists/* \
     && setcap cap_net_bind_service=+eip $(readlink -f /usr/local/bin/python3)
 
@@ -64,7 +66,7 @@ ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data && useradd -m appuser && chown -R appuser /app
 USER appuser
 
-EXPOSE 25 8080
+EXPOSE 25 80 8080
 VOLUME ["/app/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \

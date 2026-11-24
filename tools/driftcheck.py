@@ -31,6 +31,7 @@ MIRRORED: list[tuple[str, str]] = [
     ("app/mail_trace.py", "Trace-ID je Nachricht"),
     ("app/runtime_state.py", "prozessweiter Laufzeitzustand"),
     ("app/login_drossel.py", "Backoff nach Fehlversuchen"),
+    ("app/acme_client.py", "ACME-v2-Client (Let's Encrypt für das TLS-Zertifikat)"),
     ("app/webui/static/common.js", "gemeinsame Frontend-Helfer"),
     ("app/webui/static/style.css", "Stylesheet"),
     ("app/webui/static/dark-mode.css", "Dunkelmodus"),

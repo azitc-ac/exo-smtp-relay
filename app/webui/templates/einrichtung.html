@@ -49,8 +49,9 @@
       Der Name, unter dem Exchange Online diesen Dienst kennt — er steht im
       TLS-Zertifikat und im Inbound-Connector. Für den Rückweg muss er von aussen
       auflösbar sein (z. B. <code>relay.firma.de</code>). Ein selbstsigniertes
-      Zertifikat wird automatisch darauf ausgestellt; ein Zertifikat einer CA lässt
-      sich unter <a href="/einstellungen#tls">Einstellungen → TLS</a> importieren.
+      Zertifikat wird automatisch darauf ausgestellt; ein Zertifikat einer CA holst
+      du unter <a href="/einstellungen#letsencrypt">Einstellungen → TLS</a> von Let's Encrypt
+      oder importierst es dort.
     </p>
     <div class="settings-row">
       <label for="hostname">Hostname</label>
@@ -160,7 +161,7 @@
     <p class="hint" style="margin:0 0 10px">
       Exchange Online nimmt Post vom Relay nur über einen Inbound-Connector an. Er
       erkennt den Dienst <strong>am TLS-Zertifikat</strong> (nur mit einem Zertifikat
-      einer öffentlichen CA) oder <strong>an der öffentlichen IP</strong> (feste
+      einer öffentlichen CA, z. B. <a href="/einstellungen#letsencrypt">Let's Encrypt</a>) oder <strong>an der öffentlichen IP</strong> (feste
       Adresse nötig; mit selbstsigniertem Zertifikat der einzige Weg).
       Läuft per PowerShell mit dem Modul ExchangeOnlineManagement ({{ e.pwsh }}).
     </p>

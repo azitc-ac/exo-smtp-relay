@@ -16,8 +16,17 @@ Backup-Inhalt (ZIP), alles unter `data/`:
   mail_audit.db     — Mail-Protokoll
   mailboxes.json    — letzter Stand der Postfachliste
 
+  tls_dns01_pending.json — offene DNS-01-Bestellung bei Let's Encrypt samt
+                      Konto- und Domain-Schlüssel (nur während einer Bestellung)
+
 Nicht enthalten: logs/ (Laufzeit-Logs), settings.bak und Zwischendateien
-(*.tmp, SQLite-Journale).
+(*.tmp, SQLite-Journale) — und certbots Verzeichnisse le-config/, le-work/,
+le-logs/ sowie acme-webroot/ (wie im Gateway). le-config/ besteht aus
+Symlinks (live/ → archive/); als Datei ins ZIP gelesen kämen sie als Kopien
+zurück, und `certbot renew` bricht an „expected … to be a symlink“ ab. Das
+Zertifikat selbst ist über certs/ enthalten. Nach einer Wiederherstellung
+stellt der Zeitplaner bei fälligem Ablauf mit den gespeicherten Angaben
+(LE_DOMAIN, LE_EMAIL, LE_LAUF.weg = http01) neu aus (scheduler._tls_pruefen).
 
 TLS-ZERTIFIKAT: Es liegt dort, wo `config.SMTP_TLS_CERT` / `SMTP_TLS_KEY`
 hinzeigen — ohne Angabe unter DATA_DIR/certs/, per Umgebung auch woanders. Im
@@ -76,7 +85,7 @@ DATA_DIR = Path(config.DATA_DIR)
 MANIFEST = "relay-backup.json"
 ART = "exo-smtp-relay"
 
-_EXCLUDE_DATA_SUBDIRS = {"logs"}
+_EXCLUDE_DATA_SUBDIRS = {"logs", "le-config", "le-work", "le-logs", "acme-webroot"}
 _EXCLUDE_DATA_FILES = {"settings.bak"}
 _EXCLUDE_ENDUNGEN = (".tmp", "-journal", "-wal", "-shm")
 
@@ -299,7 +308,7 @@ _BEREICHE: list[tuple[str, str, str]] = [
     ("geraete", "Geräteliste",
      "relay_hosts.db — freigegebene Geräte und Hosts, Sperren, Abweisungen"),
     ("tls", "TLS-Zertifikat des Listeners",
-     "Zertifikat und privater Schlüssel"),
+     "Zertifikat und privater Schlüssel, ggf. offene DNS-01-Bestellung bei Let's Encrypt"),
     ("auth", "Exchange-Anmeldezertifikat",
      "auth.pfx — Anmeldung der App bei Exchange Online"),
     ("datenbanken", "Mail-Protokoll",
@@ -315,7 +324,7 @@ def _bereich_von(rel: str) -> str:
         return "einstellungen"
     if rel == "relay_hosts.db":
         return "geraete"
-    if "data/" + rel in (TLS_CERT_NAME, TLS_KEY_NAME):
+    if "data/" + rel in (TLS_CERT_NAME, TLS_KEY_NAME) or rel == "tls_dns01_pending.json":
         return "tls"
     if rel == "auth.pfx":
         return "auth"

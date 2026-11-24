@@ -1,6 +1,8 @@
 """Wiederkehrende Arbeiten — ein Faden, zwei Takte.
 
-Stündlich: Postfachliste aus Exchange Online nachladen (wenn eingeschaltet).
+Stündlich: Postfachliste aus Exchange Online nachladen (wenn eingeschaltet),
+           TLS-Zertifikat prüfen und über Let's Encrypt erneuern (`_tls_pruefen`,
+           höchstens ein Versuch je Tag).
 Täglich:   Mail-Protokoll und Tageszähler der Geräte aufräumen.
 
 Bewusst ohne Bibliothek: Zwei Takte rechtfertigen keinen Zeitplaner mit
@@ -30,6 +32,10 @@ def _stuendlich() -> None:
         auth_cert.erneuern()
     except Exception as exc:                                  # noqa: BLE001
         log.error("Erneuerung des Auth-Zertifikats: %s", exc)
+    try:
+        _tls_pruefen()
+    except Exception as exc:                                  # noqa: BLE001
+        log.error("Prüfung des TLS-Zertifikats: %s", exc)
     # Nach dem Herabstufen: messen, bis Exchange es übernommen hat (rechte.py).
     import rechte
     try:
@@ -42,6 +48,69 @@ def _stuendlich() -> None:
         vorher = exo_mailboxes.zustand()["postfaecher"]
         liste = exo_mailboxes.list_mailboxes(force=True)
         log.info("Postfachliste nachgeladen: %d Postfächer (vorher %d)", len(liste), vorher)
+
+
+_le_versuch_tag = ""
+
+
+def _tls_pruefen() -> str:
+    """TLS-Zertifikat kurz vor Ablauf über Let's Encrypt erneuern (wie Gateway
+    `_check_tls_cert`/`_try_le_renewal`). Rückgabe: was geschah (für Tests).
+
+    Stündlich statt täglich: Der Tagestakt beginnt erst 24 h nach dem Start —
+    ein Relay, das öfter neu startet, käme nie dazu. Versucht wird trotzdem
+    höchstens einmal je Tag.
+
+    Erneuert wird über die gemeinsame Quelle `le_certbot` (dieselben
+    Verzeichnisse und dieselbe Übernahme wie die Ausstellung). Fehlt certbots
+    Konfiguration, obwohl zuletzt über HTTP-01 ausgestellt wurde — so nach einer
+    Wiederherstellung aus dem Backup, das `le-config/` nicht enthält
+    (backup_manager) —, wird mit den gespeicherten Angaben neu ausgestellt.
+    Ein DNS-01- oder PFX-Zertifikat erneuert niemand selbst; dafür steht das
+    Band „TLS-Zertifikat läuft ab“ auf jeder Seite (webui/deps.py).
+    Einen Neustart braucht es nicht: der Listener lädt das neue Zertifikat bei
+    der nächsten Verbindung."""
+    global _le_versuch_tag
+    import datetime as _dt
+    import le_certbot
+    import settings_store
+    import tls_cert
+    st = tls_cert.info()
+    if not st.get("vorhanden") or st.get("fehler") or st.get("selbstsigniert"):
+        return "kein-le"
+    tage = int(st.get("tage_rest", 9999))
+    if tage > int(settings_store.get("LE_RENEW_DAYS") or 14):
+        return "nicht-faellig"
+    if settings_store.get("LE_AUTO_RENEW") is False:
+        log.warning("TLS-Zertifikat läuft in %d Tagen ab — automatische Erneuerung ist aus", tage)
+        return "aus"
+    heute = _dt.date.today().isoformat()
+    if _le_versuch_tag == heute:
+        return "heute-schon"
+    _le_versuch_tag = heute
+
+    log.info("TLS-Zertifikat läuft in %d Tagen ab — Erneuerung über certbot", tage)
+    status, info = le_certbot.erneuern()
+    if status == "not_managed":
+        lauf = settings_store.get("LE_LAUF") or {}
+        domain = (settings_store.get("LE_DOMAIN") or settings_store.get("PUBLIC_HOSTNAME") or "").strip()
+        if lauf.get("weg") == "http01" and domain and st.get("lets_encrypt") \
+                and domain in (st.get("hostnames") or []):
+            ok, info = le_certbot.ausstellen(domain, (settings_store.get("LE_EMAIL") or "").strip())
+            status = "renewed" if ok else "error"
+        else:
+            log.warning("TLS-Zertifikat läuft in %d Tagen ab und wird nicht automatisch "
+                        "erneuert (kein HTTP-01 über certbot) — bitte selbst erneuern", tage)
+            return "manuell"
+    if status == "renewed":
+        log.info("TLS-Zertifikat erneuert, gültig bis %s — wird ab der nächsten Verbindung genutzt", info)
+        le_certbot.lauf_vermerken(True, f"Erneuert, gültig bis {info}", "http01")
+    elif status == "error":
+        log.error("Erneuerung des TLS-Zertifikats fehlgeschlagen: %s", info)
+        le_certbot.lauf_vermerken(False, f"Erneuerung fehlgeschlagen: {info}", "http01")
+    else:
+        log.warning("certbot hat nichts erneuert (%s) — Ablauf in %d Tagen", status, tage)
+    return status
 
 
 def _taeglich() -> None:

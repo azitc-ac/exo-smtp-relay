@@ -106,6 +106,17 @@
       <a href="/einstellungen#adressen" style="color:#991b1b;font-weight:700;margin-left:auto">Zur Adressquelle</a>
     </div>
     {% endif %}
+    {% set _tls_tage = tls_ablauf_tage() %}
+    {% if _tls_tage is not none %}
+    <div id="tls-ablauf-banner"
+         style="background:#fef2f2;border-bottom:2px solid #fca5a5;padding:9px 16px;
+                font-size:13px;color:#991b1b;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <strong>TLS-Zertifikat {% if _tls_tage < 0 %}abgelaufen{% else %}läuft ab{% endif %}</strong>
+      <span>{% if _tls_tage < 0 %}Seit {{ -_tls_tage }} Tag{{ '' if _tls_tage == -1 else 'en' }} ungültig.{% else %}Noch {{ _tls_tage }} Tag{{ '' if _tls_tage == 1 else 'e' }} gültig.{% endif %}
+        Geräte, die das Zertifikat prüfen, und der Connector am Zertifikat scheitern danach. Bitte erneuern.</span>
+      <a href="/einstellungen#tls" style="color:#991b1b;font-weight:700;margin-left:auto">Zum Zertifikat</a>
+    </div>
+    {% endif %}
     {% set _zustellfehler = zustellfehler_anzahl() %}
     {% if _zustellfehler %}
     <div id="zustellfehler-banner"

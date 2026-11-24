@@ -10,7 +10,9 @@
 #   sudo systemctl daemon-reload && sudo systemctl enable --now exo-smtp-relay
 #
 # Port 25 ohne root: AmbientCapabilities gibt dem Prozess genau dieses eine
-# Recht. PowerShell 7 (`pwsh`) für die Postfachabfrage getrennt installieren:
+# Recht (deckt auch Port 80 für Let's Encrypt über HTTP-01 ab; dafür
+# `sudo apt install certbot` — certbot schreibt nur unter DATA_DIR, das
+# ReadWritePaths unten genügt). PowerShell 7 (`pwsh`) für die Postfachabfrage getrennt installieren:
 # https://learn.microsoft.com/powershell/scripting/install/install-debian
 [Unit]
 Description=EXO SMTP Relay

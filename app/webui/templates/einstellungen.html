@@ -170,7 +170,7 @@
   <p style="font-size:13px;color:#555;margin:0 0 14px">
     Exchange Online nimmt Post vom Relay nur über einen Inbound-Connector an. Er
     erkennt den Dienst entweder am <strong>TLS-Zertifikat</strong> (nur mit einem
-    Zertifikat einer öffentlichen CA) oder an der <strong>öffentlichen IP</strong>
+    Zertifikat einer öffentlichen CA, z. B. <a href="#letsencrypt">Let's Encrypt</a>) oder an der <strong>öffentlichen IP</strong>
     (feste Adresse nötig — mit selbstsigniertem Zertifikat der einzige Weg).
   </p>
   <div class="settings-row">
@@ -205,6 +205,69 @@
     <label style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="tls-uebergehen"> Hostnamen-Prüfung übergehen</label>
   </div>
   <div id="tls-result" style="display:none;margin-top:10px"></div>
+
+  <h3 style="margin:18px 0 6px;font-size:14px" id="letsencrypt">Let's Encrypt</h3>
+  <p class="hint" style="margin-top:0">Kostenloses Zertifikat einer öffentlichen CA — nötig, wenn Exchange Online das Relay am Zertifikat erkennen soll (Connector ohne feste IP). Der Name muss öffentlich im DNS auflösbar sein und zu einer akzeptierten Domäne gehören.</p>
+  <div class="settings-row">
+    <label for="LE_DOMAIN">Name im Zertifikat</label>
+    <input type="text" id="LE_DOMAIN" value="{{ s.LE_DOMAIN }}" placeholder="{{ s.PUBLIC_HOSTNAME or 'relay.firma.de' }}" style="width:260px" autocomplete="off">
+    <span class="hint">Leer = öffentlicher Hostname.</span>
+  </div>
+  <div class="settings-row">
+    <label for="LE_EMAIL">E-Mail für Let's Encrypt</label>
+    <input type="email" id="LE_EMAIL" value="{{ s.LE_EMAIL }}" style="width:260px" autocomplete="off">
+  </div>
+  <div class="settings-row">
+    <label for="LE_AUTO_RENEW">Automatisch erneuern</label>
+    <input type="checkbox" id="LE_AUTO_RENEW" {% if s.LE_AUTO_RENEW %}checked{% endif %}>
+    <span class="hint">Nur über HTTP-01 (certbot). DNS-01 und PFX erneuerst du selbst — ein Band erinnert.</span>
+  </div>
+  <div class="settings-row">
+    <label for="LE_RENEW_DAYS">Tage vor Ablauf</label>
+    <input type="number" id="LE_RENEW_DAYS" value="{{ s.LE_RENEW_DAYS }}" min="1" max="60" style="width:90px">
+    <span class="hint">Ab dann wird erneuert bzw. auf jeder Seite gewarnt.</span>
+  </div>
+  <div class="settings-row">
+    <label for="ACME_HTTP_PROXY">Proxy (optional)</label>
+    <input type="text" id="ACME_HTTP_PROXY" value="{{ s.ACME_HTTP_PROXY }}" placeholder="http://proxy.firma.de:8080" style="width:260px" autocomplete="off">
+    <span class="hint">Nur für Let's Encrypt.</span>
+  </div>
+  <div class="actions">
+    <button class="btn secondary" id="le-btn" data-wache="LE_DOMAIN,LE_EMAIL,LE_AUTO_RENEW,LE_RENEW_DAYS,ACME_HTTP_PROXY"
+            onclick="speichern('le-btn', ['LE_DOMAIN','LE_EMAIL','LE_AUTO_RENEW','LE_RENEW_DAYS','ACME_HTTP_PROXY'])">Speichern</button>
+  </div>
+  {% if le.lauf.zeit %}
+  <p style="font-size:12px;margin:8px 0 0" id="le-lauf">Letzter Vorgang ({{ le.lauf.weg | upper }}, {{ le.lauf.zeit[:16] | replace('T', ' ') }} UTC):
+    <span data-state="{{ 'ok' if le.lauf.ok else 'err' }}">{{ le.lauf.text }}</span></p>
+  {% endif %}
+
+  <h4 style="margin:14px 0 4px;font-size:13px">Weg 1 · HTTP-01 (Port 80, automatische Erneuerung)</h4>
+  {% if le.certbot %}
+  <p class="hint" style="margin-top:0">Let's Encrypt ruft <code>http://&lt;Name&gt;/.well-known/acme-challenge/…</code> auf. Das Relay öffnet Port 80 nur während der Ausstellung bzw. Erneuerung; er muss aus dem Internet erreichbar sein (Docker: <code>80:80</code>).{% if le.verwaltet %} <strong>Das aktuelle Zertifikat wird so verwaltet und automatisch erneuert.</strong>{% endif %}</p>
+  <div class="actions">
+    <button class="btn primary" onclick="leHttp(this)">Zertifikat über HTTP-01 ausstellen</button>
+  </div>
+  {% else %}
+  <p class="hint" style="margin-top:0" id="le-ohne-certbot">Auf diesem System ist <code>certbot</code> nicht installiert{% if le.windows %} — unter Windows gibt es certbot nicht mehr{% endif %}. Nimm DNS-01 oder importiere ein PFX. Linux ohne Docker: <code>apt install certbot</code>.</p>
+  {% endif %}
+
+  <h4 style="margin:14px 0 4px;font-size:13px">Weg 2 · DNS-01 (ohne offenen Port, Erneuerung von Hand)</h4>
+  <p class="hint" style="margin-top:0">Du setzt einen TXT-Record im DNS, danach stellt Let's Encrypt aus. Etwa alle 60 bis 90 Tage zu wiederholen.</p>
+  <div id="dns01-offen" {% if not le.dns01 %}style="display:none"{% endif %}>
+    <div class="alert warn" style="margin-bottom:8px">Setze diesen TXT-Record{% if le.dns01 and le.dns01.staging %} (Testumgebung){% endif %} und warte, bis er weltweit sichtbar ist:<br>
+      Name: <code id="dns01-name">{{ le.dns01.record_name if le.dns01 else '' }}</code><br>
+      Wert: <code id="dns01-wert">{{ le.dns01.record_value if le.dns01 else '' }}</code></div>
+    <div class="actions" style="gap:8px">
+      <button class="btn primary" onclick="dns01Fertig(this)">Record ist gesetzt — Zertifikat ausstellen</button>
+      <button class="btn secondary" onclick="dns01Verwerfen(this)">Bestellung verwerfen</button>
+    </div>
+  </div>
+  <div class="actions" id="dns01-start" style="gap:8px;{% if le.dns01 %}display:none{% endif %}">
+    <button class="btn secondary" onclick="dns01Start(this)">DNS-01-Bestellung starten</button>
+    <label style="display:inline-flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" id="dns01-staging"> Testumgebung (Staging — nicht für den Connector)</label>
+  </div>
+  <div id="le-result" style="display:none;margin-top:10px"></div>
+
   <p class="hint">Ein neues Zertifikat nutzt der SMTP-Listener ab der nächsten Verbindung, ebenso der Rückweg zu Exchange (dort dient es als Client-Zertifikat). Die Weboberfläche zeigt es erst nach einem Neustart des Dienstes.</p>
 </div>
 
@@ -352,6 +415,44 @@ async function tlsImport(input) {
   showAlert(box, d.warnung ? 'warn' : 'success',
     'Importiert: <code>' + esc((d.hostnames || []).join(', ')) + '</code>, gültig bis ' + esc((d.not_after || '').slice(0, 10))
     + (d.warnung ? '<br>' + esc(d.warnung) : '') + ' — SMTP sofort, Weboberfläche nach Neustart des Dienstes.');
+}
+function leFertig(box, r) {
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler')); return; }
+  showAlert(box, 'success', 'Zertifikat für <code>' + esc((r.hostnames || []).join(', ')) + '</code> übernommen, gültig bis '
+    + esc((r.not_after || '').slice(0, 10)) + ' — SMTP sofort, Weboberfläche nach Neustart des Dienstes.');
+  setTimeout(function () { location.reload(); }, 2500);
+}
+async function leHttp(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'läuft (bis zu zwei Minuten) …';
+  const r = await postJSON('/api/letsencrypt', { domain: wert('LE_DOMAIN'), email: wert('LE_EMAIL') });
+  btn.disabled = false; btn.textContent = alt;
+  leFertig(document.getElementById('le-result'), r);
+}
+async function dns01Start(btn) {
+  btn.disabled = true;
+  const r = await postJSON('/api/tls/dns01/start', { domain: wert('LE_DOMAIN'), email: wert('LE_EMAIL'),
+                                                     staging: document.getElementById('dns01-staging').checked });
+  btn.disabled = false;
+  const box = document.getElementById('le-result');
+  if (!r.ok) { showAlert(box, 'error', esc(r.error || 'Fehler')); return; }
+  hideAlert(box);
+  document.getElementById('dns01-name').textContent = r.record_name;
+  document.getElementById('dns01-wert').textContent = r.record_value;
+  document.getElementById('dns01-offen').style.display = '';
+  document.getElementById('dns01-start').style.display = 'none';
+}
+async function dns01Fertig(btn) {
+  const alt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Let\'s Encrypt prüft …';
+  const r = await postJSON('/api/tls/dns01/finish', {});
+  btn.disabled = false; btn.textContent = alt;
+  leFertig(document.getElementById('le-result'), r);
+}
+async function dns01Verwerfen(btn) {
+  btn.disabled = true;
+  await postJSON('/api/tls/dns01/verwerfen', {});
+  location.reload();
 }
 async function connectorEinrichten(btn) {
   const alt = btn.textContent;

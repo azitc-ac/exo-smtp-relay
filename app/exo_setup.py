@@ -131,12 +131,19 @@ def connector_einrichten(hostname: str, sender_ips: list[str] | None = None) -> 
     # von tls_cert.py: Microsoft verlangt ein CA-signiertes). Mit dem
     # selbstsignierten entstünde ein Connector, der das Relay nicht erkennt.
     # Hier und nicht in den Routen: Assistent und Einstellungen rufen beide hierher.
+    # Ein Zertifikat von Let's Encrypt ist CA-signiert und zählt (seit 0.2.38) —
+    # eines aus dessen Testumgebung nicht (`tls_cert.info`, Modulkopf).
     import tls_cert
-    if not ips and tls_cert.info().get("selbstsigniert"):
+    tls = tls_cert.info()
+    if not ips and not tls.get("ca_signiert"):
+        art = ("stammt aus der Testumgebung von Let's Encrypt (Staging)" if tls.get("staging")
+               else "ist selbstsigniert" if tls.get("selbstsigniert")
+               else "fehlt oder ist nicht lesbar")
         return {"ok": False, "output": (
-            "Das TLS-Zertifikat ist selbstsigniert. Exchange Online erkennt das Relay "
+            f"Das TLS-Zertifikat {art}. Exchange Online erkennt das Relay "
             "am Zertifikat nur mit einem Zertifikat einer öffentlichen CA. Trage die "
-            "öffentliche IP ein oder importiere unter Einstellungen → TLS ein CA-Zertifikat.")}
+            "öffentliche IP ein, hole unter Einstellungen → TLS ein Zertifikat von "
+            "Let's Encrypt oder importiere ein CA-Zertifikat.")}
     skript = SCRIPTS / "setup_relay_connector.ps1"
     if not skript.exists():
         return {"ok": False, "output": f"Skript fehlt: {skript}"}
