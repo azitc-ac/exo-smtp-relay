@@ -187,4 +187,134 @@ def test_install_ps1_fuehrt_umgebung_zusammen():
     assert "$WebPort = [int]($umgebungAusgabe[-1])" in code
     assert "$LASTEXITCODE -ne 0" in code
     # Zuweisung vor der ersten Nutzung (Firewall).
-    assert code.index("$WebPort = [int]") < code.index('"EXO SMTP Relay - Web $WebPort"')
+    assert code.index("$WebPort = [int]") < code.index("Sync-RelayFirewall -WebPort $WebPort")
+
+
+# ── 4. Firewall: Upgrade öffnet nie weiter als vorher ──────────────────────────
+# Bis 0.2.43 löschte install.ps1 die Relay-Regeln und legte sie mit -Profile Any
+# ohne RemoteAddress neu an — eigene Einschränkungen gingen verloren.
+
+import re
+import shutil
+
+INSTALL = WURZEL / "windows" / "install.ps1"
+
+# Nachbau der Cmdlets: Funktionen haben in PowerShell Vorrang vor Cmdlets.
+_MOCKS = r'''
+$global:Regeln = New-Object System.Collections.ArrayList
+$global:Nr = 0
+function Write-Ok([string]$m) { }
+function Get-NetFirewallRule { [CmdletBinding()] param([string]$DisplayName)
+    @($global:Regeln | Where-Object { $_.DisplayName -like $DisplayName }) }
+function New-NetFirewallRule { [CmdletBinding()] param($DisplayName, $Direction, $Protocol, $LocalPort, $Action, $Profile)
+    $global:Nr++
+    [void]$global:Regeln.Add([pscustomobject]@{ Name = "neu$($global:Nr)"; DisplayName = $DisplayName;
+        LocalPort = "$LocalPort"; RemoteAddress = "Any"; Profile = "$Profile"; Enabled = "True" })
+    "erzeugt" }
+function Remove-NetFirewallRule { [CmdletBinding()] param([string]$Name)
+    $weg = @($global:Regeln | Where-Object { $_.Name -eq $Name }); foreach ($r in $weg) { $global:Regeln.Remove($r) } }
+function Get-NetFirewallPortFilter { [CmdletBinding()] param($AssociatedNetFirewallRule)
+    [pscustomobject]@{ Regel = $AssociatedNetFirewallRule; LocalPort = $AssociatedNetFirewallRule.LocalPort } }
+function Set-NetFirewallPortFilter { [CmdletBinding()] param($InputObject, $LocalPort)
+    $InputObject.Regel.LocalPort = "$LocalPort" }
+function Set-NetFirewallRule { [CmdletBinding()] param([string]$Name, [string]$NewDisplayName)
+    foreach ($r in @($global:Regeln | Where-Object { $_.Name -eq $Name })) { $r.DisplayName = $NewDisplayName } }
+function Regel($n, $dn, $port, $ra, $prof, $en) {
+    [void]$global:Regeln.Add([pscustomobject]@{ Name = $n; DisplayName = $dn; LocalPort = "$port";
+        RemoteAddress = $ra; Profile = $prof; Enabled = $en }) }
+'''
+
+# Die Logik bis 0.2.43 — nur für die eingebaute Gegenprobe.
+_ALT = r'''
+function Sync-RelayFirewall([int]$WebPort) {
+    foreach ($regel in @(@{ Name = "EXO SMTP Relay - SMTP 25"; Port = 25 },
+                         @{ Name = "EXO SMTP Relay - Web $WebPort"; Port = $WebPort })) {
+        foreach ($r in @(Get-NetFirewallRule -DisplayName $regel.Name -ErrorAction SilentlyContinue)) { Remove-NetFirewallRule -Name $r.Name }
+        New-NetFirewallRule -DisplayName $regel.Name -Direction Inbound -Protocol TCP `
+            -LocalPort $regel.Port -Action Allow -Profile Any | Out-Null
+    }
+}
+'''
+
+_BESTAND = {
+    "leer": "",
+    "eingeschraenkt": ('Regel "s1" "EXO SMTP Relay - SMTP 25" 25 "10.0.0.0/8" "Domain" "True"\n'
+                       'Regel "w1" "EXO SMTP Relay - Web 8443" 8443 "10.1.0.0/16" "Domain" "False"\n'),
+    "zwei_web": ('Regel "s1" "EXO SMTP Relay - SMTP 25" 25 "10.0.0.0/8" "Domain" "True"\n'
+                 'Regel "w1" "EXO SMTP Relay - Web 8443" 8443 "10.1.0.0/16" "Domain" "True"\n'
+                 'Regel "w2" "EXO SMTP Relay - Web 9443" 9443 "10.2.0.0/16" "Private" "True"\n'),
+}
+
+
+def _ps() -> str | None:
+    return shutil.which("pwsh") or shutil.which("powershell")
+
+
+def _funktion() -> str:
+    ps = INSTALL.read_text(encoding="utf-8-sig")
+    m = re.search(r"^function Sync-RelayFirewall\b.*?^\}", ps, re.S | re.M)
+    assert m, "Sync-RelayFirewall fehlt in install.ps1"
+    return m.group(0)
+
+
+def _firewall(tmp_path, funktion: str, bestand: str, port: int) -> list[dict]:
+    skript = tmp_path / "fw.ps1"
+    skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+                      + _MOCKS + funktion + "\n" + _BESTAND[bestand]
+                      + f"Sync-RelayFirewall -WebPort {port}\n"
+                      + "ConvertTo-Json -Compress -InputObject @($global:Regeln | Sort-Object DisplayName)\n",
+                      encoding="utf-8-sig")
+    r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                        "-File", str(skript)], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr + r.stdout
+    return [{k: e[k] for k in ("DisplayName", "LocalPort", "RemoteAddress", "Profile", "Enabled")}
+            for e in json.loads(r.stdout.strip().splitlines()[-1])]
+
+
+def _pruefen(tmp_path, funktion):
+    """Alle Erwartungen; liefert die Liste der verletzten (leer = alles gut)."""
+    fehler = []
+    if _firewall(tmp_path, funktion, "leer", 8443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "Any", "Profile": "Any", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 8443", "LocalPort": "8443", "RemoteAddress": "Any", "Profile": "Any", "Enabled": "True"}]:
+        fehler.append("erstinstallation")
+    if _firewall(tmp_path, funktion, "eingeschraenkt", 8443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "10.0.0.0/8", "Profile": "Domain", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 8443", "LocalPort": "8443", "RemoteAddress": "10.1.0.0/16", "Profile": "Domain", "Enabled": "False"}]:
+        fehler.append("upgrade_gleicher_port")
+    if _firewall(tmp_path, funktion, "eingeschraenkt", 9443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "10.0.0.0/8", "Profile": "Domain", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 9443", "LocalPort": "9443", "RemoteAddress": "10.1.0.0/16", "Profile": "Domain", "Enabled": "False"}]:
+        fehler.append("upgrade_portwechsel")
+    if _firewall(tmp_path, funktion, "zwei_web", 9443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "10.0.0.0/8", "Profile": "Domain", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 9443", "LocalPort": "9443", "RemoteAddress": "10.2.0.0/16", "Profile": "Private", "Enabled": "True"}]:
+        fehler.append("genau_eine_web_regel")
+    return fehler
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+def test_firewall_upgrade_behaelt_einschraenkungen(tmp_path):
+    assert _pruefen(tmp_path, _funktion()) == []
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+def test_firewall_gegenprobe_alte_logik_faellt_durch(tmp_path):
+    """Die Prüfung ist trennscharf: die Logik bis 0.2.43 verletzt genau die Upgrade-Fälle."""
+    assert _pruefen(tmp_path, _ALT) == ["upgrade_gleicher_port", "upgrade_portwechsel", "genau_eine_web_regel"]
+
+
+def test_firewall_statisch_kein_loeschen_und_neu_anlegen():
+    funktion = _funktion()
+    # Ausserhalb der Funktion keine Firewall-Cmdlets; der Firewall-Schritt ruft nur sie.
+    rest = "\n".join(z for z in INSTALL.read_text(encoding="utf-8-sig").replace(funktion, "").splitlines()
+                     if not z.lstrip().startswith("#"))
+    for cmdlet in ("New-NetFirewallRule", "Remove-NetFirewallRule", "Set-NetFirewallRule"):
+        assert cmdlet not in rest, cmdlet
+    assert "Sync-RelayFirewall -WebPort $WebPort" in rest
+    # Neu anlegen nur, wenn es keine Regel gibt; Entfernen nur für überzählige Web-Regeln.
+    assert funktion.count("New-NetFirewallRule") == 2
+    assert "if ($smtp.Count -eq 0)" in funktion and "if ($web.Count -eq 0)" in funktion
+    assert "| Remove-NetFirewallRule" not in funktion
+    assert "if ($r.Name -ne $behalten.Name)" in funktion
+    assert "Set-NetFirewallPortFilter -InputObject $filter -LocalPort $WebPort" in funktion

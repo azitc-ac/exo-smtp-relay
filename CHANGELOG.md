@@ -23,6 +23,18 @@
   bleibt. Ohne `-WebPort` bleibt der bisherige Port, 8443 gilt nur bei der
   Erstinstallation. Wichtig, weil bestehende Windows-Installationen ohne
   nachgeladene Wurzelzertifikate für 0.2.43+ einmal `install.ps1` ausführen müssen.
+- **Windows: Upgrade öffnet die Firewall nicht mehr weiter als vorher**
+  (sicherheitsrelevant). Bisher löschte `install.ps1` die Relay-Regeln und legte
+  sie mit allen Profilen und ohne Quelladressen neu an; eigene Einschränkungen
+  (RemoteAddress, Profile, Enabled) gingen verloren. Jetzt bleiben bestehende
+  Regeln stehen, angepasst wird nur der Port. Nach einem Portwechsel per
+  `-WebPort` wird die bisherige Web-Regel umgestellt, sodass genau eine
+  übrig bleibt. Die Erstinstallation legt die Regeln wie bisher an.
+
+**Im Labtest prüfen:** `install.ps1` setzt beim Upgrade weiter die Rechte auf
+`data\` (Vererbung aus, SYSTEM und Administratoren). Ob dabei eigene, ausdrücklich
+gesetzte Einträge verloren gehen, ist nicht geprüft: `Get-Acl` auf `data\` vor und
+nach dem Upgrade vergleichen (siehe docs/release-test.md).
 
 **Zu tun:** nichts. Die UTF-8-Ausgabe greift nach einem Knopf-Update erst mit
 dem nächsten Neustart des Dienstes (der laufende Wrapper bleibt bis dahin der

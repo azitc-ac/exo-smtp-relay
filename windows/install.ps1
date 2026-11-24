@@ -57,6 +57,47 @@ function Write-Step([string]$msg) { Write-Host "`n==> $msg" -ForegroundColor Cya
 function Write-Ok([string]$msg)   { Write-Host "    OK: $msg" -ForegroundColor Green }
 function Write-Warn([string]$msg) { Write-Host "    WARNUNG: $msg" -ForegroundColor Yellow }
 
+# Firewall-Regeln des Relays. Erstinstallation: anlegen (alle Profile). Upgrade: bestehende Regeln
+# NIE loeschen und neu anlegen - eigene Einschraenkungen (RemoteAddress, Profile, Enabled) blieben
+# sonst auf der Strecke und das Relay waere danach weiter offen als vorher. Angepasst wird nur der
+# Port; nach einem Portwechsel bleibt genau eine Web-Regel. Getestet in tests\test_windows_upgrade_meldungen.py.
+function Sync-RelayFirewall([int]$WebPort) {
+    $smtpName = "EXO SMTP Relay - SMTP 25"
+    $webName = "EXO SMTP Relay - Web $WebPort"
+    $smtp = @(Get-NetFirewallRule -DisplayName $smtpName -ErrorAction SilentlyContinue)
+    if ($smtp.Count -eq 0) {
+        New-NetFirewallRule -DisplayName $smtpName -Direction Inbound -Protocol TCP `
+            -LocalPort 25 -Action Allow -Profile Any | Out-Null
+        Write-Ok "Port 25 eingehend (alle Netzwerkprofile)"
+    } else {
+        Write-Ok "Regel '$smtpName' vorhanden - Einschraenkungen unveraendert"
+    }
+    $web = @(Get-NetFirewallRule -DisplayName "EXO SMTP Relay - Web *" -ErrorAction SilentlyContinue)
+    if ($web.Count -eq 0) {
+        New-NetFirewallRule -DisplayName $webName -Direction Inbound -Protocol TCP `
+            -LocalPort $WebPort -Action Allow -Profile Any | Out-Null
+        Write-Ok "Port $WebPort eingehend (alle Netzwerkprofile)"
+        return
+    }
+    # Eine Regel behalten (bevorzugt die zum Port passende), weitere Web-Regeln entfernen.
+    $behalten = @($web | Where-Object { $_.DisplayName -eq $webName })
+    if ($behalten.Count -gt 0) { $behalten = $behalten[0] } else { $behalten = $web[0] }
+    foreach ($r in $web) {
+        if ($r.Name -ne $behalten.Name) {
+            Remove-NetFirewallRule -Name $r.Name
+            Write-Ok "Alte Regel '$($r.DisplayName)' entfernt"
+        }
+    }
+    $filter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $behalten
+    if ("$($filter.LocalPort)" -ne "$WebPort") {
+        Set-NetFirewallPortFilter -InputObject $filter -LocalPort $WebPort
+    }
+    if ($behalten.DisplayName -ne $webName) {
+        Set-NetFirewallRule -Name $behalten.Name -NewDisplayName $webName
+    }
+    Write-Ok "Regel '$webName' auf Port $WebPort - Einschraenkungen unveraendert"
+}
+
 # -- Administrator? ---------------------------------------------------------------
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -235,14 +276,7 @@ if ($istUpgrade) { Write-Ok "Dienst aktualisiert (Starttyp unveraendert)" } else
 # -- Firewall ---------------------------------------------------------------------
 if (-not $SkipFirewall) {
     Write-Step "Firewall-Regeln"
-    foreach ($regel in @(@{ Name = "EXO SMTP Relay - SMTP 25"; Port = 25 },
-                         @{ Name = "EXO SMTP Relay - Web $WebPort"; Port = $WebPort })) {
-        # Vorhandene Regel ersetzen: eine Neuinstallation soll alte Profil-/Portwerte korrigieren.
-        Get-NetFirewallRule -DisplayName $regel.Name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-        New-NetFirewallRule -DisplayName $regel.Name -Direction Inbound -Protocol TCP `
-            -LocalPort $regel.Port -Action Allow -Profile Any | Out-Null
-    }
-    Write-Ok "Port 25 und $WebPort eingehend (alle Netzwerkprofile)"
+    Sync-RelayFirewall -WebPort $WebPort
 }
 
 # -- Port 25 frei? -----------------------------------------------------------------

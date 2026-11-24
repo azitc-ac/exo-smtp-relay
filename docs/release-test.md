@@ -168,6 +168,25 @@ sha256sum data/settings.json      # gleich wie vorher
 Prüfung kann dort mit `CERTIFICATE_VERIFY_FAILED` scheitern. Dann `install.ps1`
 aus dem neuen Paket ausführen — einmal, danach geht der Knopf.
 
+**Windows, Upgrade per `install.ps1`** (ab 0.2.44): darf nichts verlieren. Vorher
+eine Relay-Regel einschränken, einen eigenen Eintrag in die Dienst-Umgebung setzen
+und den Stand festhalten:
+```powershell
+Set-NetFirewallRule -DisplayName 'EXO SMTP Relay - SMTP 25' -RemoteAddress 10.0.0.0/8 -Profile Domain
+Get-NetFirewallRule -DisplayName 'EXO SMTP Relay*' | Get-NetFirewallAddressFilter   # RemoteAddress notieren
+(Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay).Environment   # notieren
+(Get-Acl C:\ProgramData\exo-smtp-relay\data).Access | Format-Table IdentityReference, FileSystemRights, IsInherited
+```
+Dann `install.ps1` ohne `-WebPort` ausführen. Erwartet: weiterhin genau zwei
+Regeln, RemoteAddress und Profil unverändert; der bisherige Web-Port bleibt;
+eigene Einträge in `Environment` bleiben; die Schlussmeldung sagt „Aktualisiert.“
+und bei eigenem Kennwort „Kennwort unveraendert“. **ACL vergleichen**: Eigene,
+ausdrücklich gesetzte Einträge auf `data\` vor und nach dem Upgrade — eine
+Abweichung festhalten (bekannt: der Installer setzt die Rechte neu, das wird
+nicht geändert). Mit `-WebPort <neu>`: genau eine Web-Regel, auf dem neuen Port,
+Einschränkungen unverändert. `data\logs\service.log` zeigt Umlaute korrekt
+(erst nach einem Neustart des Dienstes).
+
 ## 6 Festhalten
 
 Je Plattform: Version, Kanal, Anzahl der Prüfungen, Abweichungen mit Log-Zeile.
