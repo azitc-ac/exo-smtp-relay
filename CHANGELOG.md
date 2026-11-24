@@ -55,11 +55,11 @@ Neu in 0.2.46 (Labtest von 0.2.45, Windows PowerShell 5.1):
 - Tests: Der Nachbau ersetzt nicht mehr die icacls-Funktion, sondern nur icacls.exe
   selbst (Exit-Codes wie gemessen); Gegenproben für 0.2.45, „/C zurück“ und „EAP
   zurück“; unter echtem PS 5.1 ein echter icacls-Fehler samt Gegenprobe. Neuer CI-Job
-  **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation, Upgrade mit
-  SYSTEM-eigener Datei (Exit 0), Gegenprobe mit 0.2.45 (meldet ein an pip gescheitertes
-  Upgrade als Erfolg), an pip scheiterndes Upgrade (Rücknahme, Dienst läuft mit alter
-  Fassung). Hinweis: Auf dem CI-Runner darf der Administrator die SYSTEM-eigene Datei
-  zurücksetzen; der Labtest-Fall selbst ist dort nicht nachstellbar.
+  **„Installer echt“** (windows-latest, PS 5.1): Erstinstallation; Upgrade mit
+  SYSTEM-eigener Datei in `data\` (Exit 0, WARNUNG „Exit 5: … Access is denied“);
+  Gegenprobe mit 0.2.45 (bricht an derselben Datei ab, Dienst gestoppt, VERSION schon
+  neu — der Labtest-Fehler; ebenso bei einem an pip scheiternden Upgrade); dasselbe
+  kaputte Upgrade mit 0.2.46 (Rücknahme, Dienst läuft mit alter Fassung).
 
 Aus 0.2.45 (nicht veröffentlicht):
 

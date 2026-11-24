@@ -7,14 +7,12 @@
     (C:\ProgramData\exo-smtp-relay), braucht Administratorrechte und Python 3.11+.
 
       1. Erstinstallation                      -> Exit 0, Dienst laeuft, /health meldet VERSION
-      2. Upgrade mit gesperrter Datei (c2)      -> Exit 0, Dienst laeuft (WARNUNG nur, wenn der
-                                                 Administrator die Datei nicht zuruecksetzen darf -
-                                                 auf dem CI-Runner darf er es; den echten c2-Fall
-                                                 deckt tests\test_windows_data_acl.py als
-                                                 Standardbenutzer ab)
-      3. Gegenprobe 0.2.45: an pip scheiterndes -> Exit 0 und VERSION 9.9.9 installiert: der
-         Upgrade                                 Fehler, den 0.2.46 behebt (Exit-Code ungeprueft)
-      4. Wiederherstellen                        -> Exit 0
+      2. Upgrade mit gesperrter Datei (c2)      -> Exit 0, WARNUNG mit Exit 5 "Access is denied",
+                                                 Dienst laeuft
+      3. Gegenprobe 0.2.45 (die Labtest-Fehler): mit der gesperrten Datei Abbruch an "Access is
+         denied", Dienst gestoppt, VERSION schon neu; ein an pip scheiterndes Upgrade bricht
+         ebenso ab und laesst VERSION 9.9.9 und einen gestoppten Dienst zurueck
+      4. Wiederherstellen                        -> Exit 0, Dienst laeuft
       5. An pip scheiterndes Upgrade             -> Exit <> 0, vorige Fassung zurueck, Dienst laeuft
                                                  wieder mit der alten VERSION, .install-alt\ weg
 
@@ -111,11 +109,7 @@ Pruefe ($LASTEXITCODE -eq 0) "c2: Eigentuemer SYSTEM gesetzt"
 Pruefe ($LASTEXITCODE -eq 0) "c2: nur SYSTEM:F"
 $r = Install-Lauf (New-Baum "q1") "2-upgrade-c2"
 Pruefe ($r.Rc -eq 0) "Upgrade mit gesperrter Datei: Exit 0 (ist $($r.Rc))"
-if ($r.Text -match "WARNUNG: (nicht zurueckgesetzt|Rechte nicht lesbar): gesperrt\.json") {
-    Write-Host "  (WARNUNG zur gesperrten Datei gemeldet)"
-} else {
-    Write-Host "  (Administrator durfte die Datei zuruecksetzen - keine WARNUNG noetig)"
-}
+Pruefe ($r.Text -match "WARNUNG: nicht zurueckgesetzt: gesperrt\.json \(Exit [1-9]\d*: .*Access is denied") "WARNUNG mit echtem Exit-Code und 'Access is denied'"
 Pruefe ((Get-DienstStatus) -eq "Running") "Dienst laeuft"
 $g = Get-Gesundheit
 Pruefe ($null -ne $g -and $g.version -eq $version) "/health meldet $version"
@@ -133,15 +127,26 @@ function New-KaputterBaum([string]$Basis, [string]$Name) {
     return $b
 }
 
-# 3 -- Gegenprobe mit 0.2.45: dasselbe kaputte Upgrade meldet dort Erfolg -------------------
+# 3 -- Gegenprobe mit 0.2.45: genau die Labtest-Fehler -----------------------------------
 if ($Gegenprobe) {
-    $r = Install-Lauf (New-KaputterBaum $Gegenprobe "q0245") "3-gegenprobe-0245"
-    Pruefe ($r.Rc -eq 0) "Gegenprobe: 0.2.45 meldet das an pip gescheiterte Upgrade als Erfolg (Exit $($r.Rc))"
-    Pruefe ((Get-Fassung) -eq "9.9.9") "Gegenprobe: 0.2.45 laesst VERSION 9.9.9 mit altem venv-Stand zurueck"
+    $alt = (Get-Content (Join-Path $Gegenprobe "VERSION") -Raw).Trim()
+    # 3a: gesperrte Datei (liegt seit Schritt 2 in data\) -> Abbruch an icacls, Dienst gestoppt
+    $r = Install-Lauf $Gegenprobe "3a-gegenprobe-0245-c2"
+    Pruefe ($r.Rc -ne 0) "Gegenprobe c2: 0.2.45 bricht an der gesperrten Datei ab (Exit $($r.Rc))"
+    Pruefe ($r.Text -match "Access is denied") "Gegenprobe c2: Abbruch an 'Access is denied'"
+    Pruefe ((Get-DienstStatus) -ne "Running") "Gegenprobe c2: Dienst bleibt gestoppt"
+    Pruefe ((Get-Fassung) -eq $alt) "Gegenprobe c2: VERSION schon $alt (halbes Upgrade)"
+    $r = Install-Lauf (New-Baum "q1") "3b-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Get-DienstStatus) -eq "Running") "Wiederherstellen nach c2: Exit 0, Dienst laeuft"
+    # 3c: an pip scheiterndes Upgrade -> Abbruch ohne Ruecknahme
+    $r = Install-Lauf (New-KaputterBaum $Gegenprobe "q0245") "3c-gegenprobe-0245-pip"
+    Pruefe ($r.Rc -ne 0) "Gegenprobe pip: 0.2.45 bricht ab (Exit $($r.Rc))"
+    Pruefe ((Get-Fassung) -eq "9.9.9") "Gegenprobe pip: VERSION 9.9.9 bleibt liegen (keine Ruecknahme)"
+    Pruefe ((Get-DienstStatus) -ne "Running") "Gegenprobe pip: Dienst bleibt gestoppt"
     # 4 -- Wiederherstellen
     $r = Install-Lauf (New-Baum "q1") "4-wiederherstellen"
     Pruefe ($r.Rc -eq 0) "Wiederherstellen: Exit 0 (ist $($r.Rc))"
-    Pruefe ((Get-Fassung) -eq $version) "wieder $version"
+    Pruefe ((Get-Fassung) -eq $version -and (Get-DienstStatus) -eq "Running") "wieder $version, Dienst laeuft"
 }
 
 # 5 -- Upgrade, das an pip scheitert: Ruecknahme ---------------------------------------------

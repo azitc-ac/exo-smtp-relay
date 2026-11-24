@@ -381,12 +381,12 @@ def test_reset_echt_gegenprobe_ohne_eap(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="echte NTFS-Rechte nur unter Windows")
 def test_data_acl_echt_unzugaengliche_datei(tmp_path):
-    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Im Labtest durfte
-    der Administrator sie nicht zurücksetzen (stderr „Access is denied“, Abbruch). Auf dem
-    CI-Runner DARF er es (gemessen 25.11.2026, auch unter `runas /trustlevel:0x20000`) — dort
-    prüft dieser Test nur: kein Abbruch, Exit 0; scheitert icacls doch, dann mit echtem
-    Exit-Code und WARNUNG. Den Fehlerweg selbst deckt test_reset_echt_icacls_fehler_unter_ps51
-    mit einem echten icacls-Fehler ab (samt Gegenprobe ohne EAP)."""
+    """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Im Temp-Verzeichnis
+    des CI-Runners darf der Administrator sie trotzdem zurücksetzen (gemessen 25.11.2026; dort
+    gehört ihm der Ordner) — dieser Test prüft dann nur: kein Abbruch, Exit 0; scheitert icacls,
+    mit echtem Exit-Code und WARNUNG. Den echten Fall in data\ (Exit 5, „Access is denied“)
+    prüft der CI-Job „Installer echt“ (tests/installer_echt.ps1), den Fehlerweg ohne
+    Sonderrechte test_reset_echt_icacls_fehler_unter_ps51 samt Gegenprobe ohne EAP."""
     data = tmp_path / "data"
     data.mkdir()
     gesperrt = data / "gesperrt.json"
