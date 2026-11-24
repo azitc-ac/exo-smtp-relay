@@ -58,6 +58,7 @@ RUN pip install --no-cache-dir -r requirements.lock
 COPY app/ .
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
+COPY LICENSE.md NOTICE /app/
 
 ENV DATA_DIR=/app/data
 

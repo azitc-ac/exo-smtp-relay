@@ -306,6 +306,6 @@ tauglich; `tests/test_ps_skripte.py` prüft beides, die Windows-CI parst sie mit
 
 ## Lizenz
 
-Siehe `LICENSE.md` — PolyForm Internal Use, **kostenlos und ohne Postfachgrenze**,
-für Organisationen jeder Grösse. Weitergeben oder als Dienst für Dritte betreiben
-ist nicht erlaubt.
+Open Source unter der **Apache License 2.0** (`LICENSE.md`, Hinweise in `NOTICE`):
+kostenlos, ohne Postfachgrenze, Ändern und Weitergeben erlaubt. Die Lizenz
+umfasst keine Rechte am Produktnamen (Apache-2.0, Abschnitt 6).

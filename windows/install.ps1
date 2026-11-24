@@ -152,7 +152,7 @@ foreach ($teil in @("app", "windows")) {
     if (Test-Path $ziel) { Remove-Item -Recurse -Force $ziel }
     Copy-Item -Recurse -Force (Join-Path $quelle $teil) $ziel
 }
-foreach ($datei in @("VERSION", "CHANGELOG.md", "LICENSE.md", "README.md")) {
+foreach ($datei in @("VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")) {
     $q = Join-Path $quelle $datei
     if (Test-Path $q) { Copy-Item -Force $q (Join-Path $InstallDir $datei) }
 }

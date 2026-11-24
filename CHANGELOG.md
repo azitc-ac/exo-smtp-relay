@@ -1,5 +1,18 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.39 — 2026-11-24 — Lizenz: Apache License 2.0
+
+- Das Relay steht ab dieser Fassung unter der Apache License 2.0 und ist damit
+  Open Source. Bisher galt die PolyForm Internal Use License: kostenlos, aber
+  Weitergeben und der Betrieb als Dienst für Dritte waren untersagt. Beides ist
+  jetzt erlaubt; Bedingungen sind Lizenztext und `NOTICE` beizulegen und
+  Änderungen kenntlich zu machen. Die Lizenz enthält eine Patentlizenz und
+  überträgt keine Rechte am Produktnamen.
+- Frühere Fassungen bleiben unter der Lizenz, unter der sie erschienen sind.
+- Container-Abbild und Windows-Installation enthalten jetzt `LICENSE.md` und
+  `NOTICE` (Apache-2.0, Abschnitt 4).
+
+**Zu tun:** nichts.
 ## 0.2.38 — 2026-11-24 — TLS-Zertifikat von Let's Encrypt (wie Gateway)
 
 - **Einstellungen → TLS-Zertifikat → Let's Encrypt**, zwei Wege wie im Gateway:
