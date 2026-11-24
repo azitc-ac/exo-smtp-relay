@@ -106,4 +106,12 @@ async def api_password(request: Request, user: str = Depends(_check_auth)):
         return JSONResponse({"ok": False, "error": "Mindestens 10 Zeichen."}, status_code=400)
     settings_store.update({"ADMIN_PASSWORD_HASH": _hash_password(neu)})
     log.info("Passwort durch %s geändert", user)
-    return JSONResponse({"ok": True})
+    antwort = JSONResponse({"ok": True})
+    # Der Wechsel beendet alle Sitzungen (sitzung._kennwort_kennung) — auch die
+    # eigene. Wer gerade mit Sitzung angemeldet ist, bekommt deshalb sofort ein
+    # neues Merkmal; alle anderen müssen sich neu anmelden.
+    if request.cookies.get(sitzung.SESSION_COOKIE):
+        antwort.set_cookie(sitzung.SESSION_COOKIE, sitzung.create_session_cookie(user),
+                           max_age=sitzung.SESSION_TTL, httponly=True, samesite="lax",
+                           secure=_cookie_secure())
+    return antwort

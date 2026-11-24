@@ -1,5 +1,16 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.26 — 2026-11-24 — Sitzungen enden beim Kennwortwechsel
+
+- Wie im Gateway (v1.11.3): Jedes Sitzungsmerkmal trägt eine Kennung des
+  gerade gültigen Kennworts. Ein Kennwortwechsel, auch über `WEBUI_PASSWORD`
+  in der Umgebung, beendet alle älteren Sitzungen sofort. Bisher galt eine
+  Sitzung ihre vollen 8 Stunden weiter. Wer das Kennwort ändert, bleibt selbst
+  angemeldet (neues Merkmal mit der Antwort).
+
+**Zu tun:** nichts. Nach dem Update muss sich jeder einmal neu anmelden, weil
+ältere Merkmale noch keine Kennung tragen.
+
 ## 0.2.25 — 2026-11-24 — Mit dem Auslieferungs-Kennwort nur Kennwort ändern
 
 - Wie im Gateway (v1.10.113): Wer mit dem Auslieferungs-Kennwort (`admin`,
