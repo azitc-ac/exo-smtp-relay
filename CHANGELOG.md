@@ -1,5 +1,49 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.45 — 2026-11-24 — Stable: Labtest-Korrekturen aus 0.2.43-beta, 0.2.44-beta und 0.2.45
+
+Fasst die Betas 0.2.43 und 0.2.44 zusammen (Einzelheiten in deren Abschnitten unten)
+und bringt zwei weitere Korrekturen aus dem Labtest von 0.2.44.
+
+**Wichtig für bestehende Windows-Installationen:** Fehlen auf dem Server die
+nachgeladenen Wurzelzertifikate (typisch: frischer Server, auf dem nie ein Browser
+GitHub aufgerufen hat), scheitert „Aktualisierung prüfen“ der alten Fassung mit
+`CERTIFICATE_VERIFY_FAILED`. Dann **einmal `windows\install.ps1`** aus dem neuen
+Paket als Administrator ausführen. Danach geht das Update per Knopf. Das Upgrade
+per `install.ps1` behält Kennwort, Port, Dienst-Umgebung und Firewall-Einschränkungen.
+
+Neu in 0.2.45:
+
+- **Windows: Rechte auf `data\` werden erzwungen** (sicherheitsrelevant). Bisher
+  schaltete `install.ps1` nur die Vererbung ab und fügte SYSTEM und Administratoren
+  hinzu; ausdrücklich gesetzte fremde Einträge (Labtest: „Backup Operators: Read“)
+  blieben stehen, die Meldung „nur fuer SYSTEM und Administratoren lesbar“ stimmte
+  nicht. Jetzt hat `data\` genau SYSTEM und Administratoren (Vollzugriff, vererbt auf
+  Unterordner und Dateien); jeder andere Eintrag wird entfernt und als
+  „entfernt: <Konto> <Rechte>“ gemeldet. Unterobjekte mit eigenen Einträgen oder
+  abgeschalteter Vererbung werden per `icacls /reset` auf „nur geerbt“
+  zurückgesetzt und ebenfalls gemeldet. Konten per SID, damit es auch auf
+  deutschsprachigem Windows greift. Der Dienst läuft als LocalSystem und behält Zugriff.
+- **Windows: Portwechsel per `-WebPort` behält die Einschränkungen der Web-Regel.**
+  Bei mehreren Web-Regeln gewann bisher die zum neuen Port passende, auch wenn sie
+  offen war — die eingeschränkte wurde gelöscht. Jetzt bleibt die am stärksten
+  eingeschränkte (RemoteAddress, Profil) und bekommt nur den neuen Port; eine
+  offene Regel gewinnt nie gegen eine eingeschränkte.
+
+Aus 0.2.43-beta: Docker startet mit root-eigenem `./data`; Windows lädt für
+ausgehende TLS-Verbindungen Systemspeicher UND certifi (behebt
+`CERTIFICATE_VERIFY_FAILED`); das selbstsignierte Zertifikat trägt FQDN und
+Rechnernamen.
+
+Aus 0.2.44-beta: `install.ps1` meldet den Kennwortstand richtig, führt die
+Dienst-Umgebung zusammen statt sie zu überschreiben, behält ohne `-WebPort` den
+bisherigen Port und öffnet die Firewall beim Upgrade nicht weiter als vorher;
+`service.log` in UTF-8.
+
+**Zu tun:** Windows-Installationen ohne nachgeladene Wurzelzertifikate einmal
+`install.ps1` ausführen (siehe oben), sonst nichts. Wer auf `data\` bewusst eigene
+Einträge gesetzt hatte: Sie werden beim nächsten `install.ps1` entfernt und gemeldet.
+
 ## 0.2.44-beta — 2026-11-24 — Korrekturen aus dem Labtest von 0.2.43
 
 - **Windows: `install.ps1` meldete nach einem Upgrade weiter „admin / admin -

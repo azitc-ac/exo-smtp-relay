@@ -79,9 +79,21 @@ function Sync-RelayFirewall([int]$WebPort) {
         Write-Ok "Port $WebPort eingehend (alle Netzwerkprofile)"
         return
     }
-    # Eine Regel behalten (bevorzugt die zum Port passende), weitere Web-Regeln entfernen.
-    $behalten = @($web | Where-Object { $_.DisplayName -eq $webName })
-    if ($behalten.Count -gt 0) { $behalten = $behalten[0] } else { $behalten = $web[0] }
+    # Eine Regel behalten, weitere Web-Regeln entfernen. Nie weiter oeffnen als vorher: es bleibt die
+    # am staerksten eingeschraenkte (RemoteAddress, Profil), erst bei Gleichstand die zum Port passende,
+    # sonst die erste. Eine offene Any-Regel gewinnt nie gegen eine eingeschraenkte (Labtest 0.2.44).
+    $behalten = $null
+    $besteStufe = -1
+    foreach ($r in $web) {
+        $stufe = 0
+        $adressen = "$((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $r).RemoteAddress)"
+        if ($adressen -ne "Any") { $stufe += 2 }
+        $profil = "$($r.Profile)"
+        $alleProfile = ($profil -match "Domain") -and ($profil -match "Private") -and ($profil -match "Public")
+        if ($profil -ne "Any" -and -not $alleProfile) { $stufe += 2 }
+        if ($r.DisplayName -eq $webName) { $stufe += 1 }
+        if ($stufe -gt $besteStufe) { $behalten = $r; $besteStufe = $stufe }
+    }
     foreach ($r in $web) {
         if ($r.Name -ne $behalten.Name) {
             Remove-NetFirewallRule -Name $r.Name
@@ -96,6 +108,75 @@ function Sync-RelayFirewall([int]$WebPort) {
         Set-NetFirewallRule -Name $behalten.Name -NewDisplayName $webName
     }
     Write-Ok "Regel '$webName' auf Port $WebPort - Einschraenkungen unveraendert"
+}
+
+# Rechte auf data\ ERZWINGEN (Labtest 0.2.44): genau SYSTEM (S-1-5-18) und Administratoren
+# (S-1-5-32-544) mit Vollzugriff, vererbt auf Unterordner und Dateien. Jeder andere explizite
+# Eintrag auf data\ wird entfernt und gemeldet; Unterobjekte mit eigenen Eintraegen oder
+# abgeschalteter Vererbung werden auf "nur geerbt" zurueckgesetzt und ebenfalls gemeldet.
+# SIDs statt Namen: Kontonamen sind sprachabhaengig (deutsches Windows: "VORDEFINIERT\Administratoren").
+# Der Dienst laeuft als LocalSystem und behaelt Zugriff. Getestet in tests\test_windows_data_acl.py.
+function New-RelayVollzugriff([string]$Sid) {
+    New-Object System.Security.AccessControl.FileSystemAccessRule(
+        (New-Object System.Security.Principal.SecurityIdentifier($Sid)), "FullControl",
+        "ContainerInherit,ObjectInherit", "None", "Allow")
+}
+
+function Get-RelayKontoName($Identitaet) {
+    try { return $Identitaet.Translate([System.Security.Principal.NTAccount]).Value } catch { return "$($Identitaet.Value)" }
+}
+
+function Reset-RelayAclErbe([string]$Pfad) {
+    # icacls /reset: nur geerbte Rechte, Vererbung an; Eigentuemer bleibt unberuehrt.
+    $null = & icacls.exe $Pfad /reset /C /Q 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Set-RelayDataAcl([string]$Pfad) {
+    $soll = @("S-1-5-18", "S-1-5-32-544")
+    $sidTyp = [System.Security.Principal.SecurityIdentifier]
+    $probleme = 0
+    $entfernt = 0
+    $acl = Get-Acl -LiteralPath $Pfad
+    foreach ($r in @($acl.GetAccessRules($true, $false, $sidTyp))) {
+        $passt = ($soll -contains "$($r.IdentityReference.Value)") -and ("$($r.AccessControlType)" -eq "Allow") -and
+                 ("$($r.FileSystemRights)" -eq "FullControl") -and
+                 ("$($r.InheritanceFlags)" -eq "ContainerInherit, ObjectInherit") -and ("$($r.PropagationFlags)" -eq "None")
+        if (-not $passt) {
+            Write-Ok "entfernt: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)"
+            $entfernt++
+        }
+        [void]$acl.RemoveAccessRuleSpecific($r)
+    }
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in $soll) { $acl.AddAccessRule((New-RelayVollzugriff $sid)) }
+    Set-Acl -LiteralPath $Pfad -AclObject $acl
+
+    # Unterobjekte: nur geerbte Rechte. Nur anfassen, was abweicht - und jedes melden.
+    $zurueck = 0
+    $fehler = @()
+    $objekte = @(Get-ChildItem -LiteralPath $Pfad -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable fehler)
+    foreach ($f in $fehler) { Write-Warn "nicht lesbar: $($f.TargetObject)"; $probleme++ }
+    foreach ($o in $objekte) {
+        $name = $o.FullName
+        if ($name.StartsWith($Pfad, [System.StringComparison]::OrdinalIgnoreCase)) { $name = $name.Substring($Pfad.Length).TrimStart("\", "/") }
+        try {
+            $a = Get-Acl -LiteralPath $o.FullName
+            $eigene = @($a.GetAccessRules($true, $false, $sidTyp))
+            $geschuetzt = [bool]$a.AreAccessRulesProtected
+        } catch {
+            Write-Warn "Rechte nicht lesbar: $name"; $probleme++; continue
+        }
+        if ($eigene.Count -eq 0 -and -not $geschuetzt) { continue }
+        foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
+        if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
+        if (Reset-RelayAclErbe $o.FullName) { $zurueck++ } else { Write-Warn "nicht zurueckgesetzt: $name (icacls `"$($o.FullName)`" /reset)"; $probleme++ }
+    }
+    if ($probleme -eq 0) {
+        Write-Ok "data\ nur fuer SYSTEM und Administratoren lesbar ($entfernt fremde Eintraege entfernt, $zurueck Unterobjekte zurueckgesetzt)"
+    } else {
+        Write-Warn "data\ auf SYSTEM und Administratoren gesetzt, aber $probleme Unterobjekt(e) weichen ab - siehe oben"
+    }
 }
 
 # -- Administrator? ---------------------------------------------------------------
@@ -223,15 +304,7 @@ Write-Ok "Abhaengigkeiten installiert"
 # -- Datenverzeichnis absichern: nur SYSTEM und Administratoren ----------------
 Write-Step "Setze Rechte auf data\"
 $dataDir = Join-Path $InstallDir "data"
-$acl = Get-Acl $dataDir
-$acl.SetAccessRuleProtection($true, $false)
-foreach ($wer in @("NT AUTHORITY\SYSTEM", "BUILTIN\Administrators")) {
-    $regel = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $wer, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-    $acl.AddAccessRule($regel)
-}
-Set-Acl $dataDir $acl
-Write-Ok "data\ nur fuer SYSTEM und Administratoren lesbar"
+Set-RelayDataAcl -Pfad $dataDir
 
 # -- ExchangeOnlineManagement ---------------------------------------------------------
 if (-not $SkipExoModule) {

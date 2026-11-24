@@ -180,12 +180,39 @@ Get-NetFirewallRule -DisplayName 'EXO SMTP Relay*' | Get-NetFirewallAddressFilte
 Dann `install.ps1` ohne `-WebPort` ausführen. Erwartet: weiterhin genau zwei
 Regeln, RemoteAddress und Profil unverändert; der bisherige Web-Port bleibt;
 eigene Einträge in `Environment` bleiben; die Schlussmeldung sagt „Aktualisiert.“
-und bei eigenem Kennwort „Kennwort unveraendert“. **ACL vergleichen**: Eigene,
-ausdrücklich gesetzte Einträge auf `data\` vor und nach dem Upgrade — eine
-Abweichung festhalten (bekannt: der Installer setzt die Rechte neu, das wird
-nicht geändert). Mit `-WebPort <neu>`: genau eine Web-Regel, auf dem neuen Port,
-Einschränkungen unverändert. `data\logs\service.log` zeigt Umlaute korrekt
-(erst nach einem Neustart des Dienstes).
+und bei eigenem Kennwort „Kennwort unveraendert“. Mit `-WebPort <neu>`: genau
+eine Web-Regel, auf dem neuen Port, Einschränkungen unverändert.
+`data\logs\service.log` zeigt Umlaute korrekt (erst nach einem Neustart des Dienstes).
+
+**Windows, Rechte auf `data\` werden erzwungen** (ab 0.2.45). Vorher fremde
+Einträge setzen, auch auf Unterobjekten:
+```powershell
+$d = 'C:\ProgramData\exo-smtp-relay\data'
+icacls $d /grant '*S-1-5-32-551:(OI)(CI)(R)'                  # Backup Operators: Read
+icacls "$d\logs" /inheritance:d; icacls "$d\logs" /grant '*S-1-5-32-545:(OI)(CI)(M)'
+```
+`install.ps1` ausführen. Erwartet: Ausgabe „entfernt: … Backup Operators Allow Read“,
+„entfernt auf logs: …“ und „Vererbung wieder an: logs“, Schluss „data\ nur fuer SYSTEM
+und Administratoren lesbar (n fremde Eintraege entfernt, m Unterobjekte zurueckgesetzt)“.
+Danach:
+```powershell
+(Get-Acl $d).Access | Format-Table IdentityReference, FileSystemRights, IsInherited   # genau SYSTEM + Administratoren, nicht geerbt
+(Get-Acl $d).AreAccessRulesProtected                                                  # True
+Get-ChildItem $d -Recurse -Force | Where-Object { (Get-Acl $_.FullName).Access | Where-Object { -not $_.IsInherited } }   # leer
+Get-Service ExoSmtpRelay                                                              # Running (LocalSystem hat Zugriff)
+```
+
+**Windows, Portwechsel mit eingeschränkter Web-Regel** (ab 0.2.45). Die Web-Regel
+einschränken und eine zweite, offene Web-Regel auf dem Zielport anlegen:
+```powershell
+Set-NetFirewallRule -DisplayName 'EXO SMTP Relay - Web 8443' -RemoteAddress 10.0.0.0/8 -Profile Domain
+New-NetFirewallRule -DisplayName 'EXO SMTP Relay - Web 9443' -Direction Inbound -Protocol TCP -LocalPort 9443 -Action Allow
+.\windows\install.ps1 -WebPort 9443
+Get-NetFirewallRule -DisplayName 'EXO SMTP Relay - Web*' | ForEach-Object {
+  $_.DisplayName, $_.Profile, ($_ | Get-NetFirewallAddressFilter).RemoteAddress, ($_ | Get-NetFirewallPortFilter).LocalPort }
+```
+Erwartet: genau eine Web-Regel „Web 9443“, Port 9443, RemoteAddress 10.0.0.0/8, Profil
+Domain — die eingeschränkte bleibt, die offene ist weg. Ohne die offene Regel dasselbe.
 
 ## 6 Festhalten
 

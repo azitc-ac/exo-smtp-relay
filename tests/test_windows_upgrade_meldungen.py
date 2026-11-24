@@ -215,6 +215,8 @@ function Remove-NetFirewallRule { [CmdletBinding()] param([string]$Name)
     $weg = @($global:Regeln | Where-Object { $_.Name -eq $Name }); foreach ($r in $weg) { $global:Regeln.Remove($r) } }
 function Get-NetFirewallPortFilter { [CmdletBinding()] param($AssociatedNetFirewallRule)
     [pscustomobject]@{ Regel = $AssociatedNetFirewallRule; LocalPort = $AssociatedNetFirewallRule.LocalPort } }
+function Get-NetFirewallAddressFilter { [CmdletBinding()] param($AssociatedNetFirewallRule)
+    [pscustomobject]@{ RemoteAddress = $AssociatedNetFirewallRule.RemoteAddress } }
 function Set-NetFirewallPortFilter { [CmdletBinding()] param($InputObject, $LocalPort)
     $InputObject.Regel.LocalPort = "$LocalPort" }
 function Set-NetFirewallRule { [CmdletBinding()] param([string]$Name, [string]$NewDisplayName)
@@ -243,6 +245,15 @@ _BESTAND = {
     "zwei_web": ('Regel "s1" "EXO SMTP Relay - SMTP 25" 25 "10.0.0.0/8" "Domain" "True"\n'
                  'Regel "w1" "EXO SMTP Relay - Web 8443" 8443 "10.1.0.0/16" "Domain" "True"\n'
                  'Regel "w2" "EXO SMTP Relay - Web 9443" 9443 "10.2.0.0/16" "Private" "True"\n'),
+    # Labtest 0.2.44: eine eingeschraenkte alte Regel und eine offene. Die offene passt sogar zum
+    # neuen Port - behalten werden muss trotzdem die eingeschraenkte (nie weiter oeffnen als vorher).
+    "offen_und_eingeschraenkt": ('Regel "s1" "EXO SMTP Relay - SMTP 25" 25 "Any" "Any" "True"\n'
+                                 'Regel "w1" "EXO SMTP Relay - Web 8443" 8443 "10.1.0.0/16" "Domain" "True"\n'
+                                 'Regel "w2" "EXO SMTP Relay - Web 9443" 9443 "Any" "Any" "True"\n'),
+    # Nur das Profil eingeschraenkt, offene Regel zuerst und auf einem dritten Port.
+    "offen_zuerst": ('Regel "s1" "EXO SMTP Relay - SMTP 25" 25 "Any" "Any" "True"\n'
+                     'Regel "w0" "EXO SMTP Relay - Web 7443" 7443 "Any" "Domain, Private, Public" "True"\n'
+                     'Regel "w1" "EXO SMTP Relay - Web 8443" 8443 "Any" "Domain" "True"\n'),
 }
 
 
@@ -290,6 +301,14 @@ def _pruefen(tmp_path, funktion):
             {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "10.0.0.0/8", "Profile": "Domain", "Enabled": "True"},
             {"DisplayName": "EXO SMTP Relay - Web 9443", "LocalPort": "9443", "RemoteAddress": "10.2.0.0/16", "Profile": "Private", "Enabled": "True"}]:
         fehler.append("genau_eine_web_regel")
+    if _firewall(tmp_path, funktion, "offen_und_eingeschraenkt", 9443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "Any", "Profile": "Any", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 9443", "LocalPort": "9443", "RemoteAddress": "10.1.0.0/16", "Profile": "Domain", "Enabled": "True"}]:
+        fehler.append("eingeschraenkte_schlaegt_offene")
+    if _firewall(tmp_path, funktion, "offen_zuerst", 9443) != [
+            {"DisplayName": "EXO SMTP Relay - SMTP 25", "LocalPort": "25", "RemoteAddress": "Any", "Profile": "Any", "Enabled": "True"},
+            {"DisplayName": "EXO SMTP Relay - Web 9443", "LocalPort": "9443", "RemoteAddress": "Any", "Profile": "Domain", "Enabled": "True"}]:
+        fehler.append("profil_zaehlt_als_einschraenkung")
     return fehler
 
 
@@ -301,7 +320,38 @@ def test_firewall_upgrade_behaelt_einschraenkungen(tmp_path):
 @pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
 def test_firewall_gegenprobe_alte_logik_faellt_durch(tmp_path):
     """Die Prüfung ist trennscharf: die Logik bis 0.2.43 verletzt genau die Upgrade-Fälle."""
-    assert _pruefen(tmp_path, _ALT) == ["upgrade_gleicher_port", "upgrade_portwechsel", "genau_eine_web_regel"]
+    assert _pruefen(tmp_path, _ALT) == ["upgrade_gleicher_port", "upgrade_portwechsel", "genau_eine_web_regel",
+                                        "eingeschraenkte_schlaegt_offene", "profil_zaehlt_als_einschraenkung"]
+
+
+# Die Logik 0.2.44: behielt bevorzugt die zum neuen Port passende Regel, auch wenn sie offen war.
+_ALT_0244 = r'''
+function Sync-RelayFirewall([int]$WebPort) {
+    $smtpName = "EXO SMTP Relay - SMTP 25"
+    $webName = "EXO SMTP Relay - Web $WebPort"
+    $smtp = @(Get-NetFirewallRule -DisplayName $smtpName -ErrorAction SilentlyContinue)
+    if ($smtp.Count -eq 0) {
+        New-NetFirewallRule -DisplayName $smtpName -Direction Inbound -Protocol TCP -LocalPort 25 -Action Allow -Profile Any | Out-Null
+    }
+    $web = @(Get-NetFirewallRule -DisplayName "EXO SMTP Relay - Web *" -ErrorAction SilentlyContinue)
+    if ($web.Count -eq 0) {
+        New-NetFirewallRule -DisplayName $webName -Direction Inbound -Protocol TCP -LocalPort $WebPort -Action Allow -Profile Any | Out-Null
+        return
+    }
+    $behalten = @($web | Where-Object { $_.DisplayName -eq $webName })
+    if ($behalten.Count -gt 0) { $behalten = $behalten[0] } else { $behalten = $web[0] }
+    foreach ($r in $web) { if ($r.Name -ne $behalten.Name) { Remove-NetFirewallRule -Name $r.Name } }
+    $filter = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $behalten
+    if ("$($filter.LocalPort)" -ne "$WebPort") { Set-NetFirewallPortFilter -InputObject $filter -LocalPort $WebPort }
+    if ($behalten.DisplayName -ne $webName) { Set-NetFirewallRule -Name $behalten.Name -NewDisplayName $webName }
+}
+'''
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+def test_firewall_gegenprobe_0244_waehlt_offene_regel(tmp_path):
+    """Labtest 0.2.44: die zum Port passende OFFENE Regel gewann gegen die eingeschraenkte."""
+    assert _pruefen(tmp_path, _ALT_0244) == ["eingeschraenkte_schlaegt_offene", "profil_zaehlt_als_einschraenkung"]
 
 
 def test_firewall_statisch_kein_loeschen_und_neu_anlegen():
@@ -318,3 +368,6 @@ def test_firewall_statisch_kein_loeschen_und_neu_anlegen():
     assert "| Remove-NetFirewallRule" not in funktion
     assert "if ($r.Name -ne $behalten.Name)" in funktion
     assert "Set-NetFirewallPortFilter -InputObject $filter -LocalPort $WebPort" in funktion
+    # Auswahl nach Einschraenkung, nicht nach Port (Labtest 0.2.44).
+    assert "Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $r" in funktion
+    assert "if ($stufe -gt $besteStufe)" in funktion
