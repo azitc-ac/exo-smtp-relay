@@ -1,5 +1,19 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.27 — 2026-11-24 — PowerShell-Werte nur als Literal
+
+- Wie im Gateway (v1.10.117): Neuer Baustein `ps_text.py` (1:1 vom
+  Gateway). Jeder Wert, der in ein PowerShell-Skript für Exchange Online
+  eingesetzt wird (Relay-Name, App-ID, Organisation, Zertifikatspfad,
+  Rollen- und Cmdlet-Listen), geht durch `ps_text.lit`/`array` und steht in
+  einfachen Anführungszeichen. Bisher standen Relay-Name, App-ID,
+  Organisation und Zertifikatspfad in `exo_setup.py` und `exo_mailboxes.py`
+  ungeschützt im Skript; ein Apostroph im Relay-Namen brach die
+  Connector-Prüfung.
+- `tests/test_ps_text.py` prüft alle Skript-f-Strings im Code.
+
+**Zu tun:** nichts.
+
 ## 0.2.26 — 2026-11-24 — Sitzungen enden beim Kennwortwechsel
 
 - Wie im Gateway (v1.11.3): Jedes Sitzungsmerkmal trägt eine Kennung des

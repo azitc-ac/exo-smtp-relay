@@ -58,6 +58,7 @@ import time
 from datetime import datetime, timezone
 
 import config
+import ps_text
 import settings_store
 
 log = logging.getLogger(__name__)
@@ -130,8 +131,9 @@ def _ps(body: str, timeout: int = 300) -> dict:
 
 
 def _q(s: str) -> str:
-    """Für einfache Anführungszeichen in PowerShell."""
-    return str(s).replace("'", "''")
+    """Für einfache Anführungszeichen in PowerShell — siehe `ps_text.lit`, der
+    einzige Weg (`tests/test_ps_text.py`)."""
+    return ps_text.lit(s)
 
 
 def lesegruppe_einrichten() -> dict:
@@ -145,7 +147,6 @@ def lesegruppe_einrichten() -> dict:
     app_id = settings_store.get("CLIENT_ID").strip()
     sp_id = settings_store.get("APP_SP_ID").strip()
     name = gruppenname()
-    rollen = ",".join(f"'{_q(r)}'" for r in LESEROLLEN)
     r = _ps("\n".join([
         f"$sp = Get-ServicePrincipal -Identity '{_q(app_id)}' -ErrorAction SilentlyContinue",
         "if ($null -eq $sp) {",
@@ -155,10 +156,10 @@ def lesegruppe_einrichten() -> dict:
         "}",
         f"$g = Get-RoleGroup -Identity '{_q(name)}' -ErrorAction SilentlyContinue",
         "if ($null -eq $g) {",
-        f"  New-RoleGroup -Name '{_q(name)}' -Roles @({rollen}) -Members $sp.Identity"
+        f"  New-RoleGroup -Name '{_q(name)}' -Roles {ps_text.array(LESEROLLEN)} -Members $sp.Identity"
         " -Description 'EXO SMTP Relay: Postfachliste lesen. Angelegt vom Einrichtungsassistenten.' | Out-Null",
         "} else {",
-        f"  foreach ($r in @({rollen})) {{",
+        f"  foreach ($r in {ps_text.array(LESEROLLEN)}) {{",
         f"    if (-not (Get-ManagementRoleAssignment -RoleAssignee '{_q(name)}' -Role $r -ErrorAction SilentlyContinue)) {{",
         f"      New-ManagementRoleAssignment -SecurityGroup '{_q(name)}' -Role $r | Out-Null }} }}",
         f"  $m = @(Get-RoleGroupMember -Identity '{_q(name)}' | ForEach-Object {{ \"$($_.Name)\" }})",
@@ -183,9 +184,8 @@ def messen() -> dict:
     ok, grund = exo_setup._voraussetzungen()
     if not ok:
         return {"stufe": "fehler", "text": grund}
-    pruef = ",".join(f"'{c}'" for c in SCHREIB_CMDLETS)
     r = _ps("\n".join([
-        f"$s = @(@({pruef}) | Where-Object {{ Get-Command $_ -ErrorAction SilentlyContinue }})",
+        f"$s = @({ps_text.array(SCHREIB_CMDLETS)} | Where-Object {{ Get-Command $_ -ErrorAction SilentlyContinue }})",
         "$lesen = $false",
         "try { $null = Get-EXOMailbox -ResultSize 1 -ErrorAction Stop; $lesen = $true } catch { }",
         "Write-Output ('RECHTE schreib=' + ($s -join '/') + ' lesen=' + $lesen)",

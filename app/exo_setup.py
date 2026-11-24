@@ -24,6 +24,7 @@ from pathlib import Path
 
 import auth_cert
 import config
+import ps_text
 import settings_store
 
 log = logging.getLogger(__name__)
@@ -83,9 +84,9 @@ def _verbindung_kopf() -> str:
         "$ErrorActionPreference = 'Stop'",
         "Import-Module ExchangeOnlineManagement",
         "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(",
-        f"    '{auth_cert.PFX_PATH}', [string]$null,",
+        f"    '{ps_text.lit(auth_cert.PFX_PATH)}', [string]$null,",
         "    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)",
-        f"Connect-ExchangeOnline -AppId '{app_id}' -Certificate $cert -Organization '{org}'"
+        f"Connect-ExchangeOnline -AppId '{ps_text.lit(app_id)}' -Certificate $cert -Organization '{ps_text.lit(org)}'"
         " -ShowBanner:$false -ShowProgress:$false | Out-Null",
     ])
 
@@ -153,7 +154,7 @@ def connector_pruefen() -> dict:
         return {"ok": False, "text": grund}
     name = settings_store.get("GATEWAY_NAME") or "EXO SMTP Relay"
     r = _run_inline(_verbindung_kopf() + "\n" + "\n".join([
-        f"$c = Get-InboundConnector -Identity '{name} - Inbound' -ErrorAction SilentlyContinue",
+        f"$c = Get-InboundConnector -Identity '{ps_text.lit(name)} - Inbound' -ErrorAction SilentlyContinue",
         "if ($null -eq $c) { Write-Output 'CONNECTOR-FEHLT' } else {",
         "  $o = [ordered]@{ Name=$c.Name; Enabled=$c.Enabled; RequireTls=$c.RequireTls;",
         "    TlsSenderCertificateName=\"$($c.TlsSenderCertificateName)\";",

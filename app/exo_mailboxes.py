@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 
 import config
+import ps_text
 import secure_io
 import settings_store
 
@@ -97,9 +98,9 @@ def _ps_script(app_id: str, org: str) -> str:
         "$ErrorActionPreference = 'Stop'",
         "Import-Module ExchangeOnlineManagement",
         "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(",
-        f"    '{AUTH_CERT_PATH}', [string]$null,",
+        f"    '{ps_text.lit(AUTH_CERT_PATH)}', [string]$null,",
         "    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)",
-        f"Connect-ExchangeOnline -AppId '{app_id}' -Certificate $cert -Organization '{org}'"
+        f"Connect-ExchangeOnline -AppId '{ps_text.lit(app_id)}' -Certificate $cert -Organization '{ps_text.lit(org)}'"
         " -ShowBanner:$false -ShowProgress:$false | Out-Null",
         "Get-EXOMailbox -RecipientTypeDetails UserMailbox,SharedMailbox -ResultSize Unlimited"
         " -Properties EmailAddresses |",
