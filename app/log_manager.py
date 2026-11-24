@@ -57,6 +57,23 @@ def setup(retention_days: int = 30, tz_name: str = "UTC") -> None:
     _cleanup(retention_days)
 
 
+def stufe_anwenden(wert: str | None = None) -> str:
+    """Protokollstufe aus den Einstellungen auf den Wurzel-Logger anwenden —
+    beim Start und sofort beim Speichern (wie Gateway v1.11.55).
+
+    Bis v0.2.29 setzte basicConfig die Stufe nur aus der Umgebungsvariable;
+    die Einstellung in der Oberfläche erreichte nur uvicorn, und auch das erst
+    nach dem Neustart. Wer dort DEBUG wählte, bekam für das Relay weiterhin
+    nur INFO."""
+    import settings_store
+    name = str(wert or settings_store.get("LOG_LEVEL") or "INFO").upper()
+    stufe = getattr(logging, name, None)
+    if not isinstance(stufe, int):
+        name, stufe = "INFO", logging.INFO
+    logging.getLogger().setLevel(stufe)
+    return name
+
+
 def _cleanup(retention_days: int) -> None:
     if not LOG_DIR.exists():
         return

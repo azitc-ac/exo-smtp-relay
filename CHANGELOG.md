@@ -1,5 +1,15 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.30 — 2026-11-24 — Protokollstufe wirkt sofort
+
+- Wie im Gateway (v1.11.55): Die Protokollstufe aus Einstellungen → Betrieb
+  gilt jetzt für das ganze Relay, beim Start und sofort beim Speichern
+  (`log_manager.stufe_anwenden`). Bisher setzte der Start die Stufe nur aus
+  der Umgebungsvariable `LOG_LEVEL`; die Einstellung erreichte nur den
+  Webserver und erst nach einem Neustart.
+
+**Zu tun:** nichts.
+
 ## 0.2.29 — 2026-11-24 — Keine Seite in einen Suchindex
 
 - Wie im Gateway (v1.9.172): Jede Antwort der Weboberfläche trägt

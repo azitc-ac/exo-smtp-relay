@@ -259,6 +259,7 @@ def main() -> None:
     settings_store.init(config._ENV_SEEDS)
     log_manager.setup(retention_days=int(settings_store.get("LOG_RETENTION_DAYS") or 30),
                       tz_name=settings_store.get("LOG_TIMEZONE") or "UTC")
+    log_manager.stufe_anwenden()
     import mail_trace
     mail_trace.install()
     logging.getLogger("mail.log").setLevel(logging.WARNING)

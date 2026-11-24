@@ -228,6 +228,37 @@ def test_kein_robots_disallow(client):
     assert r.status_code != 200 or "Disallow: /\n" not in r.text + "\n"
 
 
+def test_protokollstufe_wirkt_sofort(client):
+    """Wie Gateway v1.11.55: Die Stufe aus der Oberfläche erreicht den
+    Wurzel-Logger sofort, nicht nur uvicorn beim nächsten Start."""
+    import logging
+    wurzel = logging.getLogger()
+    vorher = wurzel.level
+    try:
+        _anmelden(client)
+        wurzel.setLevel(logging.INFO)
+        assert client.post("/api/einstellungen", json={"LOG_LEVEL": "DEBUG"}).json()["ok"]
+        assert wurzel.level == logging.DEBUG
+        assert client.post("/api/einstellungen", json={"LOG_LEVEL": "WARNING"}).json()["ok"]
+        assert wurzel.level == logging.WARNING
+    finally:
+        wurzel.setLevel(vorher)
+
+
+def test_protokollstufe_beim_start_und_unbekannte_stufe():
+    import logging
+    import log_manager
+    wurzel = logging.getLogger()
+    vorher = wurzel.level
+    try:
+        assert log_manager.stufe_anwenden("quatsch") == "INFO" and wurzel.level == logging.INFO
+        assert log_manager.stufe_anwenden("error") == "ERROR" and wurzel.level == logging.ERROR
+    finally:
+        wurzel.setLevel(vorher)
+    main_py = (WURZEL / "app" / "main.py").read_text(encoding="utf-8")
+    assert "log_manager.stufe_anwenden()" in main_py
+
+
 def test_keine_schnittstellenbeschreibung(client):
     for pfad in ("/docs", "/openapi.json", "/redoc"):
         assert client.get(pfad).status_code in (302, 404)

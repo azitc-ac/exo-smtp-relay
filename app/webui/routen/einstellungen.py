@@ -49,6 +49,9 @@ async def api_einstellungen(request: Request, user: str = Depends(_require_admin
     settings_store.update(uebernommen)
     if "ADRESSEN_ZUSAETZLICH" in uebernommen:
         exo_mailboxes.invalidate()
+    if "LOG_LEVEL" in uebernommen:
+        import log_manager
+        log_manager.stufe_anwenden()    # wirkt sofort, nicht erst nach dem Neustart
     log.info("Einstellungen durch %s geändert: %s", user, ", ".join(sorted(uebernommen)))
     return JSONResponse({"ok": True, "verworfen": verworfen})
 
