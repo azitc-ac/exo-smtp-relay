@@ -29,10 +29,17 @@ Aus dem Nachtest von 0.2.54-beta (l6 und l4b unter Windows grün).
   der Tausch-Merker und die Status-Anzeige.
 - **Gelb:** Nach erfolgreichem `install.ps1` bei offener Rücknahme schreibt der Installer den
   Updater-Status neu (statt weiter „UNVOLLSTÄNDIG“).
-- **Bestehende systemd-Installationen:** Die Unit in `/etc/systemd/system` tauscht der Updater
-  nicht aus. Für das Nachholen beim Start einmal
-  `sudo cp /opt/exo-smtp-relay/linux/*.service /etc/systemd/system/ && sudo systemctl daemon-reload`;
-  bis dahin holt der Knopf „Rücknahme nachholen“ nach.
+- **Der Updater zieht die systemd-Units mit** (Dienst, Update-Service, `.path`). Bisher bekam
+  wer per Knopf aktualisierte nie eine neue Unit — das Nachholen beim Start (`ExecStartPre`) wäre
+  genau dort wirkungslos geblieben. Der Tauscher (root) vergleicht die Units im Paket mit
+  `/etc/systemd/system`: bei Abweichung die alte nach `.update-alt/einheiten`, die neue hinein,
+  `daemon-reload` — im selben Merker und mit derselben Lauf-ID wie der Tausch; die Rücknahme
+  stellt die alten Units wieder her (ebenfalls mit `daemon-reload`). **Vom Betreiber angepasste
+  Units werden nicht überschrieben:** Weicht die installierte Unit von jeder bekannten
+  Release-Fassung ab (`linux/einheiten-bekannt.json`, aus der Git-Historie,
+  `tools/einheiten_bekannt.py`), bleibt sie, und der Status meldet es. Drop-ins unter
+  `*.service.d` bleiben immer unberührt. Ein Test verlangt, dass jede neue Unit-Fassung in der
+  Liste steht.
 
 ## 0.2.54-beta — 2026-11-25 — Updater: Rücknahme nur des eigenen Tauschs, ehrlich und wiederholbar
 

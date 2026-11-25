@@ -238,6 +238,86 @@ def _weg(pfad: Path) -> None:
             pass
 
 
+# ── systemd-Units mitziehen ──────────────────────────────────────────────────
+# Wer per Knopf aktualisiert, bekäme sonst nie eine neue Unit (0.2.55: ExecStartPre für das
+# Nachholen einer offenen Rücknahme). Der Tauscher läuft unter systemd als root.
+SYSTEMD_ZIEL = Path("/etc/systemd/system")
+EINHEITEN = ("exo-smtp-relay.service", "exo-smtp-relay-update.service", "exo-smtp-relay-update.path")
+EINHEITEN_ALT = "einheiten"                    # in .update-alt: die ersetzten Units
+
+
+def systemd_ziel() -> Path | None:
+    """/etc/systemd/system, wenn das Relay dort als Unit installiert ist (nicht Windows/Docker)."""
+    if os.name == "nt" or not (SYSTEMD_ZIEL / EINHEITEN[0]).is_file():
+        return None
+    return SYSTEMD_ZIEL
+
+
+def systemd_neu_laden() -> None:
+    if _systemctl("daemon-reload") != 0:
+        raise RuntimeError("systemctl daemon-reload fehlgeschlagen")
+
+
+def _datei_ersetzen(ziel: Path, inhalt: bytes) -> None:
+    tmp = ziel.with_name(ziel.name + ".relay-neu")
+    tmp.write_bytes(inhalt)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, ziel)
+
+
+def einheiten_tauschen(wurzel: Path, alt: Path, merker: dict) -> str:
+    """Units aus dem (schon getauschten) linux/ einspielen, die alten nach .update-alt/einheiten.
+    Nur Units, die einer BEKANNTEN Fassung entsprechen (linux/einheiten-bekannt.json); vom
+    Betreiber angepasste bleiben und werden gemeldet. Drop-ins (*.service.d) fasst das nie an.
+    Merker vor jedem Ersetzen fortgeschrieben (dieselbe Lauf-ID wie der Tausch)."""
+    import hashlib
+    ziel = systemd_ziel()
+    if ziel is None:
+        return ""
+    bekannt = json_lesen_streng(Path(wurzel) / "linux" / "einheiten-bekannt.json") or {}
+    getauscht, angepasst = [], []
+    for name in EINHEITEN:
+        neu, inst = Path(wurzel) / "linux" / name, ziel / name
+        if not neu.is_file() or not inst.is_file():
+            continue
+        vorhanden = inst.read_bytes()
+        if vorhanden == neu.read_bytes():
+            continue
+        if hashlib.sha256(vorhanden).hexdigest() not in bekannt.get(name, []):
+            angepasst.append(name)
+            continue
+        (alt / EINHEITEN_ALT).mkdir(exist_ok=True)
+        (alt / EINHEITEN_ALT / name).write_bytes(vorhanden)
+        merker.setdefault("einheiten", []).append(name)
+        json_schreiben(alt / MARKE, merker)
+        _datei_ersetzen(inst, neu.read_bytes())
+        getauscht.append(name)
+    if getauscht:
+        systemd_neu_laden()
+    teile = []
+    if getauscht:
+        teile.append("Units aktualisiert: " + ", ".join(getauscht))
+    if angepasst:
+        teile.append("Units vom Betreiber angepasst, NICHT getauscht: " + ", ".join(angepasst)
+                     + " (neue Fassung unter linux/ — von Hand abgleichen)")
+    return "; ".join(teile)
+
+
+def einheiten_zurueck(alt: Path, marke: dict) -> None:
+    """Gegenstück: die gesicherten Units zurück, daemon-reload. Wiederholbar."""
+    ziel = systemd_ziel() if marke.get("einheiten") else None
+    zurueck = False
+    for name in marke.get("einheiten", []):
+        gesichert = alt / EINHEITEN_ALT / name
+        if ziel is None or not gesichert.is_file():
+            continue
+        _datei_ersetzen(ziel / name, gesichert.read_bytes())
+        gesichert.unlink()
+        zurueck = True
+    if zurueck:
+        systemd_neu_laden()
+
+
 def phase_tauschen(wurzel: Path, version: str = "", lauf: str = "") -> str:
     """Verschoben wird nur mit os.replace (MoveFileExW unter Windows: ein Rename, scheitert ganz
     oder gar nicht — anders als PowerShells Move-Item, Labtest 0.2.50; belegt in
@@ -268,10 +348,12 @@ def phase_tauschen(wurzel: Path, version: str = "", lauf: str = "") -> str:
         json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False,
                                      "nach": version, "lauf": lauf})
         os.replace(neu / teil, wurzel / teil)
-    json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": True,
-                                 "nach": version, "lauf": lauf})
+    merker = {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False, "nach": version, "lauf": lauf}
+    einheiten = einheiten_tauschen(wurzel, alt, merker)
+    merker["fertig"] = True
+    json_schreiben(alt / MARKE, merker)
     shutil.rmtree(neu, ignore_errors=True)
-    return f"{len(verschoben) + len(neu_angelegt)} Teile getauscht"
+    return f"{len(verschoben) + len(neu_angelegt)} Teile getauscht" + (f"; {einheiten}" if einheiten else "")
 
 
 def marke_gehoert_zu(wurzel: Path, lauf: str) -> bool:
@@ -297,6 +379,7 @@ def phase_zurueck(wurzel: Path, lauf: str = "", alt_entfernen: bool = True) -> s
     if not marke_gehoert_zu(wurzel, lauf):
         return (f"Rückfallstand gehört nicht zu diesem Tausch (Lauf {marke.get('lauf') or 'ohne Kennung'})"
                 " — nichts zurückgenommen, nichts verändert")
+    einheiten_zurueck(alt, marke)
     muell = []
     for teil in marke.get("neu", []):
         p = wurzel / teil
@@ -533,8 +616,11 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
 
     status_setzen(daten, "laeuft", "Dienst wird angehalten und getauscht", **kopf)
     stoppen()
+    hinweise = []
     for name in ("tauschen", "pip"):
         ok, text = phase(name, lauf)
+        if ok and name == "tauschen" and "Units" in text:
+            hinweise.append(text.split("; ", 1)[1] if "; " in text else text)
         if not ok:
             return _zuruecknehmen(wurzel, daten, phase, lauf, starten, kopf,
                                   f"Phase {name} fehlgeschlagen: {text}")
@@ -554,6 +640,7 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
                 pass
         bleibt = reste_aufraeumen(wurzel)
         status_setzen(daten, "ok", f"{version} läuft (vorher {von})"
+                      + "".join(f"; {h}" for h in hinweise)
                       + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
         return "ok"
 

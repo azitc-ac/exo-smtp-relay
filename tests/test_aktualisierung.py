@@ -884,3 +884,69 @@ def test_unlesbarer_status_ist_nicht_ruhe(anlage):
     assert aktualisierung.status()["zustand"] == "fehler"
     ut.status_pfad(anlage["daten"]).write_bytes(b"\xef\xbb\xbf" + json.dumps({"zustand": "ok", "text": "x"}).encode())
     assert aktualisierung.status()["zustand"] == "ok"
+
+
+# ── 0.2.55: systemd-Units ziehen mit ─────────────────────────────────────────
+
+def _units_anlage(tmp_path, monkeypatch, schluessel):
+    """/etc/systemd/system nachgebaut: Dienst-Unit in bekannter alter Fassung, .path vom Betreiber
+    angepasst. Das neue Paket bringt beide in neuer Fassung."""
+    import hashlib
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "exo-smtp-relay.service").write_bytes(b"[Service]\nExecStart=alt\n")
+    (etc / "exo-smtp-relay-update.path").write_bytes(b"[Path]\n# vom Betreiber angepasst\n")
+    (etc / "exo-smtp-relay.service.d").mkdir()
+    (etc / "exo-smtp-relay.service.d" / "eigen.conf").write_text("[Service]\nNice=5\n")
+    monkeypatch.setattr(ut, "SYSTEMD_ZIEL", etc)
+    neu_laden = []
+    monkeypatch.setattr(ut, "systemd_neu_laden", lambda: neu_laden.append(1))
+    quelle = _baum(tmp_path / "q-units", NEU_V)
+    (quelle / "linux" / "exo-smtp-relay.service").write_bytes(b"[Service]\nExecStartPre=+nachholen\nExecStart=neu\n")
+    (quelle / "linux" / "exo-smtp-relay-update.path").write_bytes(b"[Path]\nneu\n")
+    (quelle / "linux" / "einheiten-bekannt.json").write_text(json.dumps({
+        "exo-smtp-relay.service": [hashlib.sha256(b"[Service]\nExecStart=alt\n").hexdigest()],
+        "exo-smtp-relay-update.path": [hashlib.sha256(b"[Path]\nalt\n").hexdigest()]}))
+    dist = tmp_path / "dist-units"
+    pakete = up.bauen(quelle, dist, NEU_V)
+    (dist / up.SUMMEN).write_text(up.summen_schreiben(pakete))
+    (dist / up.SIGNATUR).write_text(base64.b64encode(schluessel.sign((dist / up.SUMMEN).read_bytes())).decode())
+    return etc, neu_laden, dist
+
+
+@pytest.mark.skipif(os.name == "nt", reason="systemd-Units nur unter Linux")
+def test_units_werden_mitgezogen_angepasste_bleiben(anlage, schluessel, tmp_path, monkeypatch):
+    etc, neu_laden, dist = _units_anlage(tmp_path, monkeypatch, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStartPre=+nachholen\nExecStart=neu\n"
+    assert (etc / "exo-smtp-relay-update.path").read_bytes() == b"[Path]\n# vom Betreiber angepasst\n"
+    assert (etc / "exo-smtp-relay.service.d" / "eigen.conf").read_text() == "[Service]\nNice=5\n"
+    assert neu_laden == [1]
+    text = ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
+    assert "Units aktualisiert: exo-smtp-relay.service" in text
+    assert "NICHT getauscht: exo-smtp-relay-update.path" in text
+
+
+@pytest.mark.skipif(os.name == "nt", reason="systemd-Units nur unter Linux")
+def test_ruecknahme_stellt_units_wieder_her(anlage, schluessel, tmp_path, monkeypatch):
+    etc, neu_laden, dist = _units_anlage(tmp_path, monkeypatch, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"], defekt={NEU_V})) == "zurueckgerollt"
+    assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStart=alt\n"
+    assert neu_laden == [1, 1], "daemon-reload beim Einspielen UND bei der Rücknahme"
+    assert not [p for p in etc.iterdir() if p.name.endswith(".relay-neu")]
+
+
+def test_ohne_systemd_keine_units(anlage, monkeypatch, tmp_path):
+    monkeypatch.setattr(ut, "SYSTEMD_ZIEL", tmp_path / "gibt-es-nicht")
+    assert ut.systemd_ziel() is None
+
+
+def test_aktuelle_units_stehen_in_der_liste_bekannter_fassungen():
+    """Jede Änderung an einer Unit braucht `tools/einheiten_bekannt.py schreiben` — sonst hielte der
+    Updater die eigene neue Unit beim nächsten Mal für „vom Betreiber angepasst“."""
+    sys.path.insert(0, str(WURZEL / "tools"))
+    import einheiten_bekannt
+    assert einheiten_bekannt.fehlende() == []
+    assert set(einheiten_bekannt.EINHEITEN) == set(ut.EINHEITEN)
