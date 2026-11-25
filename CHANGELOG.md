@@ -1,5 +1,31 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.49-beta — 2026-11-25 — Rücknahme: hash-lose Vorfassung, Sperre während des Lebenszeichens
+
+Aus dem großen Labtest von 0.2.48-beta (sonst grün: offline ohne Netz auf Server 2025,
+Offline-Update, Knopf-Update, Rollback, Python 3.11/3.13 ohne PATH, FQDN 94 Zeichen,
+Manipulationsproben):
+
+- **Rücknahme auf eine Fassung mit Lock-Datei ohne Prüfsummen (e6a):** 0.2.42 und 0.2.44-beta
+  haben keine Hashes; die Rücknahme installierte deren Lock mit `--require-hashes`, pip brach
+  ab („Hashes are required“), die neuen Pakete blieben (idna). Jetzt wird eine Lock ohne
+  Prüfsummen so installiert wie damals, ohne den Schalter — in `install.ps1` UND im Updater
+  (`update_tausch.pip_argumente`, Rückfall-Phase), weiterhin derselbe Weg. Jede Lock ab
+  0.2.47 trägt Prüfsummen (Test).
+- **Sperre erst während der Lebenszeichen-Wartezeit (e5):**
+  a) Dienst-Umgebung und Firewall folgen jetzt EINER Regel: Port zurück, wenn `app\`
+     zurückkam (das ist der Code, der läuft), sonst beide nicht — mit Meldung. Bisher ging die
+     Firewall zurück, `WEBUI_PORT` nicht.
+  b) Merker `.install-alt\zurueckholen.json` (Teile, Fassung, Port): Der nächste Lauf holt
+     diese Teile zurück — auch über die verworfene neue Fassung am Platz — oder bricht ab,
+     ohne die Sicherung anzufassen. Bisher hielt er die neue `windows\` für „am Platz“ und
+     löschte die Sicherung der alten. Jeder kopierte Ordnerteil trägt `.relay-fassung`; die
+     Rücknahme meldet, wenn am Platz ein Teil einer anderen Fassung liegt.
+- Tests: CI-Job „Installer echt“ mit e6a (Vorfassung ohne Prüfsummen, neue mit idna 3.10
+  und kaputter `main.py`) und e5 (Sperre greift erst während des Wartens, Folgelauf unter
+  Sperre, Entsperren), jeweils mit Gegenprobe gegen efbf608 (0.2.48-beta).
+- Offline-Paket: 44 Wheels (seit colorama in 0.2.47-beta), nicht 43 wie zuerst berichtet.
+
 ## 0.2.48-beta — 2026-11-25 — Stable-Kandidat: Rücknahme des Windows-Installers korrigiert
 
 **0.2.46 wurde nicht veröffentlicht** — der Labtest (2ea9192) stoppte sie an der neuen

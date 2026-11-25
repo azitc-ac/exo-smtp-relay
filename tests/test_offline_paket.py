@@ -166,13 +166,20 @@ def test_offline_verweigert_download(tmp_path):
 
 
 @pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
-@pytest.mark.parametrize("offline", [False, True])
-def test_pip_argumente_wie_im_updater(tmp_path, offline):
-    """install.ps1 (Get-RelayPipArgumente) und update_tausch.pip_argumente: EIN Weg."""
+@pytest.mark.parametrize("offline, lock_inhalt", [(False, None), (True, None),
+                                                   (False, "idna==3.18 \\\n    --hash=sha256:" + "a" * 64 + "\n"),
+                                                   (False, "idna==3.18\n")])
+def test_pip_argumente_wie_im_updater(tmp_path, offline, lock_inhalt):
+    """install.ps1 (Get-RelayPipArgumente) und update_tausch.pip_argumente: EIN Weg. Eine Lock
+    OHNE Prüfsummen (Fassungen vor 0.2.47, Rücknahme dorthin — Labtest 0.2.48 e6a) wird ohne
+    --require-hashes installiert, sonst bliebe die neue Paketfassung."""
     if offline:
         (tmp_path / "offline" / "wheels").mkdir(parents=True)
         (tmp_path / "offline" / "inhalt.json").write_text("{}")
     lock = tmp_path / "app" / "requirements.lock"
+    if lock_inhalt is not None:
+        lock.parent.mkdir(parents=True)
+        lock.write_text(lock_inhalt)
     skript = tmp_path / "pip.ps1"
     skript.write_text("Set-StrictMode -Version Latest\n" + _funktion("Get-RelayPipArgumente")
                       + f"\nConvertTo-Json -Compress -InputObject @(Get-RelayPipArgumente -InstallDir '{tmp_path}' -Lock '{lock}')\n",
@@ -182,7 +189,8 @@ def test_pip_argumente_wie_im_updater(tmp_path, offline):
     ps = [a.replace("\\", "/") for a in json.loads(r.stdout.strip().splitlines()[-1])]
     py = [a.replace("\\", "/") for a in ut.pip_argumente(tmp_path, lock)]
     assert ps == py
-    assert ("--no-index" in py) is offline and "--require-hashes" in py
+    assert ("--no-index" in py) is offline
+    assert ("--require-hashes" in py) is (lock_inhalt is None or "--hash=" in lock_inhalt)
 
 
 def test_install_nutzt_gemeinsame_pip_argumente():

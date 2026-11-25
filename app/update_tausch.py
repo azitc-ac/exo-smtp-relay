@@ -236,11 +236,22 @@ def offline_wheels(wurzel: Path) -> Path | None:
     return w / "wheels" if (w / "inhalt.json").is_file() and (w / "wheels").is_dir() else None
 
 
+def lock_hat_pruefsummen(lock: Path) -> bool:
+    try:
+        return "--hash=sha256:" in Path(lock).read_text(encoding="utf-8")
+    except OSError:
+        return True                     # im Zweifel streng
+
+
 def pip_argumente(wurzel: Path, lock: Path) -> list[str]:
     """`pip install`-Argumente — DIESELBEN wie in install.ps1: nur Wheels, nur mit den
     Prüfsummen aus der Lock-Datei; offline zusätzlich ohne Index, nur aus offline/wheels."""
-    args = ["-m", "pip", "install", "--quiet", "--disable-pip-version-check",
-            "--require-hashes", "--only-binary", ":all:"]
+    args = ["-m", "pip", "install", "--quiet", "--disable-pip-version-check"]
+    # Eine Lock-Datei OHNE Prüfsummen gibt es nur in Fassungen vor 0.2.47 — beim Rückfall auf
+    # eine solche installiert pip sie so, wie sie damals installiert wurde (Labtest 0.2.48, e6a:
+    # sonst „Hashes are required“, und die neuen Pakete blieben). Jede Lock ab 0.2.47 hat sie.
+    if lock_hat_pruefsummen(lock):
+        args += ["--require-hashes", "--only-binary", ":all:"]
     wheels = offline_wheels(wurzel)
     if wheels is not None:
         args += ["--no-index", "--find-links", str(wheels)]

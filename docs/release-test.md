@@ -87,6 +87,18 @@ Dienst `Running`, `/health` alte Fassung. `cmd` schließen, erneut → Exit 0.
 `/health` auf dem alten Port mit `<alt>`, `WEBUI_PORT` in der Dienst-Umgebung und die
 Firewall-Regel wie vorher.
 
+**Rücknahme auf hash-lose Vorfassung** (Labtest e6a): Paket mit `app\requirements.lock` ohne
+`--hash`-Zeilen als Fassung 9.9.1 installieren, dann eine Fassung mit `idna==3.10` (mit
+Prüfsumme) und kaputter `main.py` → Rücknahme, „Abhaengigkeiten auf Fassung 9.9.1
+zurueckgesetzt“, `pip show idna` → 3.18.
+
+**Sperre während des Lebenszeichens** (Labtest e5): neue Fassung mit kaputter `main.py`,
+`-WebPort 9443`; sobald der Dienst läuft, `cmd` mit Arbeitsverzeichnis in `windows\` öffnen →
+„Ruecknahme UNVOLLSTAENDIG: windows“, `WEBUI_PORT` und Firewall beide 8443, in `.install-alt\`
+liegen `windows\` und `zurueckholen.json`. Erneuter Lauf mit offener Sperre → „nicht
+zurueckholbar: windows“, Sicherung bleibt. `cmd` schließen, erneut → „zurueckgeholt (Fassung
+<alt>): windows“, Exit 0.
+
 (Alles läuft auch im CI-Job „Installer echt“.)
 
 ## 1b Offline-Installation (Windows, ohne Internet)

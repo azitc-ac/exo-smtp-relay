@@ -49,8 +49,9 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         "$global:M = New-Object System.Collections.ArrayList\n"
         "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
         "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
-        + _teile() + "\n"
+        + _teile() + "\n$RelayMerkerName = \"zurueckholen.json\"\n"
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
+                                             "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
                                              "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
@@ -341,8 +342,85 @@ def test_lebenszeichen_vor_erfolg():
     fang = h.index("\n} catch {\n")
     assert h.index('Start-Service -Name "ExoSmtpRelay"') < h.index("Wait-RelayGesund -Python $venvPython -Port $WebPort") < fang
     r = _funktion("Restore-RelayNachAbbruch")
-    assert 'windows\\dienst_umgebung.py") --setzen' in r and '--port "$altPort"' in r
-    assert "if ($firewallGesetzt -and $altPort) {\n            try { Sync-RelayFirewall -WebPort $altPort" in r
-    assert "if ($umgebungGesetzt -and $altPort -and $offen.Count -eq 0) {" in r
+    assert '--setzen "PYTHONPATH=$sp;$sp\\win32;$sp\\win32\\lib" --port "$altPort"' in r
+    assert "Sync-RelayFirewall -WebPort $altPort" in r
     assert "$firewallGesetzt = $true\n        Sync-RelayFirewall -WebPort $WebPort" in _code()
     assert "Get-RelaySicherungsTeile $sicherung $RelayTeile" in r and "$gesichert" not in r
+
+
+_MOVE_SPERRE = '''
+$global:Gesperrt = @()
+function Move-Item { param([string]$LiteralPath, [string]$Destination, $ErrorAction)
+    if ($global:Gesperrt -contains $LiteralPath.Replace("\\", "/")) { throw "Der Prozess kann nicht auf die Datei zugreifen: $LiteralPath" }
+    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop }
+$global:Fw = New-Object System.Collections.ArrayList
+function Sync-RelayFirewall([int]$WebPort) { [void]$global:Fw.Add($WebPort) }
+'''
+
+
+def _e5_zustand(ziel):
+    """Nach e5: app\\ und VERSION zurück, windows\\ (neu, 9.9.8) gesperrt geblieben — die alte
+    windows\\ liegt mit Merker in .install-alt."""
+    _installiert(ziel)
+    (ziel / "windows" / "alt.txt").write_text("alt")
+    sich = ziel / ".install-alt"
+    sich.mkdir()
+    (ziel / "windows").rename(sich / "windows")
+    (ziel / "windows").mkdir()
+    (ziel / "windows" / ".relay-fassung").write_text("9.9.8")
+    (sich / "zurueckholen.json").write_text('{"teile":["windows"],"fassung":"0.2.44","port":"8443"}')
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_rest_mit_merker_holt_alte_teile_auch_ueber_belegtes_ziel(tmp_path):
+    """Labtest 0.2.48 e5b: „alle Teile am Platz“ hielt die verworfene NEUE windows\\ für richtig
+    und löschte die Sicherung der alten. Mit Merker kommt die alte zurück."""
+    ziel = tmp_path / "inst"
+    _e5_zustand(ziel)
+    e = _lauf(tmp_path, f'''
+$g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile -Fassung "0.2.44" -Port "8443")
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Gesichert = $g;
+    AltWindows = (Test-Path "{ziel}/.install-alt/windows/alt.txt"); Meldungen = @($global:M) }})
+''')
+    assert e["AltWindows"] is True, e                    # die ALTE windows\\ ist jetzt die Sicherung
+    assert e["Gesichert"] == ["app", "windows", "VERSION"], e
+    assert any("zurueckgeholt (Fassung 0.2.44): windows" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_rest_mit_merker_weiter_gesperrt_bleibt_unangetastet(tmp_path):
+    ziel = tmp_path / "inst"
+    _e5_zustand(ziel)
+    e = _lauf(tmp_path, _MOVE_SPERRE + f'''
+$global:Gesperrt = @("{ziel}/windows")
+try {{ Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile | Out-Null; $f = "" }} catch {{ $f = "$($_.Exception.Message)" }}
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Fehler = $f; Alt = (Test-Path "{ziel}/.install-alt/windows/alt.txt");
+    Merker = (Test-Path "{ziel}/.install-alt/zurueckholen.json"); App = (Test-Path "{ziel}/app/main.py"); Meldungen = @($global:M) }})
+''')
+    assert "nicht zurueckholbar: windows" in e["Fehler"], e
+    assert e["Alt"] and e["Merker"] and e["App"], e
+    assert not any("entfernt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+@pytest.mark.parametrize("gesperrt, port_zurueck", [("windows", True), ("app", False)])
+def test_port_folgt_app(tmp_path, gesperrt, port_zurueck):
+    """Labtest 0.2.48 e5a: Firewall alt, WEBUI_PORT neu. Jetzt eine Regel für beides: zurück,
+    wenn app\\ zurückkam, sonst keins."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    e = _lauf(tmp_path, _DIENST_MOCK + _MOVE_SPERRE + _ABLAUF_VARS.format(z=ziel) + f'''
+$firewallGesetzt = $true; $altPort = "8443"
+$gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung "0.2.44" -Port "8443")
+New-Item -ItemType Directory "{ziel}/app", "{ziel}/windows" | Out-Null
+Set-Content "{ziel}/VERSION" "9.9.8"
+$global:Gesperrt = @("{ziel}/{gesperrt}")
+Restore-RelayNachAbbruch
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Fw = @($global:Fw); Merker = (Get-Content "$sicherung/zurueckholen.json" -Raw | ConvertFrom-Json).teile;
+    Meldungen = @($global:M) }})
+''')
+    assert e["Fw"] == ([8443] if port_zurueck else []), e
+    assert e["Merker"] == gesperrt or e["Merker"] == [gesperrt], e
+    assert any("UNVOLLSTAENDIG" in m for m in e["Meldungen"]), e
+    if not port_zurueck:
+        assert any("Web-Port bleibt wie eingestellt" in m for m in e["Meldungen"]), e

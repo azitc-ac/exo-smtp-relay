@@ -21,13 +21,23 @@
       7. neue Fassung mit kaputter main.py und -WebPort 9443 -> Ruecknahme, /health alte Fassung,
          Port 8443 in Dienst-Umgebung und Firewall; Gegenprobe 2ea9192: "Aktualisiert", /health stumm
 
+      8. e6a: vorige Fassung mit Lock OHNE Pruefsummen, neue mit idna 3.10 und kaputter main.py ->
+         Ruecknahme setzt idna auf 3.18 zurueck; Gegenprobe efbf608: idna bleibt 3.10
+      9. e5: windows\ erst WAEHREND der Lebenszeichen-Wartezeit gesperrt, -WebPort 9443 ->
+         UNVOLLSTAENDIG, Dienst-Umgebung UND Firewall 8443 (app\ kam zurueck); Folgelauf bei weiter
+         bestehender Sperre loescht die Sicherung NICHT; nach dem Entsperren kommt die alte
+         windows\ zurueck. Gegenprobe efbf608: Firewall 8443, WEBUI_PORT 9443; Folgelauf loescht
+         die Sicherung ("alle Teile am Platz")
+
+    -Gegenprobe048 gibt den Pfad eines efbf608-Baums an (0.2.48-beta).
     -Gegenprobe046 gibt den Pfad eines 2ea9192-Baums an (0.2.46, vom Labtest gestoppt).
     -Gegenprobe gibt den Pfad eines entpackten 0.2.45-Baums an (CI: git worktree).
 #>
 param(
     [string]$Quelle = (Split-Path -Parent $PSScriptRoot),
     [string]$Gegenprobe = "",
-    [string]$Gegenprobe046 = ""
+    [string]$Gegenprobe046 = "",
+    [string]$Gegenprobe048 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -239,6 +249,87 @@ if ($Gegenprobe046) {
     Pruefe (-not $roh) "Gegenprobe e4 2ea9192: /health bleibt stumm"
     $r = Install-Lauf (New-Baum "q1") "7g-wiederherstellen"
     Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq $version) "Wiederherstellen nach e4-Gegenprobe"
+}
+
+# 8 -- e6a: Ruecknahme auf eine Fassung mit Lock ohne Pruefsummen --------------------------
+function Get-Idna { "$((& "$ziel\venv\Scripts\python.exe" -m pip show idna 2>$null | Select-String '^Version:') -replace 'Version:\s*','')".Trim() }
+function Set-IdnaAlt([string]$Baum) {
+    $lock = Join-Path $Baum "app\requirements.lock"
+    $text = Get-Content -LiteralPath $lock -Raw
+    $neu = [regex]::Replace($text, '(?m)^idna==3\.18 \\\r?\n\s+--hash=sha256:[0-9a-f]{64}',
+        "idna==3.10 \`n    --hash=sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3")
+    if ($neu -eq $text) { throw "idna-Eintrag nicht gefunden in $lock" }
+    Set-Content -LiteralPath $lock -Value $neu -NoNewline -Encoding UTF8
+}
+$qa = New-Baum "q6a"
+Set-Content -Path (Join-Path $qa "VERSION") -Value "9.9.1" -NoNewline
+$la = Join-Path $qa "app\requirements.lock"
+Set-Content -LiteralPath $la -Encoding UTF8 -Value @(Get-Content -LiteralPath $la | Where-Object { $_ -notmatch '^\s+--hash=' } | ForEach-Object { $_ -replace '\s*\\$', '' })
+Pruefe (-not (Select-String -LiteralPath $la -Pattern "--hash=" -SimpleMatch -Quiet)) "e6a: vorige Fassung hat eine Lock ohne Pruefsummen"
+$r = Install-Lauf $qa "8-e6a-vorher"
+Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq "9.9.1") "e6a: Fassung 9.9.1 (Lock ohne Pruefsummen) installiert"
+Pruefe ((Get-Idna) -eq "3.18") "e6a: idna 3.18"
+$qb = New-StummerBaum $Quelle "q6b"
+Set-IdnaAlt $qb
+$r = Install-Lauf $qb "8-e6a-kaputt"
+Pruefe ($r.Rc -ne 0 -and $r.Text -match "ABBRUCH im Schritt 'Lebenszeichen'") "e6a: neue Fassung (idna 3.10) faellt am Lebenszeichen"
+Pruefe ($r.Text -match "Abhaengigkeiten auf Fassung 9\.9\.1 zurueckgesetzt") "e6a: Abhaengigkeiten zurueckgesetzt gemeldet"
+Pruefe ((Get-Idna) -eq "3.18") "e6a: idna nach der Ruecknahme wieder 3.18 (ist $(Get-Idna))"
+Pruefe ((Get-Fassung) -eq "9.9.1") "e6a: VERSION wieder 9.9.1"
+if ($Gegenprobe048) {
+    $qg = New-StummerBaum $Gegenprobe048 "q6g"
+    Set-IdnaAlt $qg
+    $r = Install-Lauf $qg "8g-e6a-efbf608"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "Abhaengigkeiten nicht zurueckgesetzt") "Gegenprobe e6a efbf608: Ruecknahme der Abhaengigkeiten scheitert"
+    Pruefe ((Get-Idna) -eq "3.10") "Gegenprobe e6a efbf608: idna bleibt 3.10"
+}
+$r = Install-Lauf (New-Baum "q1") "8-e6a-wiederherstellen"
+Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq $version -and (Get-Idna) -eq "3.18") "e6a: wiederhergestellt ($version, idna 3.18)"
+
+# 9 -- e5: Sperre erst waehrend der Lebenszeichen-Wartezeit --------------------------------
+function Start-SpaeteSperre([string]$Fassung) {
+    $pidDatei = Join-Path $arbeit "sperre-$([guid]::NewGuid().ToString('N')).pid"
+    $code = "while (-not ((Get-Service ExoSmtpRelay).Status -eq 'Running' -and (Test-Path '$ziel\VERSION') -and (Get-Content '$ziel\VERSION' -Raw).Trim() -eq '$Fassung')) { Start-Sleep -Milliseconds 300 }; " +
+            "`$p = Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 900' -WorkingDirectory '$ziel\windows' -WindowStyle Hidden -PassThru; Set-Content '$pidDatei' `$p.Id"
+    $w = Start-Process powershell.exe -ArgumentList @("-NoProfile", "-Command", $code) -WindowStyle Hidden -PassThru
+    return @{ Waechter = $w; PidDatei = $pidDatei }
+}
+function Stop-Sperre($s) {
+    Stop-Process -Id $s.Waechter.Id -Force -ErrorAction SilentlyContinue
+    if (Test-Path $s.PidDatei) { Stop-Process -Id ([int](Get-Content $s.PidDatei)) -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 2
+}
+function Get-FirewallPort { $fw = @(Get-NetFirewallRule -DisplayName "EXO SMTP Relay - Web *"); "$((Get-NetFirewallPortFilter -AssociatedNetFirewallRule $fw[0]).LocalPort)" }
+$sich = Join-Path $ziel ".install-alt"
+
+$s = Start-SpaeteSperre "9.9.8"
+try {
+    $r = Install-Lauf (New-StummerBaum $Quelle "q5") "9-e5-1" @("-WebPort", "9443")
+    Pruefe (Test-Path $s.PidDatei) "e5: Sperre griff erst waehrend der Lebenszeichen-Wartezeit"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "Ruecknahme UNVOLLSTAENDIG: windows") "e5: Ruecknahme UNVOLLSTAENDIG (windows) gemeldet"
+    Pruefe ((Get-Fassung) -eq $version) "e5: VERSION wieder $version (app\ zurueck)"
+    Pruefe ((Get-Umgebungsport) -eq "8443" -and (Get-FirewallPort) -eq "8443") "e5a: Dienst-Umgebung UND Firewall wieder 8443 (ist $(Get-Umgebungsport)/$(Get-FirewallPort))"
+    Pruefe ((Test-Path "$sich\windows") -and (Test-Path "$sich\zurueckholen.json")) "e5: alte windows\ mit Merker in .install-alt"
+    $r = Install-Lauf (New-Baum "q1") "9-e5-2"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "nicht zurueckholbar: windows") "e5b: Folgelauf bei Sperre bricht ab, ohne den Rest anzufassen"
+    Pruefe ($r.Text -notmatch "Vorige Fassung .* zurueckgeholt" -and $r.Text -notmatch "alle Teile am Platz") "e5b: keine falsche Erfolgsmeldung, kein Loeschen"
+    Pruefe (Test-Path "$sich\windows") "e5b: Sicherung der alten windows\ bleibt"
+} finally { Stop-Sperre $s }
+$r = Install-Lauf (New-Baum "q1") "9-e5-3"
+Pruefe ($r.Rc -eq 0 -and $r.Text -match "zurueckgeholt \(Fassung $([regex]::Escape($version))\): windows") "e5: nach dem Entsperren alte windows\ zurueck, Exit 0"
+$g = Get-Gesundheit
+Pruefe ($null -ne $g -and $g.version -eq $version -and -not (Test-Path $sich)) "e5: /health $version, .install-alt weg"
+
+if ($Gegenprobe048) {
+    $s = Start-SpaeteSperre "9.9.8"
+    try {
+        $r = Install-Lauf (New-StummerBaum $Gegenprobe048 "q5g") "9g-e5-efbf608-1" @("-WebPort", "9443")
+        Pruefe ((Get-FirewallPort) -eq "8443" -and (Get-Umgebungsport) -eq "9443") "Gegenprobe e5a efbf608: Firewall 8443, WEBUI_PORT 9443 (uneinheitlich)"
+        $r = Install-Lauf $Gegenprobe048 "9g-e5-efbf608-2"
+        Pruefe ($r.Text -match "alle Teile am Platz" -and -not (Test-Path "$sich\windows")) "Gegenprobe e5b efbf608: Folgelauf loescht die Sicherung der alten windows\"
+    } finally { Stop-Sperre $s }
+    $r = Install-Lauf (New-Baum "q1") "9g-wiederherstellen" @("-WebPort", "8443")
+    Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq $version -and (Get-Umgebungsport) -eq "8443") "Wiederherstellen nach e5-Gegenprobe"
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green

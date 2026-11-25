@@ -255,9 +255,35 @@ function Invoke-RelayNativ([string]$Was, [scriptblock]$Befehl) {
 #   2. Sperrtest VOR dem ersten Verschieben: jeder Teil wird probeweise umbenannt und zurueck.
 #      Scheitert einer, wird nichts verschoben.
 #   3. Die Ruecknahme liest, was WIRKLICH in .install-alt\ liegt (Get-RelaySicherungsTeile).
+# Labtest 0.2.48 (e5): windows\ erst WAEHREND der Lebenszeichen-Wartezeit gesperrt - die Ruecknahme
+# blieb unvollstaendig (richtig gemeldet), aber der naechste Lauf hielt die verworfene NEUE windows\
+# am Platz fuer "alle Teile am Platz" und loeschte die Sicherung der alten. Deshalb ein Merker
+# .install-alt\zurueckholen.json: welche Teile zurueck muessen (Fassung, Port). Ein Rest mit Merker
+# wird zurueckgeholt - auch ueber ein belegtes Ziel - oder der Lauf bricht ab, ohne ihn anzufassen.
+# Dazu traegt jeder kopierte Ordnerteil .relay-fassung (VERSION), damit sich pruefen laesst, wessen
+# Teil am Platz liegt.
 function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
     if (-not (Test-Path -LiteralPath $Sicherung)) { return }
     foreach ($teil in $Teile) { if (Test-Path -LiteralPath (Join-Path $Sicherung $teil)) { $teil } }
+}
+
+$RelayMerkerName = "zurueckholen.json"
+
+function Write-RelayMerker([string]$Sicherung, [string[]]$Teile, [string]$Fassung, [string]$Port) {
+    $inhalt = [ordered]@{ teile = @($Teile); fassung = $Fassung; port = $Port; zeit = (Get-Date).ToString("s") }
+    Set-Content -LiteralPath (Join-Path $Sicherung $RelayMerkerName) -Value (ConvertTo-Json -Compress -InputObject $inhalt) -Encoding UTF8
+}
+
+function Read-RelayMerker([string]$Sicherung) {
+    $m = Join-Path $Sicherung $RelayMerkerName
+    if (-not (Test-Path -LiteralPath $m)) { return $null }
+    try { return (Get-Content -LiteralPath $m -Raw | ConvertFrom-Json) } catch { return $null }
+}
+
+function Get-RelayTeilFassung([string]$Pfad) {
+    $f = Join-Path $Pfad ".relay-fassung"
+    if (Test-Path -LiteralPath $f) { return (Get-Content -LiteralPath $f -Raw).Trim() }
+    return ""
 }
 
 function Test-RelayVerschiebbar([string]$Pfad) {
@@ -271,18 +297,31 @@ function Test-RelayVerschiebbar([string]$Pfad) {
     return $true
 }
 
-function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
+function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile, [string]$Fassung = "", [string]$Port = "") {
     if (Test-Path -LiteralPath $Sicherung) {
         $rest = @(Get-RelaySicherungsTeile $Sicherung $Teile)
-        foreach ($teil in $rest) {
-            $p = Join-Path $Ziel $teil
-            if (-not (Test-Path -LiteralPath $p)) {
-                Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
-                Write-Warn "Aus dem Rest eines frueheren Laufs zurueckgeholt: $teil"
+        $merker = Read-RelayMerker $Sicherung
+        if ($merker) {
+            # Alles laut Merker zurueck - ein belegtes Ziel ist die verworfene neue Fassung.
+            $offen = @(Restore-RelayFassung -Ziel $Ziel -Sicherung $Sicherung -Teile @($merker.teile))
+            if ($offen.Count -gt 0) {
+                throw "Rest eines abgebrochenen Laufs (Fassung $($merker.fassung)) nicht zurueckholbar: $($offen -join ', ') - Sperre loesen, die Sicherung $Sicherung bleibt"
+            }
+            Write-Warn "Aus dem Rest eines frueheren Laufs zurueckgeholt (Fassung $($merker.fassung)): $(@($merker.teile | Where-Object { $rest -contains $_ }) -join ', ')"
+        } else {
+            # Ohne Merker (Lauf vor 0.2.49 oder Absturz vor dem Schreiben): nur fehlende Teile.
+            foreach ($teil in $rest) {
+                $p = Join-Path $Ziel $teil
+                if (-not (Test-Path -LiteralPath $p)) {
+                    Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
+                    Write-Warn "Aus dem Rest eines frueheren Laufs zurueckgeholt: $teil"
+                }
             }
         }
-        Write-Warn "Rest eines frueheren Laufs entfernt (alle Teile am Platz): $Sicherung"
-        Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $Sicherung) {
+            Write-Warn "Rest eines frueheren Laufs entfernt (alle Teile am Platz): $Sicherung"
+            Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction Stop
+        }
     }
     $gesperrt = @()
     foreach ($teil in $Teile) {
@@ -293,12 +332,11 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
         throw "gesperrt (offene Datei oder Arbeitsverzeichnis eines Programms darin): $($gesperrt -join ', ') - nichts verschoben"
     }
     New-Item -ItemType Directory -Force -Path $Sicherung | Out-Null
-    foreach ($teil in $Teile) {
-        $p = Join-Path $Ziel $teil
-        if (Test-Path -LiteralPath $p) {
-            Move-Item -LiteralPath $p -Destination (Join-Path $Sicherung $teil) -ErrorAction Stop
-            $teil
-        }
+    $vorhanden = @($Teile | Where-Object { Test-Path -LiteralPath (Join-Path $Ziel $_) })
+    Write-RelayMerker $Sicherung $vorhanden $Fassung $Port
+    foreach ($teil in $vorhanden) {
+        Move-Item -LiteralPath (Join-Path $Ziel $teil) -Destination (Join-Path $Sicherung $teil) -ErrorAction Stop
+        $teil
     }
 }
 
@@ -325,7 +363,14 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
             if (Test-Path -LiteralPath $weg) { Write-Warn "Verworfene neue Fassung bleibt liegen (gesperrt): $weg" }
         }
     }
-    if ($offen.Count -eq 0) { Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($offen.Count -eq 0) {
+        Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        $alt = Read-RelayMerker $Sicherung
+        $f = ""; $po = ""
+        if ($alt) { $f = "$($alt.fassung)"; $po = "$($alt.port)" }
+        Write-RelayMerker $Sicherung $offen $f $po
+    }
     $offen
 }
 
@@ -341,8 +386,16 @@ function Restore-RelayNachAbbruch {
         } else {
             Write-Warn "Ruecknahme UNVOLLSTAENDIG: $($offen -join ', ') liegt noch in $sicherung - Sperre loesen und install.ps1 erneut ausfuehren (die Sicherung bleibt erhalten)"
         }
+        foreach ($teil in @("app", "windows")) {
+            $tf = Get-RelayTeilFassung (Join-Path $InstallDir $teil)
+            if ($tf -and $altVersion -and $tf -ne $altVersion) { Write-Warn "$teil\ am Platz stammt aus Fassung $tf (nicht $altVersion)" }
+        }
+        # Abhaengigkeiten, Port in Dienst-Umgebung UND Firewall folgen EINER Regel: dem Code, der
+        # laeuft - also app\. Ist app\ zurueck, alles zurueck; sonst nichts (Labtest 0.2.48 e5a:
+        # Firewall alt, WEBUI_PORT neu).
+        $appZurueck = ($inSicherung -contains "app") -and -not ($offen -contains "app")
         $lock = Join-Path $InstallDir "app\requirements.lock"
-        if ($pipGelaufen -and $offen.Count -eq 0 -and (Test-Path $venvPython) -and (Test-Path $lock)) {
+        if ($appZurueck -and $pipGelaufen -and (Test-Path $venvPython) -and (Test-Path $lock)) {
             try {
                 $pipArgs = @(Get-RelayPipArgumente -InstallDir $InstallDir -Lock $lock)
                 Invoke-RelayNativ "pip (Ruecknahme)" { & $venvPython @pipArgs } | Out-Null
@@ -351,17 +404,22 @@ function Restore-RelayNachAbbruch {
                 Write-Warn "Abhaengigkeiten nicht zurueckgesetzt: $($_.Exception.Message)"
             }
         }
-        # Port in der Dienst-Umgebung und in der Firewall wie vorher (Labtest 0.2.46, e4).
-        if ($umgebungGesetzt -and $altPort -and $offen.Count -eq 0) {
-            try {
-                $sp = Join-Path $venv "Lib\site-packages"
-                Invoke-RelayNativ "Dienst-Umgebung (Ruecknahme)" { & $venvPython (Join-Path $InstallDir "windows\dienst_umgebung.py") --setzen "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib" --port "$altPort" } | Out-Null
-                Write-Warn "Web-Port der Dienst-Umgebung wieder $altPort"
-            } catch { Write-Warn "Dienst-Umgebung nicht zurueckgesetzt: $($_.Exception.Message)" }
-        }
-        if ($firewallGesetzt -and $altPort) {
-            try { Sync-RelayFirewall -WebPort $altPort; Write-Warn "Firewall wieder auf Port $altPort" }
-            catch { Write-Warn "Firewall nicht zurueckgesetzt: $($_.Exception.Message)" }
+        if ($appZurueck -and $altPort) {
+            if ($umgebungGesetzt) {
+                try {
+                    $sp = Join-Path $venv "Lib\site-packages"
+                    $du = Join-Path $InstallDir "windows\dienst_umgebung.py"
+                    if (-not (Test-Path $du)) { $du = Join-Path $sicherung "windows\dienst_umgebung.py" }
+                    Invoke-RelayNativ "Dienst-Umgebung (Ruecknahme)" { & $venvPython $du --setzen "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib" --port "$altPort" } | Out-Null
+                    Write-Warn "Web-Port der Dienst-Umgebung wieder $altPort"
+                } catch { Write-Warn "Dienst-Umgebung nicht zurueckgesetzt: $($_.Exception.Message)" }
+            }
+            if ($firewallGesetzt) {
+                try { Sync-RelayFirewall -WebPort $altPort; Write-Warn "Firewall wieder auf Port $altPort" }
+                catch { Write-Warn "Firewall nicht zurueckgesetzt: $($_.Exception.Message)" }
+            }
+        } elseif (-not $appZurueck -and ($umgebungGesetzt -or $firewallGesetzt)) {
+            Write-Warn "Web-Port bleibt wie eingestellt (Dienst-Umgebung und Firewall), weil app\ nicht zurueckkam"
         }
     } elseif ($istUpgrade) {
         Write-Warn "Abbruch vor dem Austausch - nichts verschoben, die installierte Fassung ist unveraendert."
@@ -544,7 +602,11 @@ function Install-RelayExoModul([string]$Nupkg) {
 # den Pruefsummen der Lock-Datei; liegt offline\wheels in der Installation, ohne Index daraus.
 # Gleichheit prueft tests\test_abhaengigkeiten.py.
 function Get-RelayPipArgumente([string]$InstallDir, [string]$Lock) {
-    $a = @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--require-hashes", "--only-binary", ":all:")
+    $a = @("-m", "pip", "install", "--quiet", "--disable-pip-version-check")
+    # Lock ohne Pruefsummen: nur Fassungen vor 0.2.47 (Ruecknahme dorthin, Labtest 0.2.48 e6a).
+    $mitHashes = $true
+    if (Test-Path -LiteralPath $Lock) { $mitHashes = [bool](Select-String -LiteralPath $Lock -Pattern "--hash=sha256:" -SimpleMatch -Quiet) }
+    if ($mitHashes) { $a += @("--require-hashes", "--only-binary", ":all:") }
     $o = Join-Path $InstallDir "offline"
     if ((Test-Path -LiteralPath (Join-Path $o "inhalt.json")) -and (Test-Path -LiteralPath (Join-Path $o "wheels"))) {
         $a += @("--no-index", "--find-links", (Join-Path $o "wheels"))
@@ -682,7 +744,7 @@ try {
     Write-Step "Kopiere Anwendung nach $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
+    $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung $altVersion -Port $altPort)
     foreach ($teil in $RelayTeile) {
         $q = Join-Path $quelle $teil
         if ($teil -eq "offline") { continue }
@@ -698,6 +760,12 @@ try {
         Copy-Item -Recurse -Force (Join-Path $quelle "offline\wheels") (Join-Path $oz "wheels")
     } elseif ($gesichert -contains "offline") {
         Write-Ok "Online-Installation: offline\ entfernt - Aktualisierungen laden kuenftig das normale Paket"
+    }
+    # Fassungsmarke je Ordnerteil: wessen app\ bzw. windows\ am Platz liegt (Ruecknahme, Rest).
+    $neuFassung = (Get-Content (Join-Path $quelle "VERSION") -Raw).Trim()
+    foreach ($teil in @("app", "windows")) {
+        $d = Join-Path $InstallDir $teil
+        if (Test-Path $d) { Set-Content -LiteralPath (Join-Path $d ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII }
     }
     # __pycache__ aus der Quelle nicht mitschleppen
     Get-ChildItem -Path (Join-Path $InstallDir "app") -Recurse -Directory -Filter "__pycache__" |
