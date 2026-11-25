@@ -83,11 +83,23 @@ jobs:
         shell: powershell
         run: .\tools\offline_probe.ps1 -Paket "dist\exo-smtp-relay-${{ needs.pakete.outputs.version }}-windows-offline.zip"
 
+  # Freigabe durch einen Menschen: Stable-Releases warten im Environment
+  # „release“ auf die Bestätigung von Alexander Zarenko (Pflicht-Prüfer),
+  # Betas laufen über „beta“ ohne Prüfer. Davor wird nur gebaut und signiert,
+  # veröffentlicht (Image, Release) wird erst danach.
+  freigabe:
+    name: Freigabe (${{ needs.pakete.outputs.kanal }})
+    needs: pakete
+    runs-on: ubuntu-latest
+    environment: ${{ needs.pakete.outputs.kanal == 'stable' && 'release' || 'beta' }}
+    steps:
+      - run: echo "Freigegeben fuer Kanal ${{ needs.pakete.outputs.kanal }}"
+
   # Nativ je Architektur: pwsh unter QEMU stürzt beim Modul-Install ab
   # (siehe Dockerfile). Erst Digests, dann EIN Manifest mit beiden.
   image:
     name: Image ${{ matrix.arch }}
-    needs: pakete
+    needs: [pakete, freigabe]
     strategy:
       matrix:
         include:

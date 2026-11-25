@@ -452,6 +452,10 @@ Erprobt mit dem ersten Release v0.2.42 am 24.11.2026.
    Für das Abbild: Tags `<version>` und `stable` bzw. `beta` vorhanden,
    Plattformen amd64 und arm64, ohne Anmeldung abrufbar (öffentlich).
 5. **Test auf echten Installationen:** siehe `docs/release-test.md`.
+6. **Freigabe:** Stable-Releases (Tag ohne `-beta`) halten nach dem Bauen und
+   Signieren im Job „Freigabe“ an. Veröffentlicht wird erst, wenn der Herausgeber
+   im GitHub-Environment `release` zustimmt („Review deployments“ → Approve).
+   Betas laufen über das Environment `beta` ohne Prüfer.
 
 Es sind zwei Prüfschlüssel eingebaut, ein Haupt- und ein Reserveschlüssel. Der
 Hauptschlüssel signiert über das Secret. Der Reserveschlüssel liegt offline,
