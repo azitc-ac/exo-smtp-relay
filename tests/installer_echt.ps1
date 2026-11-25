@@ -36,6 +36,13 @@
          unter Sperre bricht ab, ohne das gute windows\ anzufassen. Gegenprobe 97cc8bf: Folgelauf
          verwirft das gute windows\, Dienst gestoppt
 
+     12. OFFENE DATEI (FileShare Read, kein Delete) in app\main.py, windows\service.py und - waehrend
+         des Lebenszeichens - in .install-alt\windows\service.py: nichts teilweise verschoben,
+         ehrliche Meldung, Dienst laeuft weiter bzw. wieder; Folgelauf unter Sperre ebenso,
+         entsperrt Exit 0. Gegenprobe aa45770: Teilverschiebung sichtbar (*.relay-sperrtest bzw.
+         unvollstaendiges windows\); danach heilt der aktuelle Installer das ohne Handarbeit.
+
+    -Gegenprobe050 gibt den Pfad eines aa45770-Baums an (0.2.50, vom Labtest gestoppt).
     -Gegenprobe049 gibt den Pfad eines 97cc8bf-Baums an (0.2.49-beta).
     -Gegenprobe048 gibt den Pfad eines efbf608-Baums an (0.2.48-beta).
     -Gegenprobe046 gibt den Pfad eines 2ea9192-Baums an (0.2.46, vom Labtest gestoppt).
@@ -46,7 +53,8 @@ param(
     [string]$Gegenprobe = "",
     [string]$Gegenprobe046 = "",
     [string]$Gegenprobe048 = "",
-    [string]$Gegenprobe049 = ""
+    [string]$Gegenprobe049 = "",
+    [string]$Gegenprobe050 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -410,6 +418,73 @@ if ($Gegenprobe049) {
     } finally { Stop-Sperre $s }
     $r = Install-Lauf (New-Baum "q1") "11g-wiederherstellen"
     Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach Z2-Gegenprobe"
+}
+
+# 12 -- offene Dateien -----------------------------------------------------------------
+function Start-DateiSperre([string]$Datei, [string]$Fassung = "") {
+    $pidDatei = Join-Path $arbeit "dsperre-$([guid]::NewGuid().ToString('N')).pid"
+    $warte = ""
+    if ($Fassung) {
+        $warte = "while (-not ((Get-Service ExoSmtpRelay).Status -eq 'Running' -and (Test-Path '$Datei') -and (Get-Content '$ziel\VERSION' -Raw).Trim() -eq '$Fassung')) { Start-Sleep -Milliseconds 200 }; "
+    }
+    $code = $warte + "`$h = [System.IO.File]::Open('$Datei', 'Open', 'Read', 'Read'); Set-Content '$pidDatei' `$PID; Start-Sleep -Seconds 900"
+    $w = Start-Process powershell.exe -ArgumentList @("-NoProfile", "-Command", $code) -WindowStyle Hidden -PassThru
+    if (-not $Fassung) { for ($i = 0; $i -lt 50 -and -not (Test-Path $pidDatei); $i++) { Start-Sleep -Milliseconds 200 } }
+    return @{ Waechter = $w; PidDatei = $pidDatei }
+}
+function Get-Anzahl([string]$Ordner) {
+    if (-not (Test-Path $Ordner)) { return 0 }
+    @(Get-ChildItem -LiteralPath $Ordner -Recurse -File -Force | Where-Object { $_.FullName -notmatch '\\__pycache__\\' }).Count
+}
+function Get-Reste { @(Get-ChildItem -LiteralPath $ziel -Force | Where-Object { $_.Name -match '\.relay-(sperrtest|verworfen)' } | ForEach-Object { $_.Name }) }
+
+foreach ($fall in @(@{ Teil = "app"; Datei = "app\main.py" }, @{ Teil = "windows"; Datei = "windows\service.py" })) {
+    $teil = $fall.Teil
+    $vorher = Get-Anzahl (Join-Path $ziel $teil)
+    $s = Start-DateiSperre (Join-Path $ziel $fall.Datei)
+    try {
+        Pruefe (Test-Path $s.PidDatei) "offen ${teil}: Datei $($fall.Datei) offen (Share Read)"
+        foreach ($lauf in 1, 2) {
+            $r = Install-Lauf (New-Baum "q1") "12-$teil-$lauf"
+            Pruefe ($r.Rc -ne 0 -and $r.Text -match "gesperrt .*$teil.* - nichts verschoben") "offen $teil Lauf ${lauf}: Sperre gemeldet, nichts verschoben"
+            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and (Get-Reste).Count -eq 0) "offen $teil Lauf ${lauf}: $vorher Dateien am Platz, keine Reste"
+            Pruefe (Test-Laeuft $version) "offen $teil Lauf ${lauf}: Dienst laeuft, /health $version"
+        }
+        if ($Gegenprobe050) {
+            $r = Install-Lauf $Gegenprobe050 "12g-$teil-aa45770"
+            Pruefe ((Get-Reste) -contains "$teil.relay-sperrtest") "Gegenprobe offen $teil aa45770: Teilverschiebung sichtbar ($((Get-Reste) -join ', '); $(Get-Anzahl (Join-Path $ziel $teil)) von $vorher am Platz)"
+            $r = Install-Lauf (New-Baum "q1") "12h-$teil-heilen"
+            Pruefe ($r.Text -match "\.relay-sperrtest: \d+ Datei\(en\) nach $teil\\ zurueckgefuehrt") "Heilung offen ${teil}: Reste zurueckgefuehrt (unter Sperre)"
+            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and (Get-Reste).Count -eq 0) "Heilung offen ${teil}: wieder $vorher Dateien, keine Reste"
+        }
+    } finally { Stop-Sperre $s }
+    $r = Install-Lauf (New-Baum "q1") "12-$teil-entsperrt"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Reste).Count -eq 0) "offen ${teil}: entsperrt Exit 0, $version, keine Reste"
+}
+
+# offene Datei in .install-alt\windows waehrend des Lebenszeichens (kaputte neue Fassung)
+$sollWindows = Get-Anzahl (Join-Path $ziel "windows")
+$s = Start-DateiSperre (Join-Path $ziel ".install-alt\windows\service.py") "9.9.8"
+try {
+    $r = Install-Lauf (New-StummerBaum $Quelle "qo1") "12-alt-1"
+    Pruefe (Test-Path $s.PidDatei) "offen .install-alt: Datei waehrend des Lebenszeichens geoeffnet"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "Ruecknahme UNVOLLSTAENDIG: windows") "offen .install-alt: UNVOLLSTAENDIG (windows) gemeldet"
+    Pruefe ((Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and (Get-Anzahl (Join-Path $ziel ".install-alt\windows")) -eq $sollWindows) "offen .install-alt: beide windows\ vollstaendig ($sollWindows Dateien), nichts geteilt"
+    Pruefe (Test-Laeuft $version) "offen .install-alt: Dienst laeuft, /health $version"
+    $r = Install-Lauf (New-Baum "q1") "12-alt-2"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "nicht zurueckholbar: windows" -and $r.Text -notmatch "Vorige Fassung .* zurueckgeholt") "offen .install-alt Folgelauf: bricht ehrlich ab"
+    Pruefe ((Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and (Test-Laeuft $version)) "offen .install-alt Folgelauf: windows\ vollstaendig, Dienst laeuft"
+} finally { Stop-Sperre $s }
+$r = Install-Lauf (New-Baum "q1") "12-alt-3"
+Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Reste).Count -eq 0 -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "offen .install-alt: entsperrt Exit 0, keine Reste"
+if ($Gegenprobe050) {
+    $s = Start-DateiSperre (Join-Path $ziel ".install-alt\windows\service.py") "9.9.8"
+    try {
+        $r = Install-Lauf (New-StummerBaum $Gegenprobe050 "qo1g") "12g-alt-aa45770"
+        Pruefe ((Get-Anzahl (Join-Path $ziel "windows")) -lt $sollWindows) "Gegenprobe offen .install-alt aa45770: windows\ am Platz unvollstaendig ($(Get-Anzahl (Join-Path $ziel 'windows')) von $sollWindows)"
+    } finally { Stop-Sperre $s }
+    $r = Install-Lauf (New-Baum "q1") "12h-alt-heilen"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and (Get-Reste).Count -eq 0) "Heilung nach aa45770: Exit 0, windows\ vollstaendig, keine Reste"
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green

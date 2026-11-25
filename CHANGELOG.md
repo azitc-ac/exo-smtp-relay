@@ -1,9 +1,9 @@
 # Changelog — EXO SMTP Relay
 
-## 0.2.50 — 2026-11-25 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.50, Lieferkette, Offline-Paket
+## 0.2.51 — 2026-11-25 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.51, Lieferkette, Offline-Paket
 
-Erste stabile Fassung seit 0.2.42. Fasst 0.2.43-beta, 0.2.44-beta, 0.2.45 und 0.2.46 (beide
-nicht veröffentlicht), 0.2.47-beta, 0.2.48-beta und 0.2.49-beta zusammen — Einzelheiten in deren
+Erste stabile Fassung seit 0.2.42. Fasst 0.2.43-beta, 0.2.44-beta, 0.2.45, 0.2.46 und 0.2.50
+(alle drei nicht veröffentlicht), 0.2.47-beta, 0.2.48-beta und 0.2.49-beta zusammen — Einzelheiten in deren
 Abschnitten unten. Im Labtest (Windows Server 2025, Linux, Docker) geprüft.
 
 **Upgrade-Hinweise**
@@ -21,7 +21,7 @@ Abschnitten unten. Im Labtest (Windows Server 2025, Linux, Docker) geprüft.
   `sudo chown -R 1000:1000 data`).
 - **Bewusst gesetzte Rechte auf `data\`** (Windows) werden beim nächsten `install.ps1` entfernt
   und gemeldet: `data\` hat genau SYSTEM und Administratoren.
-- **Offline-Server:** neues Paket `exo-smtp-relay-0.2.50-windows-offline.zip` (README →
+- **Offline-Server:** neues Paket `exo-smtp-relay-0.2.51-windows-offline.zip` (README →
   Offline-Installation). Eine damit installierte Instanz aktualisiert ohne PyPI.
 
 **Das Wichtigste**
@@ -32,7 +32,8 @@ Abschnitten unten. Im Labtest (Windows Server 2025, Linux, Docker) geprüft.
   Bei der Lieferketten-Arbeit aufgedeckt: `colorama` (Windows) fehlte in der Lock-Datei.
 - **Windows-Offline-Paket** mit Python, 44 Wheels (Python 3.11–3.13) und ExchangeOnlineManagement;
   vor jeder Veröffentlichung auf Windows ohne Netz installiert und geprüft.
-- **`install.ps1` robust beim Upgrade:** Sperrtest vor dem Austausch, Rücknahme nach dem Inhalt
+- **`install.ps1` robust beim Upgrade:** verschiebt Ordner nur atomar und nie in ein
+  vorhandenes Ziel, führt Reste früherer Läufe selbst zurück, Sperrtest vor dem Austausch, Rücknahme nach dem Inhalt
   der Sicherung mit Merker, Lebenszeichen (`/health` mit der Soll-Version) vor „Aktualisiert“,
   Rücknahme von Abhängigkeiten (auch auf Fassungen mit Lock-Datei ohne Prüfsummen), Web-Port
   und Firewall nach einer Regel; Exit-Codes geprüft; `data\`-Rechte erzwungen, nie beendend.
@@ -40,7 +41,36 @@ Abschnitten unten. Im Labtest (Windows Server 2025, Linux, Docker) geprüft.
 - **TLS:** selbstsigniertes Zertifikat trägt FQDN und Rechnernamen, auch bei Namen über 64 Zeichen.
 - **Firewall:** ein Upgrade öffnet nie weiter als vorher.
 
-Neu in 0.2.50 (Labtest von 0.2.49-beta, seltener Fall: Sperre IN `.install-alt\`):
+Neu in 0.2.51 (Labtest von 0.2.50 — **0.2.50 wurde nicht veröffentlicht**):
+
+- **`Move-Item` auf einen Ordner ist unter Windows PowerShell 5.1 (Build 26100) nicht atomar.**
+  Bei einer offenen Datei darin (Share Read, kein Delete) wirft es, hat aber schon einen Teil der
+  Dateien verschoben. Folgen im Labtest: Der Sperrtest selbst zerlegte `app\` (14 von 102
+  Dateien in `app.relay-sperrtest`), meldete „nichts verschoben“, der Dienst lief ohne Listener;
+  Folgeläufe verschachtelten den Rest (`app.relay-sperrtest\app`) und scheiterten auch
+  entsperrt. Mit einer offenen Datei in `.install-alt\windows` blieb `windows\` unvollständig,
+  gemeldet wurde „zurückgeholt“. Jetzt:
+  - Jede Verschiebung in `install.ps1` läuft über `Move-RelayPfad`: `[IO.Directory]::Move` bzw.
+    `[IO.File]::Move` (ein Rename — ganz oder gar nicht) und nie auf ein vorhandenes Ziel.
+    Kein `Move-Item`/`Rename-Item` mehr (Test).
+  - **Selbstheilung:** Reste früherer Läufe (`*.relay-sperrtest`, auch verschachtelt;
+    `*.relay-verworfen`) werden zu Beginn dateiweise zurückgeführt, mit Meldung.
+  - Die Rücknahme unterscheidet über `.relay-fassung`: am Platz die NEUE Fassung → tauschen;
+    ein Teil der ALTEN → fehlende Dateien aus der Sicherung ergänzen. Neue Ordnerteile bekommen
+    die Marke VOR dem Inhalt.
+  - Kein „erst löschen, dann ersetzen“ an Ordnern mehr: ExchangeOnlineManagement-Modul im
+    Installer, Rückfall im Updater (`update_tausch.phase_zurueck`) und das Wegräumen des vorigen
+    Rückfallstands — erst atomar beiseite, dann löschen, so weit es geht. Der Updater nimmt nur
+    die Marke SEINES Tauschs zurück.
+  - `update_tausch` verschiebt mit `os.replace` (MoveFileExW): unter Windows mit offener Datei
+    atomar (Test).
+- Tests: isoliert unter PS 5.1 bewegt `Move-RelayPfad` bei offener Datei 0 von 60 Dateien,
+  `Move-Item` als Gegenprobe einen Teil; `os.replace` ebenso atomar. CI-Job „Installer echt“
+  mit offener Datei in `app\`, `windows\` und `.install-alt\windows`, je mit Folgelauf und
+  entsperrt, Gegenproben gegen aa45770 (Teilverschiebung sichtbar) mit anschließender Heilung
+  ohne Handarbeit.
+
+Aus 0.2.50 (nicht veröffentlicht; Labtest von 0.2.49-beta, Sperre IN `.install-alt\`):
 
 - **Z1:** Ließ sich die gesicherte alte `windows\` nicht zurückholen (Programm mit
   Arbeitsverzeichnis darin), war die neue schon beiseite — kein `windows\` am Platz, Dienst

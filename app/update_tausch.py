@@ -169,17 +169,44 @@ def phase_pruefen(wurzel: Path, daten: Path, version: str, paket: str) -> str:
     return f"Signatur und Prüfsumme gültig, {version} entpackt"
 
 
-def phase_tauschen(wurzel: Path) -> str:
+def _beiseite(pfad: Path) -> Path:
+    """Freier Name neben `pfad` (…​.relay-verworfen[-N])."""
+    ziel, i = pfad.with_name(pfad.name + ".relay-verworfen"), 1
+    while ziel.exists():
+        ziel, i = pfad.with_name(f"{pfad.name}.relay-verworfen-{i}"), i + 1
+    return ziel
+
+
+def _weg(pfad: Path) -> None:
+    """Müll entfernen, so weit es geht — ein Rest stört nicht (nie „erst löschen, dann ersetzen“)."""
+    if pfad.is_dir():
+        shutil.rmtree(pfad, ignore_errors=True)
+    else:
+        try:
+            pfad.unlink()
+        except OSError:
+            pass
+
+
+def phase_tauschen(wurzel: Path, version: str = "") -> str:
+    """Verschoben wird nur mit os.replace (MoveFileExW unter Windows: ein Rename, scheitert ganz
+    oder gar nicht — anders als PowerShells Move-Item, Labtest 0.2.50; belegt in
+    tests/test_aktualisierung.py::test_os_replace_ordner_mit_offener_datei_atomar)."""
     up = _paket_modul()
     wurzel = Path(wurzel)
     neu, alt = wurzel / NEU, wurzel / ALT
     if not (neu / "app" / "main.py").is_file():
         raise RuntimeError("Kein geprüftes Paket in .update-neu")
     if alt.exists():
-        shutil.rmtree(alt)                      # Rückfallstand des VORIGEN Tauschs
+        # Rückfallstand des VORIGEN Tauschs: erst atomar beiseite (scheitert das, ist nichts
+        # verändert), dann entfernen, so weit es geht.
+        weg = _beiseite(alt)
+        os.replace(alt, weg)
+        _weg(weg)
     alt.mkdir()
     verschoben, neu_angelegt = [], []
-    json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False})
+    json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False,
+                                 "nach": version})
     for teil in up.PAKET_INHALT:
         if not (neu / teil).exists():
             continue
@@ -188,32 +215,47 @@ def phase_tauschen(wurzel: Path) -> str:
             verschoben.append(teil)
         else:
             neu_angelegt.append(teil)
-        json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False})
+        json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False,
+                                     "nach": version})
         os.replace(neu / teil, wurzel / teil)
-    json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": True})
+    json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": True,
+                                 "nach": version})
     shutil.rmtree(neu, ignore_errors=True)
     return f"{len(verschoben) + len(neu_angelegt)} Teile getauscht"
 
 
-def phase_zurueck(wurzel: Path) -> str:
+def phase_zurueck(wurzel: Path, version: str = "") -> str:
+    """Neues beiseite (atomar), Altes zurück (atomar), dann Müll weg — nie „erst löschen, dann
+    ersetzen“: ein gesperrter neuer Teil würde sonst halb gelöscht (Labtest 0.2.50).
+    Nur die Marke DIESES Tauschs zählt (`nach` = Zielversion)."""
     wurzel = Path(wurzel)
     alt = wurzel / ALT
     marke = json_lesen(alt / MARKE)
     if not marke:
         return "nichts zurückzunehmen"
+    if version and marke.get("nach", version) != version:
+        return f"Marke gehört zu {marke.get('nach')!r}, nicht zu {version} — nichts zurückgenommen"
+    muell = []
     for teil in marke.get("neu", []):
         p = wurzel / teil
-        if p.is_dir():
-            shutil.rmtree(p)
-        elif p.exists():
-            p.unlink()
+        if p.exists():
+            w = _beiseite(p)
+            os.replace(p, w)
+            muell.append(w)
     for teil in marke.get("verschoben", []):
         p = wurzel / teil
-        if p.is_dir():
-            shutil.rmtree(p)
-        elif p.exists():
-            p.unlink()
-        os.replace(alt / teil, p)
+        if p.exists():
+            w = _beiseite(p)
+            os.replace(p, w)
+            muell.append(w)
+        try:
+            os.replace(alt / teil, p)
+        except OSError:
+            if not p.exists() and muell and muell[-1].name.startswith(p.name + ".relay-verworfen"):
+                os.replace(muell.pop(), p)          # lieber die neue Fassung als keine
+            raise
+    for w in muell:
+        _weg(w)
     shutil.rmtree(alt, ignore_errors=True)
     return f"{len(marke.get('verschoben', []))} Teile zurückgesetzt"
 
@@ -278,7 +320,7 @@ def phase_ausfuehren(name: str, wurzel: Path, daten: Path, version: str = "",
     if name == "pruefen":
         return phase_pruefen(wurzel, daten, version, paket)
     if name == "tauschen":
-        return phase_tauschen(wurzel)
+        return phase_tauschen(wurzel, version)
     if name == "pip":
         return phase_pip(wurzel) if lock_geaendert(wurzel) else "Lock-Datei unverändert"
     if name == "zurueck":
@@ -286,7 +328,7 @@ def phase_ausfuehren(name: str, wurzel: Path, daten: Path, version: str = "",
         # zurückwandern (danach liegt die alte Lock-Datei wieder in app/).
         alt_lock = Path(wurzel) / ALT / "app" / "requirements.lock"
         pip_zurueck = alt_lock.is_file() and lock_geaendert(wurzel)
-        text = phase_zurueck(wurzel)
+        text = phase_zurueck(wurzel, version)
         if pip_zurueck:
             text += "; " + phase_pip(wurzel)
         return text

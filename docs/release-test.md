@@ -105,6 +105,17 @@ Upgrades läuft, `cmd` mit Arbeitsverzeichnis `C:\ProgramData\exo-smtp-relay\.in
 läuft. Funktionierende neue Fassung → Exit 0 mit „Rest … nicht loeschbar … kein Fehler“; ein
 Folgelauf bei offener Sperre → „Rest … nicht entfernbar“, `windows\` unverändert, Dienst läuft.
 
+**Offene Datei** (Labtest 0.2.50): eine Datei mit Share Read, ohne Delete offen halten:
+```powershell
+$h = [IO.File]::Open('C:\ProgramData\exo-smtp-relay\app\main.py', 'Open', 'Read', 'Read')
+```
+dann `install.ps1 -Unattended` zweimal → „gesperrt …: app - nichts verschoben“, kein
+`app.relay-sperrtest`, Dateizahl in `app\` unverändert, Dienst lauscht. `$h.Close()`, erneut →
+Exit 0. Dasselbe mit `windows\service.py` und — während des Lebenszeichens einer kaputten
+Fassung — mit `.install-alt\windows\service.py` („UNVOLLSTAENDIG: windows“, beide `windows\`
+vollständig). Liegen von 0.2.50 noch `*.relay-sperrtest`-Reste da, meldet der nächste Lauf
+„… Datei(en) nach app\ zurueckgefuehrt“.
+
 (Alles läuft auch im CI-Job „Installer echt“.)
 
 ## 1b Offline-Installation (Windows, ohne Internet)

@@ -112,16 +112,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Staende 0.2.45, 0.2.46 (2ea9192) 0.2.48-beta (efbf608) und 0.2.49-beta (97cc8bf) fuer die Gegenproben
+      - name: Staende 0.2.45, 0.2.46 (2ea9192) 0.2.48-beta (efbf608) 0.2.49-beta (97cc8bf) und 0.2.50 (aa45770) fuer die Gegenproben
         shell: powershell
         run: |
           git worktree add "$env:RUNNER_TEMP\stand-0245" 4d78c34
           git worktree add "$env:RUNNER_TEMP\stand-0246" 2ea9192
           git worktree add "$env:RUNNER_TEMP\stand-0248" efbf608
           git worktree add "$env:RUNNER_TEMP\stand-0249" 97cc8bf
+          git worktree add "$env:RUNNER_TEMP\stand-0250" aa45770
       - name: Installieren, Upgrade mit gesperrter Datei, Abbruch mit Ruecknahme, e3, e4
         shell: powershell
-        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245" -Gegenprobe046 "$env:RUNNER_TEMP\stand-0246" -Gegenprobe048 "$env:RUNNER_TEMP\stand-0248" -Gegenprobe049 "$env:RUNNER_TEMP\stand-0249"
+        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245" -Gegenprobe046 "$env:RUNNER_TEMP\stand-0246" -Gegenprobe048 "$env:RUNNER_TEMP\stand-0248" -Gegenprobe049 "$env:RUNNER_TEMP\stand-0249" -Gegenprobe050 "$env:RUNNER_TEMP\stand-0250"
       - name: Protokoll des Dienstes
         if: always()
         shell: powershell

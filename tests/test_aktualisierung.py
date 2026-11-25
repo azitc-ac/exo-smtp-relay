@@ -535,3 +535,39 @@ def test_tag_muss_zu_version_passen():
     assert r.returncode == 0 and f"version={version}" in r.stdout and "kanal=" in r.stdout
     assert _release_tool("kanal", "v0.0.1").returncode != 0
     assert _release_tool("kanal", f"v{version}-rc1").returncode != 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Sperrsemantik offener Dateien nur unter Windows")
+def test_os_replace_ordner_mit_offener_datei_atomar(tmp_path):
+    """Labtest 0.2.50: PowerShells Move-Item verschiebt einen Ordner mit offener Datei TEILWEISE.
+    update_tausch verschiebt mit os.replace (MoveFileExW, ein Rename): Es scheitert ganz und
+    bewegt nichts. Python öffnet Dateien unter Windows ohne FILE_SHARE_DELETE — wie die
+    Labtest-Sperre (Share Read, kein Delete)."""
+    quelle = tmp_path / "app"
+    (quelle / "sub").mkdir(parents=True)
+    for i in range(60):
+        (quelle / ("sub" if i % 2 else ".") / f"f{i:02}.py").write_text(str(i))
+    vorher = sorted(p.relative_to(quelle).as_posix() for p in quelle.rglob("*") if p.is_file())
+    offen = open(quelle / "f30.py", "rb")
+    try:
+        with pytest.raises(OSError):
+            os.replace(quelle, tmp_path / "app.neu")
+    finally:
+        offen.close()
+    assert not (tmp_path / "app.neu").exists()
+    assert sorted(p.relative_to(quelle).as_posix() for p in quelle.rglob("*") if p.is_file()) == vorher
+
+
+def test_zurueck_nur_fuer_die_marke_des_eigenen_tauschs(tmp_path):
+    """Scheitert das Wegräumen des VORIGEN Rückfallstands, liegt dessen Marke noch da. Die
+    Rücknahme darf sie nicht für den eigenen Tausch halten (sonst käme die vorvorige Fassung)."""
+    w = _baum(tmp_path / "w", "0.2.50")
+    alt = w / ut.ALT
+    (alt / "app").mkdir(parents=True)
+    (alt / "app" / "main.py").write_text("vorvorig")
+    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": "0.2.50"})
+    assert "nichts zurückgenommen" in ut.phase_zurueck(w, "0.2.51")
+    assert (w / "app" / "main.py").read_text(encoding="utf-8") == "print('neu')\n"
+    assert "zurückgesetzt" in ut.phase_zurueck(w, "0.2.50")
+    assert (w / "app" / "main.py").read_text(encoding="utf-8") == "vorvorig"
+    assert not [p for p in w.iterdir() if ".relay-verworfen" in p.name], "Beiseitegelegtes aufgeräumt"

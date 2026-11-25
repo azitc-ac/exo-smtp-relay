@@ -262,6 +262,13 @@ function Invoke-RelayNativ([string]$Was, [scriptblock]$Befehl) {
 # wird zurueckgeholt - auch ueber ein belegtes Ziel - oder der Lauf bricht ab, ohne ihn anzufassen.
 # Dazu traegt jeder kopierte Ordnerteil .relay-fassung (VERSION), damit sich pruefen laesst, wessen
 # Teil am Platz liegt.
+# Labtest 0.2.50 (Z3/Z1b): Move-Item auf einen ORDNER ist unter Windows PowerShell 5.1 NICHT
+# atomar - bei einer offenen Datei darin (Share Read, kein Delete) wirft es, hat aber schon einen
+# Teil der Dateien verschoben (der Sperrtest selbst zerlegte app\). Deshalb verschiebt install.ps1
+# NUR ueber Move-RelayPfad: [IO.Directory]::Move bzw. [IO.File]::Move (MoveFileEx, ein Rename -
+# scheitert ganz oder gar nicht) und nie auf ein vorhandenes Ziel (sonst landete der Ordner DARIN).
+# Reste frueherer Laeufe (*.relay-sperrtest, *.relay-verworfen) fuehrt Repair-RelayReste dateiweise
+# zurueck. Getestet in tests\test_install_abbruch.py und im CI-Job "Installer echt" (offene Dateien).
 # Nur echte Inhalte: ein LEERER Ordnerrest (Loeschen scheiterte an einer Sperre darin, Labtest
 # 0.2.49 Z2) ist nie eine Sicherung.
 function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
@@ -292,18 +299,100 @@ function Get-RelayTeilFassung([string]$Pfad) {
     return ""
 }
 
+# Der EINZIGE Weg, in install.ps1 einen Ordner oder Teil zu verschieben: atomar, nie auf ein
+# vorhandenes Ziel.
+function Move-RelayPfad([string]$Von, [string]$Nach) {
+    if (Test-Path -LiteralPath $Nach) { throw "Ziel existiert schon, nicht verschoben: $Nach" }
+    if (Test-Path -LiteralPath $Von -PathType Container) {
+        [System.IO.Directory]::Move($Von, $Nach)
+    } else {
+        [System.IO.File]::Move($Von, $Nach)
+    }
+}
+
+function Get-RelayFreierName([string]$Basis) {
+    $n = $Basis; $i = 1
+    while (Test-Path -LiteralPath $n) { $n = "$Basis-$i"; $i++ }
+    $n
+}
+
+# Dateien aus $Von dorthin, wo sie in $Nach FEHLEN - jede Datei fuer sich (atomar). Was in $Nach
+# schon liegt, bleibt; was sich nicht bewegen laesst, zaehlt als offen. Leere Ordner in $Von
+# werden danach entfernt. $Ohne: ein Unterordner von $Von, der ausgelassen wird.
+function Merge-RelayOrdner([string]$Von, [string]$Nach, [string]$Ohne = "") {
+    $erg = @{ Bewegt = 0; Offen = 0; Doppelt = 0 }
+    if (-not (Test-Path -LiteralPath $Von -PathType Container)) { return $erg }
+    $wurzel = [IO.Path]::GetFullPath($Von).TrimEnd("\", "/")
+    $ohneVoll = ""
+    if ($Ohne) { $ohneVoll = [IO.Path]::GetFullPath($Ohne).TrimEnd("\", "/") }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Von -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        if ($ohneVoll -and $f.FullName.StartsWith($ohneVoll + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $rel = $f.FullName.Substring($wurzel.Length).TrimStart("\", "/")
+        $ziel = Join-Path $Nach $rel
+        if (Test-Path -LiteralPath $ziel) { $erg.Doppelt++; continue }
+        try {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ziel) | Out-Null
+            [System.IO.File]::Move($f.FullName, $ziel)
+            $erg.Bewegt++
+        } catch { $erg.Offen++ }
+    }
+    foreach ($d in @(Get-ChildItem -LiteralPath $Von -Recurse -Directory -Force -ErrorAction SilentlyContinue | Sort-Object { $_.FullName.Length } -Descending)) {
+        if (@(Get-ChildItem -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue).Count -eq 0) { Remove-Item -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue }
+    }
+    if (@(Get-ChildItem -LiteralPath $Von -Force -ErrorAction SilentlyContinue).Count -eq 0) { Remove-Item -LiteralPath $Von -Force -ErrorAction SilentlyContinue }
+    $erg
+}
+
+# Selbstheilung beim Start (Labtest 0.2.50 Z3): Reste des nicht-atomaren Verschiebens frueherer
+# Fassungen zurueckfuehren. *.relay-sperrtest war derselbe Teil (umbenannt) - fehlende Dateien
+# kommen zurueck, auch aus einer verschachtelten Ebene <teil>.relay-sperrtest\<teil>.
+# *.relay-verworfen ist eine verworfene NEUE Fassung - zurueck nur, wenn der Teil ganz fehlt,
+# sonst weg.
+function Repair-RelayReste([string]$Ziel, [string[]]$Teile) {
+    foreach ($teil in $Teile) {
+        $p = Join-Path $Ziel $teil
+        foreach ($r in @(Get-ChildItem -LiteralPath $Ziel -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "$teil.relay-sperrtest*" })) {
+            if (-not (Test-Path -LiteralPath $p)) {
+                Move-RelayPfad $r.FullName $p
+                Write-Warn "Rest eines frueheren Laufs zurueckgefuehrt: $($r.Name) -> $teil"
+                continue
+            }
+            if (-not $r.PSIsContainer) { Remove-Item -LiteralPath $r.FullName -Force -ErrorAction SilentlyContinue; continue }
+            $nest = Join-Path $r.FullName $teil
+            $e1 = Merge-RelayOrdner $nest $p
+            $e2 = Merge-RelayOrdner $r.FullName $p $nest
+            $n = $e1.Bewegt + $e2.Bewegt
+            if (Test-Path -LiteralPath $r.FullName) {
+                Write-Warn "Rest $($r.Name): $n Datei(en) nach $teil\ zurueckgefuehrt, Rest bleibt ($($e1.Offen + $e2.Offen) gesperrt, $($e1.Doppelt + $e2.Doppelt) doppelt)"
+            } else {
+                Write-Warn "Rest $($r.Name): $n Datei(en) nach $teil\ zurueckgefuehrt"
+            }
+        }
+        foreach ($r in @(Get-ChildItem -LiteralPath $Ziel -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "$teil.relay-verworfen*" })) {
+            if (-not (Test-Path -LiteralPath $p)) {
+                Move-RelayPfad $r.FullName $p
+                Write-Warn "Teil fehlte, verworfene Fassung zurueck an den Platz: $($r.Name) -> $teil"
+                continue
+            }
+            Remove-Item -LiteralPath $r.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $r.FullName) { Write-Warn "Verworfene Fassung bleibt liegen (gesperrt): $($r.Name)" }
+        }
+    }
+}
+
 function Test-RelayVerschiebbar([string]$Pfad) {
-    $probe = "$Pfad.relay-sperrtest"
+    $probe = Get-RelayFreierName "$Pfad.relay-sperrtest"
     try {
-        Move-Item -LiteralPath $Pfad -Destination $probe -ErrorAction Stop
+        Move-RelayPfad $Pfad $probe
     } catch {
         return $false
     }
-    Move-Item -LiteralPath $probe -Destination $Pfad -ErrorAction Stop
+    Move-RelayPfad $probe $Pfad
     return $true
 }
 
 function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile, [string]$Fassung = "", [string]$Port = "") {
+    Repair-RelayReste $Ziel $Teile
     if (Test-Path -LiteralPath $Sicherung) {
         $rest = @(Get-RelaySicherungsTeile $Sicherung $Teile)
         $merker = Read-RelayMerker $Sicherung
@@ -319,7 +408,7 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
             foreach ($teil in $rest) {
                 $p = Join-Path $Ziel $teil
                 if (-not (Test-Path -LiteralPath $p)) {
-                    Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
+                    Move-RelayPfad (Join-Path $Sicherung $teil) $p
                     Write-Warn "Aus dem Rest eines frueheren Laufs zurueckgeholt: $teil"
                 }
             }
@@ -344,45 +433,58 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
     $vorhanden = @($Teile | Where-Object { Test-Path -LiteralPath (Join-Path $Ziel $_) })
     Write-RelayMerker $Sicherung $vorhanden $Fassung $Port
     foreach ($teil in $vorhanden) {
-        Move-Item -LiteralPath (Join-Path $Ziel $teil) -Destination (Join-Path $Sicherung $teil) -ErrorAction Stop
+        Move-RelayPfad (Join-Path $Ziel $teil) (Join-Path $Sicherung $teil)
         $teil
     }
 }
 
-# Gegenstueck: was in .install-alt\ liegt, zurueck an seinen Platz. Das Neue wird erst beiseite
-# umbenannt (nie vorher geloescht - ein gesperrtes Ziel wuerde sonst halb geloescht). Rueckgabe:
-# Teile, die NICHT zurueckkamen; die Sicherung bleibt dann liegen.
+# Gegenstueck: was in .install-alt\ liegt, zurueck an seinen Platz. Rueckgabe: Teile, die NICHT
+# zurueckkamen; die Sicherung bleibt dann liegen (Merker auf diese Teile gekuerzt).
+#   * Teil fehlt am Platz:                 die Sicherung wird verschoben (atomar).
+#   * am Platz die NEUE Fassung (.relay-fassung <> Fassung im Merker): beiseite (eindeutiger Name,
+#     nie geloescht), Sicherung hinein; scheitert das, kommt die neue zurueck (Labtest 0.2.49 Z1).
+#   * am Platz ein Teil der ALTEN Fassung (gleiche Marke oder keine - neue tragen immer eine):
+#     fehlende Dateien aus der Sicherung ergaenzen (Labtest 0.2.50 Z1b, Teilverschiebung).
 function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
     $offen = @()
+    $merker = Read-RelayMerker $Sicherung
+    $altFassung = ""
+    if ($merker) { $altFassung = "$($merker.fassung)" }
     foreach ($teil in @(Get-RelaySicherungsTeile $Sicherung $Teile)) {
         $p = Join-Path $Ziel $teil
-        $weg = "$p.relay-verworfen"
+        $s = Join-Path $Sicherung $teil
+        if (-not (Test-Path -LiteralPath $p)) {
+            try { Move-RelayPfad $s $p } catch { $offen += $teil }
+            continue
+        }
+        $istOrdner = Test-Path -LiteralPath $p -PathType Container
+        $platzFassung = ""
+        if ($istOrdner) { $platzFassung = Get-RelayTeilFassung $p }
+        if ($istOrdner -and -not ($platzFassung -and $platzFassung -ne $altFassung)) {
+            $e = Merge-RelayOrdner $s $p
+            if ($e.Bewegt -gt 0) { Write-Warn "${teil}\: $($e.Bewegt) fehlende Datei(en) aus der Sicherung ergaenzt" }
+            # Doppelte Dateien bleiben wie am Platz (gleiche Fassung); offen nur, was sich nicht bewegen liess.
+            if ($e.Offen -gt 0) { $offen += $teil }
+            elseif (Test-Path -LiteralPath $s) { Remove-Item -LiteralPath $s -Recurse -Force -ErrorAction SilentlyContinue }
+            continue
+        }
+        $weg = Get-RelayFreierName "$p.relay-verworfen"
+        try { Move-RelayPfad $p $weg } catch { $offen += $teil; continue }
         try {
-            if (Test-Path -LiteralPath $p) {
-                if (Test-Path -LiteralPath $weg) { Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction Stop }
-                Move-Item -LiteralPath $p -Destination $weg -ErrorAction Stop
-            }
-            Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
+            Move-RelayPfad $s $p
         } catch {
-            # Labtest 0.2.49 Z1: Sperre IN der Sicherung - das Neue war schon beiseite, das Alte kam
-            # nicht. Dann das Neue zurueck an seinen Platz: lieber die neue Fassung als keine.
-            if (-not (Test-Path -LiteralPath $p) -and (Test-Path -LiteralPath $weg)) {
-                try { Move-Item -LiteralPath $weg -Destination $p -ErrorAction Stop } catch { Write-Warn "$teil\ fehlt am Platz und liegt unter $weg - von Hand zurueckbenennen" }
-            }
+            try { Move-RelayPfad $weg $p } catch { Write-Warn "$teil fehlt am Platz und liegt unter $weg - der naechste Lauf holt es zurueck" }
             $offen += $teil
             continue
         }
-        if (Test-Path -LiteralPath $weg) {
-            Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $weg) { Write-Warn "Verworfene neue Fassung bleibt liegen (gesperrt): $weg" }
-        }
+        Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $weg) { Write-Warn "Verworfene neue Fassung bleibt liegen (gesperrt): $weg" }
     }
     if ($offen.Count -eq 0) {
         Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
     } else {
-        $alt = Read-RelayMerker $Sicherung
         $f = ""; $po = ""
-        if ($alt) { $f = "$($alt.fassung)"; $po = "$($alt.port)" }
+        if ($merker) { $f = "$($merker.fassung)"; $po = "$($merker.port)" }
         Write-RelayMerker $Sicherung $offen $f $po
     }
     $offen
@@ -610,8 +712,11 @@ function Install-RelayExoModul([string]$Nupkg) {
     $skripte = @(Get-ChildItem -LiteralPath $tmp -Recurse -File | Where-Object { $_.Extension -in @(".ps1", ".psm1", ".psd1") })
     if ($skripte.Count -eq 0) { throw "$($em.Datei): keine Skriptdateien im Modul" }
     foreach ($s in $skripte) { Test-RelaySignatur $s.FullName $em.Signierer }
-    if (Test-Path -LiteralPath $ziel) { Remove-Item -LiteralPath $ziel -Recurse -Force }
-    Move-Item -LiteralPath $tmp -Destination $ziel
+    # Nie "erst loeschen, dann ersetzen" (ein gesperrtes Modul waere halb geloescht): beiseite, rein, weg.
+    $weg = ""
+    if (Test-Path -LiteralPath $ziel) { $weg = Get-RelayFreierName "$ziel.alt"; Move-RelayPfad $ziel $weg }
+    try { Move-RelayPfad $tmp $ziel } catch { if ($weg) { Move-RelayPfad $weg $ziel }; throw }
+    if ($weg) { Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction SilentlyContinue }
     return $ziel
 }
 
@@ -762,10 +867,20 @@ try {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
     $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung $altVersion -Port $altPort)
+    # Ordnerteile: erst Ordner und Fassungsmarke, DANN der Inhalt - ein abgebrochenes Kopieren
+    # hinterlaesst nie einen neuen Teil ohne Marke (Ruecknahme unterscheidet neu/alt danach).
+    $neuFassung = (Get-Content (Join-Path $quelle "VERSION") -Raw).Trim()
     foreach ($teil in $RelayTeile) {
         $q = Join-Path $quelle $teil
-        if ($teil -eq "offline") { continue }
-        if (Test-Path $q) { Copy-Item -Recurse -Force $q (Join-Path $InstallDir $teil) }
+        if ($teil -eq "offline" -or -not (Test-Path $q)) { continue }
+        $d = Join-Path $InstallDir $teil
+        if (Test-Path $q -PathType Container) {
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+            Set-Content -LiteralPath (Join-Path $d ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII
+            Copy-Item -Recurse -Force -Path (Join-Path $q "*") -Destination $d
+        } else {
+            Copy-Item -Force -LiteralPath $q -Destination $d
+        }
     }
     # offline\: nur Wheels und inhalt.json (der Updater installiert daraus). Installer und
     # Modulpaket bleiben im Paket. Eine Online-Installation hat keins - war vorher eins da,
@@ -773,16 +888,11 @@ try {
     if ($RelayOffline) {
         $oz = Join-Path $InstallDir "offline"
         New-Item -ItemType Directory -Force -Path $oz | Out-Null
+        Set-Content -LiteralPath (Join-Path $oz ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII
         Copy-Item -Force (Join-Path $quelle "offline\inhalt.json") (Join-Path $oz "inhalt.json")
         Copy-Item -Recurse -Force (Join-Path $quelle "offline\wheels") (Join-Path $oz "wheels")
     } elseif ($gesichert -contains "offline") {
         Write-Ok "Online-Installation: offline\ entfernt - Aktualisierungen laden kuenftig das normale Paket"
-    }
-    # Fassungsmarke je Ordnerteil: wessen app\ bzw. windows\ am Platz liegt (Ruecknahme, Rest).
-    $neuFassung = (Get-Content (Join-Path $quelle "VERSION") -Raw).Trim()
-    foreach ($teil in @("app", "windows")) {
-        $d = Join-Path $InstallDir $teil
-        if (Test-Path $d) { Set-Content -LiteralPath (Join-Path $d ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII }
     }
     # __pycache__ aus der Quelle nicht mitschleppen
     Get-ChildItem -Path (Join-Path $InstallDir "app") -Recurse -Directory -Filter "__pycache__" |

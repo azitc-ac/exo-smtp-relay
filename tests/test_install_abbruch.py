@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -52,6 +53,7 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         + _teile() + "\n$RelayMerkerName = \"zurueckholen.json\"\n"
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
                                              "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
+                                             "Move-RelayPfad", "Get-RelayFreierName", "Merge-RelayOrdner", "Repair-RelayReste",
                                              "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
@@ -91,6 +93,7 @@ def test_sicherung_und_ruecknahme(tmp_path):
 $g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{sich}" -Teile $RelayTeile)
 $nachSicherung = @(Get-ChildItem "{ziel}" -Name -Force | Sort-Object | ForEach-Object {{ "$_" }})
 New-Item -ItemType Directory "{ziel}/app" | Out-Null
+Set-Content "{ziel}/app/.relay-fassung" "0.2.46"
 Set-Content "{ziel}/app/main.py" "neu"
 Set-Content "{ziel}/VERSION" "0.2.46"
 Set-Content "{ziel}/README.md" "neu"
@@ -126,6 +129,7 @@ $dienstLief = ${str(lief).lower()}; $altVersion = "0.2.44"
 $venv = "{ziel}/venv"; $umgebungGesetzt = $false; $firewallGesetzt = $false; $altPort = ""
 $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
 New-Item -ItemType Directory "{ziel}/app" | Out-Null
+Set-Content "{ziel}/app/.relay-fassung" "0.2.46"
 Set-Content "{ziel}/VERSION" "0.2.46"
 Restore-RelayNachAbbruch
 ConvertTo-Json -Compress -InputObject ([ordered]@{{ Version = (Get-Content "{ziel}/VERSION" -Raw).Trim();
@@ -354,10 +358,11 @@ def test_lebenszeichen_vor_erfolg():
 
 _MOVE_SPERRE = '''
 $global:Gesperrt = @()
-function Move-Item { param([string]$LiteralPath, [string]$Destination, $ErrorAction)
-    $n = $LiteralPath.Replace('\\', '/')
-    if (@($global:Gesperrt | ForEach-Object { $_.Replace('\\', '/') }) -contains $n) { throw "Der Prozess kann nicht auf die Datei zugreifen: $LiteralPath" }
-    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop }
+function Move-RelayPfad([string]$Von, [string]$Nach) {
+    $n = $Von.Replace('\\', '/')
+    if (@($global:Gesperrt | ForEach-Object { $_.Replace('\\', '/') }) -contains $n) { throw "Der Prozess kann nicht auf die Datei zugreifen: $Von" }
+    if (Test-Path -LiteralPath $Nach) { throw "Ziel existiert schon, nicht verschoben: $Nach" }
+    if (Test-Path -LiteralPath $Von -PathType Container) { [System.IO.Directory]::Move($Von, $Nach) } else { [System.IO.File]::Move($Von, $Nach) } }
 $global:Fw = New-Object System.Collections.ArrayList
 function Sync-RelayFirewall([int]$WebPort) { [void]$global:Fw.Add($WebPort) }
 '''
@@ -418,6 +423,7 @@ def test_port_folgt_app(tmp_path, gesperrt, port_zurueck):
 $firewallGesetzt = $true; $altPort = "8443"
 $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung "0.2.44" -Port "8443")
 New-Item -ItemType Directory "{ziel}/app", "{ziel}/windows" | Out-Null
+Set-Content "{ziel}/app/.relay-fassung" "9.9.8"; Set-Content "{ziel}/windows/.relay-fassung" "9.9.8"
 Set-Content "{ziel}/VERSION" "9.9.8"
 $global:Gesperrt = @("{ziel}/{gesperrt}")
 Restore-RelayNachAbbruch
@@ -463,6 +469,7 @@ def test_holen_scheitert_neues_kommt_zurueck(tmp_path):
     e = _lauf(tmp_path, _MOVE_SPERRE + f'''
 $g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile -Fassung "0.2.44" -Port "")
 New-Item -ItemType Directory "{ziel}/app", "{ziel}/windows" | Out-Null
+Set-Content "{ziel}/app/.relay-fassung" "9.9.8"; Set-Content "{ziel}/windows/.relay-fassung" "9.9.8"
 Set-Content "{ziel}/windows/neu.txt" "neu"
 $global:Gesperrt = @("{ziel}/.install-alt/windows")
 $offen = @(Restore-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile)
@@ -479,3 +486,127 @@ def test_rest_nach_erfolg_als_warnung():
     code = _code()
     ende = code[code.index("\n} catch {\n", code.index("# -- Dienst anhalten")):]
     assert "nicht loeschbar (gesperrt?) - kein Fehler" in ende
+
+
+def test_kein_move_item_im_installer():
+    """Labtest 0.2.50: Move-Item auf Ordner ist unter PS 5.1 nicht atomar. Verschoben wird NUR über
+    Move-RelayPfad ([IO.Directory]::Move / [IO.File]::Move)."""
+    code = "\n".join(z for z in _code().splitlines() if not z.lstrip().startswith("#"))
+    assert "Move-Item" not in code and "Rename-Item" not in code
+    f = _funktion("Move-RelayPfad")
+    assert "[System.IO.Directory]::Move($Von, $Nach)" in f and "Ziel existiert schon" in f
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_move_relaypfad_nie_in_ein_vorhandenes_ziel(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "x.txt").write_text("x")
+    (tmp_path / "b").mkdir()
+    e = _lauf(tmp_path, f'''
+try {{ Move-RelayPfad "{tmp_path}/a" "{tmp_path}/b"; $f = "" }} catch {{ $f = "$($_.Exception.Message)" }}
+Move-RelayPfad "{tmp_path}/a" "{tmp_path}/c"
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Fehler = $f; Drin = (Test-Path "{tmp_path}/b/a"); C = (Test-Path "{tmp_path}/c/x.txt") }})
+''')
+    assert "Ziel existiert schon" in e["Fehler"] and e["Drin"] is False and e["C"] is True, e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_reste_des_teilverschiebens_werden_zurueckgefuehrt(tmp_path):
+    """Labtest 0.2.50 Z3: Der Sperrtest von aa45770 (Move-Item) verschob 14 von 102 Dateien nach
+    app.relay-sperrtest; ein Folgelauf legte app.relay-sperrtest\\app an. Repair-RelayReste führt
+    beides dateiweise zurück, ohne Handarbeit."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / "app" / "config.py").write_text("am Platz")
+    r = ziel / "app.relay-sperrtest"
+    (r / "webui").mkdir(parents=True)
+    (r / "settings_store.py").write_text("teil1")
+    (r / "webui" / "app.py").write_text("teil1")
+    (r / "app" / "routen").mkdir(parents=True)
+    (r / "app" / "handler.py").write_text("teil2")
+    (r / "app" / "routen" / "x.py").write_text("teil2")
+    (r / "app" / "config.py").write_text("doppelt")
+    (ziel / "windows.relay-verworfen").mkdir()
+    (ziel / "windows.relay-verworfen" / "neu.py").write_text("neu")
+    e = _lauf(tmp_path, f'''
+Repair-RelayReste "{ziel}" $RelayTeile
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Dateien = @(Get-ChildItem "{ziel}/app" -Recurse -File -Force | ForEach-Object {{ $_.FullName.Substring("{ziel}/app".Length + 1).Replace('\\', '/') }} | Sort-Object);
+    RestDa = (Test-Path "{ziel}/app.relay-sperrtest"); Verworfen = (Test-Path "{ziel}/windows.relay-verworfen"); Meldungen = @($global:M) }})
+''')
+    assert e["Dateien"] == ["config.py", "handler.py", "main.py", "routen/x.py", "settings_store.py", "webui/app.py"], e
+    assert e["RestDa"] is True, e                             # nur das Doppelte bleibt liegen
+    assert e["Verworfen"] is False, e                         # windows\\ am Platz → verworfene weg
+    assert any("zurueckgefuehrt" in m and "doppelt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_teilweise_alte_fassung_wird_ergaenzt(tmp_path):
+    """Labtest 0.2.50 Z1b: windows\\ am Platz unvollständig (alte Fassung, Teilverschiebung), Rest in
+    .install-alt\\windows. Die Rücknahme ergänzt die fehlenden Dateien statt „zurueckgeholt“ zu
+    behaupten oder die Teile zu verwerfen."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / "windows" / ".relay-fassung").write_text("0.2.44")
+    sich = ziel / ".install-alt"
+    (sich / "windows").mkdir(parents=True)
+    (sich / "windows" / "install.ps1").write_text("alt")
+    (sich / "zurueckholen.json").write_text('{"teile":["windows"],"fassung":"0.2.44","port":""}')
+    e = _lauf(tmp_path, f'''
+$offen = @(Restore-RelayFassung -Ziel "{ziel}" -Sicherung "{sich}" -Teile $RelayTeile)
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Offen = $offen; Datei = (Test-Path "{ziel}/windows/install.ps1");
+    Service = (Test-Path "{ziel}/windows/service.py"); Sicherung = (Test-Path "{sich}"); Meldungen = @($global:M) }})
+''')
+    assert e["Offen"] == [] and e["Datei"] and e["Service"] and e["Sicherung"] is False, e
+    assert any("1 fehlende Datei(en) aus der Sicherung ergaenzt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="Sperrsemantik offener Dateien nur unter Windows")
+def test_verschieben_mit_offener_datei_bewegt_nichts(tmp_path):
+    """Labtest 0.2.50, isoliert unter Windows PowerShell 5.1: Ordner mit 60 Dateien, eine offen
+    (FileShare Read, kein Delete). Move-RelayPfad scheitert und bewegt 0 Dateien. Gegenprobe:
+    Move-Item bewegt TEILWEISE (der Fehler, den 0.2.51 behebt)."""
+    q = tmp_path / "q"
+    skript = tmp_path / "offen.ps1"
+    skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+                      + _funktion("Move-RelayPfad") + f"""
+function Neu([string]$d) {{
+    if (Test-Path $d) {{ Remove-Item -Recurse -Force $d }}
+    New-Item -ItemType Directory "$d\\sub" | Out-Null
+    0..59 | ForEach-Object {{ Set-Content "$d\\$(if ($_ % 2) {{ 'sub\\' }})f$_.py" "$_" }}
+}}
+function Lauf([scriptblock]$b, [string]$d) {{
+    Neu $d
+    $h = [System.IO.File]::Open("$d\\f30.py", 'Open', 'Read', 'Read')
+    try {{ try {{ & $b; $f = "kein Fehler" }} catch {{ $f = "Fehler" }} }} finally {{ $h.Close() }}
+    $ziel = "$d.neu"
+    [ordered]@{{ Fehler = $f; Quelle = @(Get-ChildItem $d -Recurse -File -ErrorAction SilentlyContinue).Count;
+                 Ziel = @(Get-ChildItem $ziel -Recurse -File -ErrorAction SilentlyContinue).Count }}
+}}
+$a = Lauf {{ Move-RelayPfad "{q}" "{q}.neu" }} "{q}"
+$b = Lauf {{ Move-Item -LiteralPath "{q}2" -Destination "{q}2.neu" -ErrorAction Stop }} "{q}2"
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Relay = $a; MoveItem = $b }})
+""", encoding="utf-8-sig")
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    r = subprocess.run([shutil.which("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                        "-File", str(skript)], capture_output=True, text=True, timeout=120, env=umgebung)
+    assert r.returncode == 0, r.stderr + r.stdout
+    e = json.loads(r.stdout.strip().splitlines()[-1])
+    assert e["Relay"] == {"Fehler": "Fehler", "Quelle": 60, "Ziel": 0}, e
+    # Gegenprobe: Move-Item hat teilweise verschoben (Labtest 0.2.50 auf 26100).
+    assert e["MoveItem"]["Fehler"] == "Fehler" and 0 < e["MoveItem"]["Ziel"] < 60, e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_backup_heilt_reste_vor_dem_sperrtest(tmp_path):
+    """Der Weg im Installer: Backup-RelayFassung führt Reste zurück, BEVOR es prüft und sichert —
+    sonst sicherte es ein zerlegtes app\\ (Labtest 0.2.50 Z3)."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / "app.relay-sperrtest").mkdir()
+    (ziel / "app.relay-sperrtest" / "config.py").write_text("x")
+    e = _lauf(tmp_path, f'''
+$g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile -Fassung "0.2.44" -Port "")
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Config = (Test-Path "{ziel}/.install-alt/app/config.py");
+    Rest = (Test-Path "{ziel}/app.relay-sperrtest") }})
+''')
+    assert e == {"Config": True, "Rest": False}, e
