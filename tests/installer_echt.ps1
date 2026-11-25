@@ -242,3 +242,5 @@ if ($Gegenprobe046) {
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green
+# Der Actions-Wrapper beendet mit $LASTEXITCODE - das letzte curl der Gegenprobe ist absichtlich gescheitert.
+exit 0
