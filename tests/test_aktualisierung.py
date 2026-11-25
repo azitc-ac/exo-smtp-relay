@@ -1092,3 +1092,98 @@ def test_wrapper_meldet_seine_fassung_beim_start():
     assert '"fassung": WRAPPER_FASSUNG' in code
     assert "tausch.beim_dienststart(WURZEL, DATA, WRAPPER_FASSUNG)" in code
     assert code.index("self._waechter_melden()\n        self._nachholen()") > 0
+
+
+# ── 0.2.56: Bootstrap — getauscht hat ein ÄLTERER Updater ───────────────────
+
+@pytest.mark.skipif(os.name == "nt", reason="systemd-Units nur unter Linux")
+def test_neue_fassung_bereitet_nach_wenn_ein_alter_updater_tauschte(anlage, schluessel, tmp_path, monkeypatch):
+    """Der Knopf-Tausch läuft aus dem INSTALLIERTEN Updater; 0.2.54 und älter kennen weder Units noch
+    data\\-Rechte noch Wrapper-Neustart. Die neue Fassung fordert beim ersten Start die Nachbereitung
+    an; der Auftrag läuft mit NEUEM Code (Wrapper und Update-Service laden update_tausch.py frisch)."""
+    import hashlib
+    import aktualisierung
+    import config
+    etc, neu_laden, _ = _units_anlage(tmp_path, monkeypatch, schluessel)
+    aufrufe = _windows(monkeypatch, "    OK: entfernt: BUILTIN\\Backup Operators Allow Read\n")
+    _wrapper(anlage, b"# wrapper alt\n")
+    dist = _release_mit(tmp_path, schluessel, {
+        "windows/service.py": b"# wrapper neu\n",
+        "linux/exo-smtp-relay.service": b"[Service]\nExecStartPre=+nachholen\nExecStart=neu\n",
+        "linux/einheiten-bekannt.json": json.dumps({"exo-smtp-relay.service": [
+            hashlib.sha256(b"[Service]\nExecStart=alt\n").hexdigest()]}).encode()})
+    _auftrag_direkt(anlage, dist)
+    # Der ALTE Tauscher: ohne Units, Rechte, Wrapper-Abgleich und Merker.
+    for name in ("einheiten_tauschen", "daten_rechte_setzen", "wrapper_abgleichen"):
+        monkeypatch.setattr(ut, name, (lambda *a, **k: ""))
+    monkeypatch.setattr(ut, "_nachbereitet_merken", lambda *a, **k: None)
+    w, daten = anlage["wurzel"], anlage["daten"]
+    assert _ablauf(anlage, _Dienst(w, daten)) == "ok"
+    assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStart=alt\n"
+    assert aufrufe["ps"] == [] and aufrufe["neustart"] == 0
+    monkeypatch.undo()                                     # ab hier: der NEUE Code (Patches neu setzen)
+    monkeypatch.setattr(ut, "SYSTEMD_ZIEL", etc)
+    monkeypatch.setattr(ut, "systemd_neu_laden", lambda: neu_laden.append(1))
+    aufrufe = _windows(monkeypatch, "    OK: entfernt: BUILTIN\\Backup Operators Allow Read\n")
+    monkeypatch.setattr(config, "DATA_DIR", str(daten))
+    monkeypatch.setattr(config, "VERSION", NEU_V)
+    monkeypatch.setenv("RELAY_BETRIEBSART", "systemd")
+    monkeypatch.setattr(aktualisierung, "tauscher_bereit", lambda art=None: (True, ""))
+    assert aktualisierung.nachbereitung_anfordern() is True             # erster Start der neuen Fassung
+    assert ut.json_lesen(ut.auftrag_pfad(daten))["nachbereiten"] is True
+    dienst = _Dienst(w, daten)
+    assert ut.ablauf(w, daten, dienst.stoppen, dienst.starten, dienst.laeuft) == "ok"
+    assert dienst.stopps == 0, "die Anwendung läuft weiter"
+    assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStartPre=+nachholen\nExecStart=neu\n"
+    assert any("-NurDatenRechte" in a for a in aufrufe["ps"]) and aufrufe["neustart"] == 1
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert f"Nachbereitung {NEU_V}:" in s["text"] and "Units aktualisiert" in s["text"] and "Backup Operators" in s["text"], s
+    assert ut.json_lesen(ut.nachbereitet_pfad(daten))["version"] == NEU_V
+    assert aktualisierung.nachbereitung_anfordern() is False             # idempotent: einmal je Fassung
+
+
+def test_neuer_tauscher_bereitet_selbst_nach(anlage, schluessel, tmp_path, monkeypatch):
+    """Tauscht schon der neue Updater, macht er die Nachbereitung selbst — kein zweiter Auftrag."""
+    import aktualisierung
+    import config
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    assert ut.json_lesen(ut.nachbereitet_pfad(anlage["daten"]))["version"] == NEU_V
+    monkeypatch.setattr(config, "VERSION", NEU_V)
+    monkeypatch.setattr(aktualisierung, "tauscher_bereit", lambda art=None: (True, ""))
+    assert aktualisierung.nachbereitung_anfordern() is False
+
+
+def test_nachbereitung_nur_fuer_dienste_mit_tauscher(anlage, monkeypatch):
+    import aktualisierung
+    monkeypatch.setenv("RELAY_BETRIEBSART", "docker")
+    assert aktualisierung.nachbereitung_anfordern() is False
+    monkeypatch.setenv("RELAY_BETRIEBSART", "manuell")
+    assert aktualisierung.nachbereitung_anfordern() is False
+
+
+def test_nachbereitung_fehler_sind_warnungen_app_laeuft(anlage, monkeypatch):
+    def kaputt(*a, **k):
+        raise RuntimeError("daemon-reload fehlgeschlagen")
+    monkeypatch.setattr(ut, "einheiten_tauschen", kaputt)
+    text = ut.nachbereiten(anlage["wurzel"], anlage["daten"])
+    assert "WARNUNG: Units nicht nachgezogen (daemon-reload fehlgeschlagen)" in text
+    assert ut.json_lesen(ut.status_pfad(anlage["daten"]))["zustand"] == "ok"
+
+
+def test_app_fordert_verzoegert_an_und_alter_wrapper_laedt_neuen_code():
+    """Verzögert (ein laufender alter Tausch muss fertig sein, sonst hielte er den Auftrag für
+    „unvollständig“) — und der Weg trägt: Der Wrapper bis 0.2.54 lädt update_tausch.py je Auftrag
+    frisch aus APP, die systemd-Update-Unit startet app/update_tausch.py."""
+    import aktualisierung
+    main = (WURZEL / "app" / "main.py").read_text(encoding="utf-8")
+    assert "threading.Timer(_akt.NACHBEREITUNG_VERZOEGERUNG_S, _nachbereitung)" in main
+    assert aktualisierung.NACHBEREITUNG_VERZOEGERUNG_S >= ut.STABIL_S + 60
+    alt = subprocess.run(["git", "-C", str(WURZEL), "show", "ed5f3e3:windows/service.py"],
+                         capture_output=True, text=True, encoding="utf-8")
+    if alt.returncode != 0:
+        pytest.skip("Stand 0.2.54 nicht im Repository (flacher Checkout)")
+    assert 'spec_from_file_location("_update_tausch", APP / "update_tausch.py")' in alt.stdout
+    assert "if AUFTRAG.exists():" in alt.stdout
+    assert "app/update_tausch.py ablauf" in (WURZEL / "linux" / "exo-smtp-relay-update.service").read_text(encoding="utf-8")

@@ -50,6 +50,12 @@
          abweichender Wrapper-Fassung einen Neustart per einmaliger Aufgabe, der neue Wrapper
          bestaetigt ihn im Status, die Aufgabe ist danach weg.
 
+     15. Bootstrap: 0.2.54 installiert (ALTER Wrapper laeuft), danach liegen app\ und windows\ der
+         aktuellen Fassung auf der Platte - der Endzustand eines Tauschs durch den 0.2.54-Tauscher.
+         Auftrag "nachbereiten" -> der alte Wrapper laedt den NEUEN update_tausch.py: data\-Rechte
+         erzwungen, Wrapper-Neustart, Status "Nachbereitung", nachbereitet.json.
+
+    -Stand054 gibt den Pfad eines ed5f3e3-Baums an (0.2.54-beta).
     -Gegenprobe051 gibt den Pfad eines 3095166-Baums an (0.2.51, vom Labtest gestoppt).
     -Gegenprobe050 gibt den Pfad eines aa45770-Baums an (0.2.50, vom Labtest gestoppt).
     -Gegenprobe049 gibt den Pfad eines 97cc8bf-Baums an (0.2.49-beta).
@@ -64,7 +70,8 @@ param(
     [string]$Gegenprobe048 = "",
     [string]$Gegenprobe049 = "",
     [string]$Gegenprobe050 = "",
-    [string]$Gegenprobe051 = ""
+    [string]$Gegenprobe051 = "",
+    [string]$Stand054 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -565,6 +572,41 @@ Pruefe ("$($st.text)" -match "Dienst-Wrapper neu gestartet \(Fassung $echt\)") "
 $ErrorActionPreference = "Continue"; & schtasks.exe /Query /TN ExoSmtpRelay-Neustart 2>&1 | Out-Null; $rcAufgabe = $LASTEXITCODE; $ErrorActionPreference = "Stop"
 Pruefe ($rcAufgabe -ne 0) "(b) einmalige Aufgabe hat sich geloescht"
 Pruefe (Test-Laeuft $version) "(b) /health $version"
+
+# 15 -- Bootstrap: Tausch durch den 0.2.54-Tauscher, Nachbereitung mit neuem Code --------------
+if ($Stand054) {
+    $r = Install-Lauf $Stand054 "15-bootstrap-0254"
+    Pruefe ($r.Rc -eq 0 -and (Get-DienstStatus) -eq "Running") "Bootstrap: 0.2.54 installiert, alter Wrapper laeuft"
+    $w = Get-Content $waechter -Raw | ConvertFrom-Json
+    Pruefe (-not ($w.PSObject.Properties.Name -contains "fassung")) "Bootstrap: der 0.2.54-Wrapper meldet keine Fassung"
+    $pidAlt = (Get-CimInstance Win32_Service -Filter "Name='ExoSmtpRelay'").ProcessId
+    foreach ($teil in @("app", "windows")) {
+        $ziel2 = Join-Path $ziel $teil
+        Get-ChildItem -LiteralPath (Join-Path $Quelle $teil) -Force | ForEach-Object { Copy-Item -Recurse -Force $_.FullName $ziel2 }
+    }
+    Copy-Item -Force (Join-Path $Quelle "VERSION") (Join-Path $ziel "VERSION")
+    Remove-Item (Join-Path $ziel "data\update\nachbereitet.json") -ErrorAction SilentlyContinue
+    & icacls.exe (Join-Path $ziel "data") /grant "*S-1-5-32-551:(OI)(CI)(R)" | Out-Null
+    Pruefe (Test-FremdeAce) "Bootstrap: fremde Berechtigung auf data\ (wie nach einem Knopf-Update ab 0.2.42)"
+    $auftrag = [ordered]@{ nachbereiten = $true; angefordert_von = "installer_echt"; protokoll = 1 }
+    [System.IO.File]::WriteAllText((Join-Path $ziel "data\update\auftrag.json"), ($auftrag | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+    $fertig = $false
+    for ($i = 0; $i -lt 80 -and -not $fertig; $i++) {
+        Start-Sleep -Seconds 3
+        $w2 = Get-Content $waechter -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $pid2 = (Get-CimInstance Win32_Service -Filter "Name='ExoSmtpRelay'").ProcessId
+        $fertig = ($w2 -and ($w2.PSObject.Properties.Name -contains "fassung") -and $pid2 -ne $pidAlt -and (Get-DienstStatus) -eq "Running")
+    }
+    $st = Get-Content (Join-Path $ziel "data\update\status.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Write-Host "  Status: $($st.text)"
+    Pruefe ("$($st.text)" -match "Nachbereitung $([regex]::Escape($version)):") "Bootstrap: der alte Wrapper fuehrte die NEUE Nachbereitung aus"
+    Pruefe (-not (Test-FremdeAce)) "Bootstrap: data\-Rechte nachgezogen"
+    Pruefe ($fertig -and "$($st.text)" -match "Dienst-Wrapper neu gestartet") "Bootstrap: Wrapper neu gestartet, meldet jetzt seine Fassung"
+    $nb = Get-Content (Join-Path $ziel "data\update\nachbereitet.json") -Raw | ConvertFrom-Json
+    Pruefe ("$($nb.version)" -eq $version) "Bootstrap: nachbereitet.json = $version"
+    $r = Install-Lauf (New-Baum "q1") "15-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach dem Bootstrap-Fall"
+}
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green
 # Der Actions-Wrapper beendet mit $LASTEXITCODE - das letzte curl der Gegenprobe ist absichtlich gescheitert.

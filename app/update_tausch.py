@@ -74,6 +74,15 @@ def lebenszeichen_pfad(daten: Path) -> Path:
     return bereich(daten) / "lebenszeichen.json"
 
 
+def nachbereitet_pfad(daten: Path) -> Path:
+    """Welche Fassung zuletzt NACHBEREITET wurde (Units, data\\-Rechte, Dienst-Wrapper)."""
+    return bereich(daten) / "nachbereitet.json"
+
+
+def nachbereitung_noetig(daten: Path, version: str) -> bool:
+    return str(json_lesen(nachbereitet_pfad(daten)).get("version") or "") != version
+
+
 def ruecknahme_offen_pfad(daten: Path) -> Path:
     """Liegt hier, wenn eine Rücknahme scheiterte (Sperre): Lauf-ID, von, nach. Beim nächsten
     Dienststart bzw. Auftrag wird sie erneut versucht (ruecknahme_nachholen)."""
@@ -673,6 +682,13 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
         auftrag_pfad(daten).unlink()
     except OSError:
         pass
+    if auftrag.get("nachbereiten"):
+        # Bootstrap (0.2.56): Getauscht hat ein ÄLTERER Updater (ohne Units/ACL/Wrapper). Die neue
+        # Fassung fordert beim ersten Start die Nachbereitung an; ausgeführt wird sie hier, mit
+        # NEUEM Code — Wrapper und systemd-Update-Service laden update_tausch.py je Auftrag frisch.
+        # Der Dienst läuft weiter.
+        nachbereiten(wurzel, daten)
+        return "ok"
     if auftrag.get("nachholen"):
         # Knopf bei offener Rücknahme (aktualisierung.einspielen): nur nachholen.
         stoppen()
@@ -742,6 +758,7 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
         w = wrapper_abgleichen(wurzel, daten)
         if w:
             hinweise.append(w)
+        _nachbereitet_merken(daten, version, "; ".join(hinweise))
         status_setzen(daten, "ok", f"{version} läuft (vorher {von})"
                       + "".join(f"; {h}" for h in hinweise)
                       + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
@@ -826,6 +843,48 @@ def ruecknahme_nachholen(wurzel: Path, daten: Path, phase=None) -> bool:
     status_setzen(daten, "zurueckgerollt", f"Rücknahme nachgeholt: {text}; {aktuelle_version(wurzel)} läuft wieder"
                   + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
     return True
+
+
+def _nachbereitet_merken(daten: Path, version: str, text: str) -> None:
+    try:
+        json_schreiben(nachbereitet_pfad(daten), {"version": version, "zeit": _jetzt(), "text": text})
+    except OSError as exc:
+        print(f"update_tausch: nachbereitet.json nicht geschrieben: {exc}", file=sys.stderr)
+
+
+def nachbereiten(wurzel: Path, daten: Path) -> str:
+    """Was der Tausch nach dem Austausch tut, für eine Fassung, die ein ÄLTERER Updater getauscht hat
+    — DIESELBEN Funktionen (einheiten_tauschen, daten_rechte_setzen, wrapper_abgleichen), idempotent.
+    Fehler sind Hinweise (WARNUNG) im Status, die Anwendung läuft weiter."""
+    wurzel, daten = Path(wurzel), Path(daten)
+    version = aktuelle_version(wurzel)
+    teile = []
+    werkbank = wurzel / ".update-nachbereitung"
+    try:
+        shutil.rmtree(werkbank, ignore_errors=True)
+        werkbank.mkdir()
+        r = einheiten_tauschen(wurzel, werkbank, {"lauf": "nachbereitung"})
+        if r:
+            teile.append(r)
+    except Exception as exc:                                  # noqa: BLE001
+        teile.append(f"WARNUNG: Units nicht nachgezogen ({exc})")
+    finally:
+        shutil.rmtree(werkbank, ignore_errors=True)
+    for schritt in (lambda: daten_rechte_setzen(wurzel), lambda: wrapper_abgleichen(wurzel, daten)):
+        try:
+            r = schritt()
+        except Exception as exc:                              # noqa: BLE001
+            r = f"WARNUNG: Nachbereitung unvollständig ({exc})"
+        if r:
+            teile.append(r)
+    text = "; ".join(teile) or "nichts zu tun"
+    _nachbereitet_merken(daten, version, text)
+    s = json_lesen(status_pfad(daten))
+    vorher = str(s.get("text") or "") if s.get("zustand") in ("ok", "zurueckgerollt") else ""
+    status_setzen(daten, str(s.get("zustand") or "ok") if vorher else "ok",
+                  (vorher + "; " if vorher else "") + f"Nachbereitung {version}: {text}",
+                  **{k: s[k] for k in ("von", "nach", "angefordert_von") if k in s})
+    return text
 
 
 def beim_dienststart(wurzel: Path, daten: Path, wrapper_fassung: str = "") -> bool | None:

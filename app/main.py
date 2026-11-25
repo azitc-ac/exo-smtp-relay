@@ -301,6 +301,18 @@ async def _run_smtp() -> None:
     # zurückgerollt.
     import update_tausch
     update_tausch.lebenszeichen_schreiben(Path(config.DATA_DIR), config.VERSION)
+    # Nachbereitung anfordern, falls ein älterer Updater diese Fassung eingespielt hat (Units,
+    # data\\-Rechte, Dienst-Wrapper) — verzögert, nie den Start blockierend.
+    def _nachbereitung():
+        try:
+            import aktualisierung
+            aktualisierung.nachbereitung_anfordern()
+        except Exception as exc:                              # noqa: BLE001
+            log.warning("Nachbereitung nicht angefordert: %s", exc)
+    import aktualisierung as _akt
+    _t = threading.Timer(_akt.NACHBEREITUNG_VERZOEGERUNG_S, _nachbereitung)
+    _t.daemon = True
+    _t.start()
 
     loop = asyncio.get_running_loop()
     # SIGTERM/SIGINT sauber beenden — add_signal_handler gibt es unter Windows

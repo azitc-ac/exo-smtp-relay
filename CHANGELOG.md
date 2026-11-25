@@ -1,5 +1,27 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.56-beta — 2026-11-25 — Nachbereitung durch die neue Fassung (Bootstrap)
+
+- **Bootstrap-Lücke geschlossen** (am Code verifiziert): Der Knopf-Tausch läuft aus dem
+  INSTALLIERTEN Updater — der Windows-Wrapper lädt `app\update_tausch.py`, die Phasen laufen aus
+  dessen Arbeitskopie, unter systemd startet die Update-Unit `app/update_tausch.py`. Ein Updater bis
+  0.2.54 kennt weder das Mitziehen der Units noch die `data\`-Rechte noch den Wrapper-Neustart; bei
+  0.2.54→0.2.55 (und ab 0.2.42) kamen sie also erst beim übernächsten Update. Jetzt bereitet die
+  NEUE Fassung selbst nach: Beim ersten Start (90 s verzögert, damit ein laufender alter Tausch
+  fertig ist) legt sie, falls `data/update/nachbereitet.json` nicht ihre Fassung nennt, einen
+  Auftrag „nachbereiten“ in den bestehenden Auftragsweg. Ausgeführt wird er mit NEUEM Code — der
+  Wrapper (auch der aus 0.2.54) und der systemd-Update-Service laden `update_tausch.py` je Auftrag
+  frisch. Die Nachbereitung nutzt dieselben Funktionen wie der Tausch (`einheiten_tauschen`,
+  `daten_rechte_setzen`, `wrapper_abgleichen`), ist idempotent, läuft einmal je Fassung, stoppt
+  den Dienst nicht und meldet ihr Ergebnis im Status; Fehler sind WARNUNGEN. Der neue Tauscher und
+  `install.ps1` vermerken die Nachbereitung selbst, dann gibt es keinen zweiten Auftrag.
+- Bleibt bestehen und ist so gewollt: Nimmt ein ALTER Updater zurück, stellt er die alte Unit
+  ohne `ExecStartPre` wieder her — das ist die alte Fassung; die nächste neue bereitet wieder nach.
+- Tests: Tausch durch einen simulierten alten Tauscher, danach erster Start der neuen Fassung →
+  Units, Rechte und Wrapper nachgezogen; CI „Installer echt“: 0.2.54 installiert (alter Wrapper
+  läuft), Endzustand eines Tauschs durch den 0.2.54-Tauscher, Auftrag „nachbereiten“ → der alte
+  Wrapper führt die NEUE Nachbereitung aus (Rechte, Wrapper-Neustart, Status).
+
 ## 0.2.55-beta — 2026-11-25 — Offene Rücknahme: Nachholen überall, robustes Schreiben, BOM
 
 Aus dem Nachtest von 0.2.54-beta (l6 und l4b unter Windows grün).

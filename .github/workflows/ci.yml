@@ -126,9 +126,10 @@ jobs:
           git worktree add "$env:RUNNER_TEMP\stand-0249" 97cc8bf
           git worktree add "$env:RUNNER_TEMP\stand-0250" aa45770
           git worktree add "$env:RUNNER_TEMP\stand-0251" 3095166
+          git worktree add "$env:RUNNER_TEMP\stand-0254" ed5f3e3
       - name: Installieren, Upgrade mit gesperrter Datei, Abbruch mit Ruecknahme, e3, e4
         shell: powershell
-        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245" -Gegenprobe046 "$env:RUNNER_TEMP\stand-0246" -Gegenprobe048 "$env:RUNNER_TEMP\stand-0248" -Gegenprobe049 "$env:RUNNER_TEMP\stand-0249" -Gegenprobe050 "$env:RUNNER_TEMP\stand-0250" -Gegenprobe051 "$env:RUNNER_TEMP\stand-0251"
+        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245" -Gegenprobe046 "$env:RUNNER_TEMP\stand-0246" -Gegenprobe048 "$env:RUNNER_TEMP\stand-0248" -Gegenprobe049 "$env:RUNNER_TEMP\stand-0249" -Gegenprobe050 "$env:RUNNER_TEMP\stand-0250" -Gegenprobe051 "$env:RUNNER_TEMP\stand-0251" -Stand054 "$env:RUNNER_TEMP\stand-0254"
       - name: Protokoll des Dienstes
         if: always()
         shell: powershell

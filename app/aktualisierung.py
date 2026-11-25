@@ -251,6 +251,29 @@ def status() -> dict:
 DOCKER_BEFEHL = "docker compose pull && docker compose up -d"
 
 
+NACHBEREITUNG_VERZOEGERUNG_S = 90     # nach dem Start; ein älterer Tauscher ist bis dahin fertig
+
+
+def nachbereitung_anfordern() -> bool:
+    """Beim ersten Start einer Fassung (main.py, verzögert): Hat ein ÄLTERER Updater getauscht, fehlen
+    Units, data\\-Rechte und Wrapper-Neustart. Dann einen Auftrag „nachbereiten“ in den bestehenden
+    Auftragsweg legen — ausgeführt mit dem NEUEN update_tausch.py (Wrapper bzw. systemd-Update-Service).
+    Verzögert, damit ein laufender alter Tausch fertig ist (sonst läse er den Auftrag als „unvollständig“).
+    True, wenn angefordert."""
+    art = betriebsart()
+    if art not in ("windows", "systemd"):
+        return False
+    if not update_tausch.nachbereitung_noetig(_daten(), config.VERSION):
+        return False
+    if update_tausch.auftrag_pfad(_daten()).exists() or not tauscher_bereit(art)[0]:
+        return False
+    update_tausch.json_schreiben(update_tausch.auftrag_pfad(_daten()), {
+        "nachbereiten": True, "angefordert_von": f"Fassung {config.VERSION} (erster Start)",
+        "zeit": _jetzt(), "protokoll": update_tausch.PROTOKOLL})
+    log.info("Aktualisierung: Nachbereitung für %s angefordert (%s)", config.VERSION, art)
+    return True
+
+
 def ruecknahme_offen() -> bool:
     return update_tausch.ruecknahme_offen_pfad(_daten()).exists()
 

@@ -1156,6 +1156,13 @@ try {
     Restore-RelayNachAbbruch
     throw "Installation abgebrochen im Schritt '$schritt': $($grund.Exception.Message)"
 }
+# install.ps1 hat alles gesetzt, was der Updater nachbereiten wuerde (Units gibt es unter Windows
+# nicht, data\-Rechte, Dienst-Wrapper frisch gestartet) - die Fassung gilt als nachbereitet.
+try {
+    $nb = [ordered]@{ version = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim(); zeit = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); text = "install.ps1" }
+    New-Item -ItemType Directory -Force -Path (Join-Path $dataDir "update") | Out-Null
+    Write-RelayTextOhneBom (Join-Path $dataDir "update\nachbereitet.json") (ConvertTo-Json -Compress -InputObject $nb)
+} catch { Write-Warn "nachbereitet.json nicht geschrieben: $($_.Exception.Message)" }
 # Der Updater-Status zeigte nach verworfener offener Ruecknahme weiter "UNVOLLSTAENDIG" (Labtest
 # 0.2.54, gelb) - diese Installation ist jetzt der Stand.
 if ($script:RelayOffenInhalt) {
