@@ -187,7 +187,7 @@ Das Skript:
 
 Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7. Für Skripte und Fernausführung gibt es `-Unattended` (keine Rückfragen).
 
-**Upgrade mit Rücknahme:** Vor dem Kopieren wandert die installierte Fassung nach `.install-alt\`. Scheitert danach ein Schritt (pip, Dienstregistrierung, Start …), holt der Installer sie zurück, setzt die Abhängigkeiten auf ihre Lock-Datei zurück und startet den Dienst wieder, wenn er vorher lief; Exit-Code ungleich 0 und „ABBRUCH im Schritt …“. Rechte auf `data\`, die sich nicht setzen lassen, und ein fehlendes ExchangeOnlineManagement sind nur WARNUNGEN.
+**Upgrade mit Rücknahme:** Vorab prüft der Installer, ob sich jeder Teil verschieben lässt (ist z. B. `windows\` durch ein offenes Programm gesperrt, bricht er ab, ohne etwas zu verschieben). Dann wandert die installierte Fassung nach `.install-alt\`. Nach dem Start wartet er bis 60 s, bis `/health` die neue Fassung meldet. Scheitert danach ein Schritt (pip, Dienstregistrierung, Start …), holt der Installer sie zurück (nach dem, was tatsächlich in `.install-alt\` liegt), setzt die Abhängigkeiten auf ihre Lock-Datei, den Web-Port in Dienst-Umgebung und Firewall auf den bisherigen zurück und startet den Dienst wieder, wenn er vorher lief; Exit-Code ungleich 0 und „ABBRUCH im Schritt …“. Rechte auf `data\`, die sich nicht setzen lassen, und ein fehlendes ExchangeOnlineManagement sind nur WARNUNGEN.
 
 **Deinstallation:** `.\windows\uninstall.ps1`
 

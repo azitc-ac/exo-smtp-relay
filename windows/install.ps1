@@ -205,9 +205,13 @@ function Set-RelayDataAclKern([string]$Pfad) {
             Write-Warn "Rechte nicht lesbar: $name"; $probleme++; continue
         }
         if ($eigene.Count -eq 0 -and -not $geschuetzt) { continue }
-        foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
-        if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
-        if (Reset-RelayAclErbe $o.FullName) { $zurueck++ } else { Write-Warn "nicht zurueckgesetzt: $name ($($script:RelayIcaclsMeldung); von Hand: icacls `"$($o.FullName)`" /reset)"; $probleme++ }
+        # Meldungen erst NACH dem Zuruecksetzen (Labtest 0.2.46: "entfernt auf ..." stand auch
+        # vor einem gescheiterten Reset).
+        if (Reset-RelayAclErbe $o.FullName) {
+            foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
+            if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
+            $zurueck++
+        } else { Write-Warn "nicht zurueckgesetzt: $name ($($script:RelayIcaclsMeldung); von Hand: icacls `"$($o.FullName)`" /reset)"; $probleme++ }
     }
     if ($probleme -eq 0) {
         Write-Ok "data\ nur fuer SYSTEM und Administratoren lesbar ($entfernt fremde Eintraege entfernt, $zurueck Unterobjekte zurueckgesetzt)"
@@ -243,47 +247,102 @@ function Invoke-RelayNativ([string]$Was, [scriptblock]$Befehl) {
 }
 
 # Upgrade-Sicherung: bisherige Teile nach .install-alt\ VERSCHIEBEN (kein Kopieren, kein Loeschen).
-# Rueckgabe: die verschobenen Teile.
+# Labtest 0.2.46 (e3): windows\ gesperrt (cmd mit Arbeitsverzeichnis darin) - app\ war schon
+# verschoben, windows\ nicht, die Rueckgabe ging verloren, die Ruecknahme meldete "unveraendert"
+# und ein zweiter Lauf LOESCHTE die einzige Sicherung von app\. Deshalb:
+#   1. Rest eines frueheren Laufs: erst zurueckholen, was am Platz fehlt; geloescht wird er nur,
+#      wenn danach alle Teile am Platz sind - sonst Abbruch, die Sicherung bleibt.
+#   2. Sperrtest VOR dem ersten Verschieben: jeder Teil wird probeweise umbenannt und zurueck.
+#      Scheitert einer, wird nichts verschoben.
+#   3. Die Ruecknahme liest, was WIRKLICH in .install-alt\ liegt (Get-RelaySicherungsTeile).
+function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
+    if (-not (Test-Path -LiteralPath $Sicherung)) { return }
+    foreach ($teil in $Teile) { if (Test-Path -LiteralPath (Join-Path $Sicherung $teil)) { $teil } }
+}
+
+function Test-RelayVerschiebbar([string]$Pfad) {
+    $probe = "$Pfad.relay-sperrtest"
+    try {
+        Move-Item -LiteralPath $Pfad -Destination $probe -ErrorAction Stop
+    } catch {
+        return $false
+    }
+    Move-Item -LiteralPath $probe -Destination $Pfad -ErrorAction Stop
+    return $true
+}
+
 function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
     if (Test-Path -LiteralPath $Sicherung) {
-        Write-Warn "Rest eines frueheren Laufs entfernt: $Sicherung"
-        Remove-Item -LiteralPath $Sicherung -Recurse -Force
+        $rest = @(Get-RelaySicherungsTeile $Sicherung $Teile)
+        foreach ($teil in $rest) {
+            $p = Join-Path $Ziel $teil
+            if (-not (Test-Path -LiteralPath $p)) {
+                Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
+                Write-Warn "Aus dem Rest eines frueheren Laufs zurueckgeholt: $teil"
+            }
+        }
+        Write-Warn "Rest eines frueheren Laufs entfernt (alle Teile am Platz): $Sicherung"
+        Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction Stop
+    }
+    $gesperrt = @()
+    foreach ($teil in $Teile) {
+        $p = Join-Path $Ziel $teil
+        if ((Test-Path -LiteralPath $p) -and -not (Test-RelayVerschiebbar $p)) { $gesperrt += $teil }
+    }
+    if ($gesperrt.Count -gt 0) {
+        throw "gesperrt (offene Datei oder Arbeitsverzeichnis eines Programms darin): $($gesperrt -join ', ') - nichts verschoben"
     }
     New-Item -ItemType Directory -Force -Path $Sicherung | Out-Null
     foreach ($teil in $Teile) {
         $p = Join-Path $Ziel $teil
         if (Test-Path -LiteralPath $p) {
-            Move-Item -LiteralPath $p -Destination (Join-Path $Sicherung $teil)
+            Move-Item -LiteralPath $p -Destination (Join-Path $Sicherung $teil) -ErrorAction Stop
             $teil
         }
     }
 }
 
-# Gegenstueck: gesicherte Teile zurueck an ihren Platz, das Neue davor weg.
+# Gegenstueck: was in .install-alt\ liegt, zurueck an seinen Platz. Das Neue wird erst beiseite
+# umbenannt (nie vorher geloescht - ein gesperrtes Ziel wuerde sonst halb geloescht). Rueckgabe:
+# Teile, die NICHT zurueckkamen; die Sicherung bleibt dann liegen.
 function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
-    foreach ($teil in $Teile) {
-        $alt = Join-Path $Sicherung $teil
-        if (-not (Test-Path -LiteralPath $alt)) { continue }
+    $offen = @()
+    foreach ($teil in @(Get-RelaySicherungsTeile $Sicherung $Teile)) {
         $p = Join-Path $Ziel $teil
-        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
-        Move-Item -LiteralPath $alt -Destination $p
+        $weg = "$p.relay-verworfen"
+        try {
+            if (Test-Path -LiteralPath $p) {
+                if (Test-Path -LiteralPath $weg) { Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction Stop }
+                Move-Item -LiteralPath $p -Destination $weg -ErrorAction Stop
+            }
+            Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
+        } catch {
+            $offen += $teil
+            continue
+        }
+        if (Test-Path -LiteralPath $weg) {
+            Remove-Item -LiteralPath $weg -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $weg) { Write-Warn "Verworfene neue Fassung bleibt liegen (gesperrt): $weg" }
+        }
     }
-    Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
+    if ($offen.Count -eq 0) { Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue }
+    $offen
 }
 
 # Aus dem catch des Hauptablaufs: vorige Fassung zurueck, Abhaengigkeiten zurueck, Dienst wieder
 # starten, wenn er vorher lief. Liest die Ablaufvariablen ($gesichert, $pipGelaufen ...).
 function Restore-RelayNachAbbruch {
     try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
-    if (@($gesichert).Count -gt 0) {
-        try {
-            Restore-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $gesichert
-            Write-Warn "Vorige Fassung $altVersion zurueckgeholt ($($gesichert -join ', '))"
-        } catch {
-            Write-Warn "Ruecknahme unvollstaendig: $($_.Exception.Message) - Sicherung unter $sicherung"
+    $inSicherung = @(Get-RelaySicherungsTeile $sicherung $RelayTeile)
+    if ($inSicherung.Count -gt 0) {
+        $offen = @(Restore-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
+        if ($offen.Count -eq 0) {
+            Write-Warn "Vorige Fassung $altVersion zurueckgeholt ($($inSicherung -join ', '))"
+        } else {
+            Write-Warn "Ruecknahme UNVOLLSTAENDIG: $($offen -join ', ') liegt noch in $sicherung - Sperre loesen und install.ps1 erneut ausfuehren (die Sicherung bleibt erhalten)"
         }
         $lock = Join-Path $InstallDir "app\requirements.lock"
-        if ($pipGelaufen -and (Test-Path $venvPython) -and (Test-Path $lock)) {
+        if ($pipGelaufen -and $offen.Count -eq 0 -and (Test-Path $venvPython) -and (Test-Path $lock)) {
             try {
                 $pipArgs = @(Get-RelayPipArgumente -InstallDir $InstallDir -Lock $lock)
                 Invoke-RelayNativ "pip (Ruecknahme)" { & $venvPython @pipArgs } | Out-Null
@@ -292,8 +351,20 @@ function Restore-RelayNachAbbruch {
                 Write-Warn "Abhaengigkeiten nicht zurueckgesetzt: $($_.Exception.Message)"
             }
         }
+        # Port in der Dienst-Umgebung und in der Firewall wie vorher (Labtest 0.2.46, e4).
+        if ($umgebungGesetzt -and $altPort -and $offen.Count -eq 0) {
+            try {
+                $sp = Join-Path $venv "Lib\site-packages"
+                Invoke-RelayNativ "Dienst-Umgebung (Ruecknahme)" { & $venvPython (Join-Path $InstallDir "windows\dienst_umgebung.py") --setzen "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib" --port "$altPort" } | Out-Null
+                Write-Warn "Web-Port der Dienst-Umgebung wieder $altPort"
+            } catch { Write-Warn "Dienst-Umgebung nicht zurueckgesetzt: $($_.Exception.Message)" }
+        }
+        if ($firewallGesetzt -and $altPort) {
+            try { Sync-RelayFirewall -WebPort $altPort; Write-Warn "Firewall wieder auf Port $altPort" }
+            catch { Write-Warn "Firewall nicht zurueckgesetzt: $($_.Exception.Message)" }
+        }
     } elseif ($istUpgrade) {
-        Write-Warn "Abbruch vor dem Austausch - die installierte Fassung ist unveraendert."
+        Write-Warn "Abbruch vor dem Austausch - nichts verschoben, die installierte Fassung ist unveraendert."
     } else {
         Write-Warn "Erstinstallation unvollstaendig - Ursache beheben und install.ps1 erneut ausfuehren."
     }
@@ -307,6 +378,22 @@ function Restore-RelayNachAbbruch {
             Write-Warn "Dienst startet nicht: $($_.Exception.Message) - Protokoll: $dataDir\logs\app.log"
         }
     }
+}
+
+# Lebenszeichen der NEUEN Fassung: /health auf dem wirksamen Port muss die Soll-Version melden
+# (Labtest 0.2.46, e4: main.py warf beim Import, der Dienst war "Running", nichts lauschte -
+# trotzdem "Aktualisiert"). Abfrage mit dem Python der venv (kein curl auf Server 2016 noetig);
+# das selbstsignierte Zertifikat wird dabei bewusst nicht geprueft - nur 127.0.0.1.
+function Wait-RelayGesund([string]$Python, [int]$Port, [string]$Version, [int]$Sekunden = 60) {
+    $code = "import json,ssl,sys,urllib.request`nk=ssl._create_unverified_context()`nfor u in ('https','http'):`n    try:`n        print(json.load(urllib.request.urlopen(u+'://127.0.0.1:$Port/health',timeout=3,context=k)).get('version',''));sys.exit(0)`n    except Exception: pass`nprint('')"
+    $ende = (Get-Date).AddSeconds($Sekunden)
+    $zuletzt = ""
+    while ((Get-Date) -lt $ende) {
+        try { $zuletzt = "$(@(Invoke-RelayNativ "health" { & $Python -c $code })[-1])".Trim() } catch { $zuletzt = "" }
+        if ($zuletzt -eq $Version) { return }
+        Start-Sleep -Seconds 2
+    }
+    throw "/health auf Port $Port meldet nach $Sekunden s nicht $Version (zuletzt: '$zuletzt') - Protokoll: $dataDir\logs\service.log"
 }
 
 # Python-Fassungen, fuer die app\requirements.lock Wheels hat (pywin32, pydantic_core, cffi ...).
@@ -581,6 +668,14 @@ $altVersion = ""
 if (Test-Path (Join-Path $InstallDir "VERSION")) { $altVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
 $gesichert = @()
 $pipGelaufen = $false
+$umgebungGesetzt = $false
+$firewallGesetzt = $false
+# Bisheriger Web-Port (nur lesen) - fuer die Ruecknahme von Dienst-Umgebung und Firewall.
+$altPort = ""
+try {
+    $altUmgebung = @((Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -ErrorAction Stop).Environment)
+    foreach ($e in $altUmgebung) { if ("$e" -match '^WEBUI_PORT=(\d+)$') { $altPort = $Matches[1] } }
+} catch { }
 $schritt = "Kopieren"
 try {
     # -- Dateien kopieren -----------------------------------------------------------
@@ -692,6 +787,7 @@ try {
     $sp = Join-Path $venv "Lib\site-packages"
     $umgebungArgs = @((Join-Path $InstallDir "windows\dienst_umgebung.py"), "--setzen", "PYTHONPATH=$sp;$sp\win32;$sp\win32\lib")
     if ($PSBoundParameters.ContainsKey("WebPort")) { $umgebungArgs += @("--port", "$WebPort") }
+    $umgebungGesetzt = $true
     $umgebungAusgabe = @(Invoke-RelayNativ "Dienst-Umgebung (dienst_umgebung.py)" { & $venvPython @umgebungArgs })
     $WebPort = [int]($umgebungAusgabe[-1])
     Write-Ok "Web-Port: $WebPort"
@@ -701,6 +797,7 @@ try {
     # -- Firewall ---------------------------------------------------------------------
     if (-not $SkipFirewall) {
         Write-Step "Firewall-Regeln"
+        $firewallGesetzt = $true
         Sync-RelayFirewall -WebPort $WebPort
     }
 
@@ -736,6 +833,10 @@ try {
     $dienst = Get-Service -Name "ExoSmtpRelay"
     if ($dienst.Status -ne "Running") { throw "Dienst laeuft nach dem Start nicht (Status: $($dienst.Status)) - Protokoll: $dataDir\logs\app.log" }
     Write-Ok "Status: $($dienst.Status)"
+    $schritt = "Lebenszeichen"
+    $neuVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim()
+    Wait-RelayGesund -Python $venvPython -Port $WebPort -Version $neuVersion
+    Write-Ok "/health auf Port $WebPort meldet $neuVersion"
 } catch {
     $grund = $_
     Write-Host ""

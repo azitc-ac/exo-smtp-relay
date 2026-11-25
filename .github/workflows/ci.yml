@@ -112,12 +112,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Stand 0.2.45 fuer die Gegenprobe
+      - name: Staende 0.2.45 und 0.2.46 (2ea9192) fuer die Gegenproben
         shell: powershell
-        run: git worktree add "$env:RUNNER_TEMP\stand-0245" 4d78c34
-      - name: Installieren, Upgrade mit gesperrter Datei, Abbruch mit Ruecknahme
+        run: |
+          git worktree add "$env:RUNNER_TEMP\stand-0245" 4d78c34
+          git worktree add "$env:RUNNER_TEMP\stand-0246" 2ea9192
+      - name: Installieren, Upgrade mit gesperrter Datei, Abbruch mit Ruecknahme, e3, e4
         shell: powershell
-        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245"
+        run: .\tests\installer_echt.ps1 -Gegenprobe "$env:RUNNER_TEMP\stand-0245" -Gegenprobe046 "$env:RUNNER_TEMP\stand-0246"
       - name: Protokoll des Dienstes
         if: always()
         shell: powershell

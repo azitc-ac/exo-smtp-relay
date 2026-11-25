@@ -200,6 +200,9 @@ def _pruefen(tmp_path, funktionen: str) -> list[str]:
         fehler.append("gesperrt_exitcode")
     if any(" /C" in a for a in e.get("Icacls") or []):
         fehler.append("icacls_ohne_C")
+    # Labtest 0.2.46: „entfernt auf …“ / „Vererbung wieder an …“ standen VOR dem gescheiterten Reset.
+    if any(m.startswith(("OK: entfernt auf alt", "OK: Vererbung wieder an: alt")) for m in e["Meldungen"]):
+        fehler.append("meldung_vor_erfolg")
     return fehler
 
 
@@ -237,7 +240,7 @@ def _ohne_zeile(text: str, zeile: str) -> str:
 @pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
 @pytest.mark.parametrize("variante, erwartet", [
     ("0.2.45", ["gesperrt_warnt", "gesperrt_exitcode", "icacls_ohne_C"]),
-    ("nur /C zurueck", ["gesperrt_warnt", "gesperrt_exitcode", "icacls_ohne_C"]),
+    ("nur /C zurueck", ["gesperrt_warnt", "gesperrt_exitcode", "icacls_ohne_C", "meldung_vor_erfolg"]),
     ("nur EAP zurueck", ["gesperrt_exitcode"]),
 ])
 def test_reset_gegenprobe(tmp_path, variante, erwartet):
@@ -423,3 +426,21 @@ def test_data_acl_nie_beendend(tmp_path):
     Jetzt WARNUNG, das Skript läuft weiter (Exit 0 prüft _lauf)."""
     e = _lauf(tmp_path, _alle_funktionen(), "wurzel_kaputt")
     assert e["Meldungen"] and e["Meldungen"][-1].startswith("WARN: Rechte auf data\\ nicht vollstaendig gesetzt: "), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell (pwsh/powershell) vorhanden")
+def test_gegenprobe_meldung_vor_dem_reset(tmp_path):
+    """Trennscharf: die Reihenfolge bis 0.2.46 (erst melden, dann zurücksetzen) fällt durch."""
+    echt = _alle_funktionen()
+    neu = """        if (Reset-RelayAclErbe $o.FullName) {
+            foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
+            if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
+            $zurueck++
+        } else {"""
+    alt = """        foreach ($r in $eigene) { Write-Ok "entfernt auf ${name}: $(Get-RelayKontoName $r.IdentityReference) $($r.AccessControlType) $($r.FileSystemRights)" }
+        if ($geschuetzt) { Write-Ok "Vererbung wieder an: $name" }
+        if (Reset-RelayAclErbe $o.FullName) {
+            $zurueck++
+        } else {"""
+    assert neu in echt
+    assert _pruefen(tmp_path, echt.replace(neu, alt)) == ["meldung_vor_erfolg"]

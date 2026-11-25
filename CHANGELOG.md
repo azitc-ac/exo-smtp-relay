@@ -1,5 +1,34 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.48-beta — 2026-11-25 — Stable-Kandidat: Rücknahme des Windows-Installers korrigiert
+
+**0.2.46 wurde nicht veröffentlicht** — der Labtest (2ea9192) stoppte sie an der neuen
+Rücknahme. Ihr Inhalt (unten) und der von 0.2.47-beta (Lieferkette, Offline-Paket) gehen hier auf.
+
+- **Gesperrter Ordner beim Upgrade (Labtest e3):** Lag ein Programm mit Arbeitsverzeichnis in
+  `windows\`, war `app\` schon nach `.install-alt\` verschoben, `windows\` nicht. Die Rücknahme
+  meldete fälschlich „unveraendert“, `app\` fehlte, der Dienst startete nicht; ein zweiter Lauf
+  **löschte die einzige Sicherung** („Rest eines frueheren Laufs entfernt“). Jetzt:
+  Sperrtest VOR dem ersten Verschieben (jeder Teil probeweise umbenannt) — ist einer gesperrt,
+  wird nichts verschoben und das stimmt dann auch; die Rücknahme richtet sich nach dem
+  tatsächlichen Inhalt von `.install-alt\`; ein Rest früherer Läufe wird erst zurückgeholt,
+  gelöscht nur, wenn alle Teile am Platz sind; das Neue wird vor dem Zurückschieben beiseite
+  umbenannt statt gelöscht, und eine unvollständige Rücknahme lässt die Sicherung liegen und sagt es.
+- **Neue Fassung startet, lauscht aber nicht (Labtest e4):** `main.py` warf beim Import, der
+  Dienst war „Running“, `/health` blieb leer — trotzdem Exit 0 und „Aktualisiert“. Jetzt wartet
+  der Installer bis 60 s auf `/health` des wirksamen Ports mit der Soll-Version; sonst Rücknahme
+  der Fassung **samt Web-Port in der Dienst-Umgebung und in der Firewall** (bisher nicht
+  zurückgenommen).
+- **c2-Meldungen:** „entfernt auf …“ und „Vererbung wieder an …“ erscheinen erst, wenn das
+  Zurücksetzen gelungen ist.
+- Tests: Sperre, Rest und Rücknahme nach Inhalt in pwsh; im CI-Job „Installer echt“ (PS 5.1)
+  e3 echt (Arbeitsverzeichnis eines Prozesses in `windows\`, zweimal) und e4 echt (kaputte
+  `main.py`, `-WebPort 9443`), jeweils mit Gegenprobe gegen 2ea9192.
+- Nicht in der CI nachgestellt: pip scheitert erst nach teilweisem Paketwechsel (pip löst vor
+  dem Installieren vollständig auf und prüft alle Prüfsummen vorab; ein Abbruch mitten in der
+  Installation lässt sich ohne Eingriff in pip nicht erzwingen). Die Rücknahme installiert in
+  jedem Fall die Lock-Datei der vorigen Fassung neu.
+
 ## 0.2.47-beta — 2026-11-25 — Lieferkette gehärtet, Windows-Offline-Paket
 
 **Lieferkette: Beim Kunden wird nichts Ungeprüftes geladen oder ausgeführt.**

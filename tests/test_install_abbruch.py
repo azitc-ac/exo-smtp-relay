@@ -50,8 +50,8 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         "function Write-Ok([string]$m) { [void]$global:M.Add(\"OK: $m\") }\n"
         "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
         + _teile() + "\n"
-        + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Backup-RelayFassung",
-                                             "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
+        + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
+                                             "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
     r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
@@ -122,6 +122,7 @@ def test_abbruch_holt_vorige_fassung_und_startet_den_dienst(tmp_path, lief):
 $InstallDir = "{ziel}"; $sicherung = "{ziel}/.install-alt"; $dataDir = "{ziel}/data"
 $venvPython = "{ziel}/venv/gibtsnicht"; $pipGelaufen = $true; $istUpgrade = $true
 $dienstLief = ${str(lief).lower()}; $altVersion = "0.2.44"
+$venv = "{ziel}/venv"; $umgebungGesetzt = $false; $firewallGesetzt = $false; $altPort = ""
 $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
 New-Item -ItemType Directory "{ziel}/app" | Out-Null
 Set-Content "{ziel}/VERSION" "0.2.46"
@@ -261,3 +262,87 @@ def test_dienst_dlls_vor_dem_start_abgeglichen():
     h = _hauptteil(_code())
     assert h.index("Sync-RelayDienstDlls -Venv $venv") < h.index('Start-Service -Name "ExoSmtpRelay"')
     assert '[Environment]::GetEnvironmentVariable("Path", "Machine")' in h
+
+
+_ABLAUF_VARS = '''
+$InstallDir = "{z}"; $sicherung = "{z}/.install-alt"; $dataDir = "{z}/data"; $venv = "{z}/venv"
+$venvPython = "{z}/venv/gibtsnicht"; $pipGelaufen = $false; $istUpgrade = $true; $dienstLief = $true
+$altVersion = "0.2.44"; $umgebungGesetzt = $false; $firewallGesetzt = $false; $altPort = ""
+'''
+
+
+def _installiert(ziel):
+    (ziel / "app").mkdir(parents=True)
+    (ziel / "app" / "main.py").write_text("alt")
+    (ziel / "windows").mkdir()
+    (ziel / "VERSION").write_text("0.2.44")
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_gesperrter_teil_nichts_verschoben_meldung_stimmt(tmp_path):
+    """Labtest 0.2.46 e3: windows\\ gesperrt. Der Sperrtest findet es VOR dem ersten Verschieben,
+    app\\ bleibt am Platz, „unveraendert“ stimmt. (Sperre unter Linux nachgebaut; echt in
+    „Installer echt“.)"""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    e = _lauf(tmp_path, _DIENST_MOCK + _ABLAUF_VARS.format(z=ziel) + '''
+function Test-RelayVerschiebbar([string]$Pfad) { -not $Pfad.EndsWith("windows") }
+try { $g = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile); $f = "" } catch { $f = "$($_.Exception.Message)" }
+Restore-RelayNachAbbruch
+ConvertTo-Json -Compress -InputObject ([ordered]@{ Fehler = $f; App = (Test-Path "$InstallDir/app/main.py");
+    Sicherung = (Test-Path $sicherung); Meldungen = @($global:M) })
+''')
+    assert "gesperrt" in e["Fehler"] and "windows" in e["Fehler"] and "nichts verschoben" in e["Fehler"], e
+    assert e["App"] is True and e["Sicherung"] is False, e
+    assert any("nichts verschoben, die installierte Fassung ist unveraendert" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_ruecknahme_liest_inhalt_der_sicherung(tmp_path):
+    """Labtest 0.2.46 e3: app\\ lag schon in .install-alt, die Rückgabe von Backup ging verloren
+    ($gesichert leer). Die Rücknahme richtet sich nach dem INHALT der Sicherung."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / ".install-alt").mkdir()
+    (ziel / "app").rename(ziel / ".install-alt" / "app")
+    e = _lauf(tmp_path, _DIENST_MOCK + _ABLAUF_VARS.format(z=ziel) + '''
+$gesichert = @()
+Restore-RelayNachAbbruch
+ConvertTo-Json -Compress -InputObject ([ordered]@{ App = (Get-Content "$InstallDir/app/main.py" -Raw).Trim();
+    Sicherung = (Test-Path $sicherung); Meldungen = @($global:M) })
+''')
+    assert e["App"] == "alt" and e["Sicherung"] is False, e
+    assert any("Vorige Fassung 0.2.44 zurueckgeholt (app)" in m for m in e["Meldungen"]), e
+    assert not any("unveraendert" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_rest_eines_frueheren_laufs_wird_nicht_geloescht(tmp_path):
+    """Labtest 0.2.46 e3, zweiter Lauf: „Rest … entfernt“ löschte die EINZIGE Sicherung von app\\.
+    Jetzt kommt erst zurück, was am Platz fehlt; danach wird normal gesichert."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / ".install-alt").mkdir()
+    (ziel / "app").rename(ziel / ".install-alt" / "app")
+    e = _lauf(tmp_path, f'''
+$g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile)
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Gesichert = $g;
+    Alt = (Get-Content "{ziel}/.install-alt/app/main.py" -Raw).Trim(); Meldungen = @($global:M) }})
+''')
+    assert e["Gesichert"] == ["app", "windows", "VERSION"], e
+    assert e["Alt"] == "alt", e
+    assert any("zurueckgeholt: app" in m for m in e["Meldungen"]), e
+
+
+def test_lebenszeichen_vor_erfolg():
+    """Labtest 0.2.46 e4: Dienst „Running“, /health leer, trotzdem „Aktualisiert“. Jetzt wartet
+    der Installer im try auf /health mit der Soll-Version; sonst Rücknahme samt Port."""
+    h = _hauptteil(_code())
+    fang = h.index("\n} catch {\n")
+    assert h.index('Start-Service -Name "ExoSmtpRelay"') < h.index("Wait-RelayGesund -Python $venvPython -Port $WebPort") < fang
+    r = _funktion("Restore-RelayNachAbbruch")
+    assert 'windows\\dienst_umgebung.py") --setzen' in r and '--port "$altPort"' in r
+    assert "if ($firewallGesetzt -and $altPort) {\n            try { Sync-RelayFirewall -WebPort $altPort" in r
+    assert "if ($umgebungGesetzt -and $altPort -and $offen.Count -eq 0) {" in r
+    assert "$firewallGesetzt = $true\n        Sync-RelayFirewall -WebPort $WebPort" in _code()
+    assert "Get-RelaySicherungsTeile $sicherung $RelayTeile" in r and "$gesichert" not in r

@@ -77,7 +77,17 @@ Erwartet: `WARNUNG: nicht zurueckgesetzt: gesperrt.json (Exit 5: …)` oder
 Zeile `gibt-es-nicht==0.0.1` anhängen, `install.ps1 -Unattended` → Exit ≠ 0,
 „ABBRUCH im Schritt 'Abhaengigkeiten'“, „Vorige Fassung <alt> zurueckgeholt“, „Dienst
 laeuft wieder (Fassung <alt>)“; `/health` meldet `<alt>`, kein `.install-alt\` bleibt.
-(Beides läuft auch im CI-Job „Installer echt“.)
+**Windows-Upgrade bei gesperrtem `windows\`** (Labtest e3): `cmd` mit Arbeitsverzeichnis
+`C:\ProgramData\exo-smtp-relay\windows` offen lassen, `install.ps1 -Unattended` **zweimal** →
+jeweils Exit ≠ 0, „gesperrt …: windows - nichts verschoben“, „unveraendert“; `app\` vorhanden,
+Dienst `Running`, `/health` alte Fassung. `cmd` schließen, erneut → Exit 0.
+
+**Neue Fassung lauscht nicht** (Labtest e4): im Paket `app\main.py` oben `import gibt_es_nicht`,
+`install.ps1 -Unattended -WebPort 9443` → Exit ≠ 0, „ABBRUCH im Schritt 'Lebenszeichen'“,
+`/health` auf dem alten Port mit `<alt>`, `WEBUI_PORT` in der Dienst-Umgebung und die
+Firewall-Regel wie vorher.
+
+(Alles läuft auch im CI-Job „Installer echt“.)
 
 ## 1b Offline-Installation (Windows, ohne Internet)
 

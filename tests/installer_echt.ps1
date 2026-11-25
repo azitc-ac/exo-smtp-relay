@@ -16,11 +16,18 @@
       5. An pip scheiterndes Upgrade             -> Exit <> 0, vorige Fassung zurueck, Dienst laeuft
                                                  wieder mit der alten VERSION, .install-alt\ weg
 
+      6. windows\ gesperrt (Arbeitsverzeichnis eines Prozesses), zweimal -> Exit <> 0, "nichts
+         verschoben", app\ bleibt, Dienst laeuft; Gegenprobe 2ea9192: app\ verschwindet
+      7. neue Fassung mit kaputter main.py und -WebPort 9443 -> Ruecknahme, /health alte Fassung,
+         Port 8443 in Dienst-Umgebung und Firewall; Gegenprobe 2ea9192: "Aktualisiert", /health stumm
+
+    -Gegenprobe046 gibt den Pfad eines 2ea9192-Baums an (0.2.46, vom Labtest gestoppt).
     -Gegenprobe gibt den Pfad eines entpackten 0.2.45-Baums an (CI: git worktree).
 #>
 param(
     [string]$Quelle = (Split-Path -Parent $PSScriptRoot),
-    [string]$Gegenprobe = ""
+    [string]$Gegenprobe = "",
+    [string]$Gegenprobe046 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -34,7 +41,7 @@ function Pruefe([bool]$Bedingung, [string]$Text) {
     Write-Host "  OK  $Text" -ForegroundColor Green
 }
 
-function Install-Lauf([string]$Baum, [string]$Name) {
+function Install-Lauf([string]$Baum, [string]$Name, [string[]]$Zusatz = @()) {
     Write-Host "`n=== $Name ===" -ForegroundColor Cyan
     $log = Join-Path $arbeit "$Name.log"
     # Eigene Windows-PowerShell-5.1-Sitzung wie beim Betreiber; PSModulePath einer pwsh-Sitzung
@@ -43,9 +50,9 @@ function Install-Lauf([string]$Baum, [string]$Name) {
     $env:PSModulePath = ""
     try {
         $p = Start-Process -FilePath "powershell.exe" -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $log -RedirectStandardError "$log.err" -ArgumentList @(
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" -ArgumentList (@(
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-                (Join-Path $Baum "windows\install.ps1"), "-Unattended", "-SkipExoModule")
+                (Join-Path $Baum "windows\install.ps1"), "-Unattended", "-SkipExoModule") + $Zusatz)
     } finally { $env:PSModulePath = $alt }
     $text = (Get-Content $log -Raw -ErrorAction SilentlyContinue) + "`n" + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
     Write-Host $text
@@ -160,5 +167,78 @@ Pruefe ((Get-DienstStatus) -eq "Running") "Dienst laeuft"
 Pruefe (-not (Test-Path (Join-Path $ziel ".install-alt"))) ".install-alt\ aufgeraeumt"
 $g = Get-Gesundheit
 Pruefe ($null -ne $g -and $g.version -eq $version) "/health meldet wieder $version"
+
+# 6 -- e3: windows\ gesperrt --------------------------------------------------------------
+function Start-Sperre {
+    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 900") `
+        -WorkingDirectory (Join-Path $ziel "windows") -WindowStyle Hidden -PassThru
+}
+function Get-Umgebungsport {
+    $u = @((Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay").Environment)
+    foreach ($e in $u) { if ("$e" -match '^WEBUI_PORT=(\d+)$') { return $Matches[1] } }
+    return ""
+}
+$sperre = Start-Sperre
+Start-Sleep -Seconds 2
+try {
+    foreach ($lauf in 1, 2) {
+        $r = Install-Lauf (New-Baum "q1") "6-e3-gesperrt-$lauf"
+        Pruefe ($r.Rc -ne 0) "e3 Lauf ${lauf}: Exit <> 0 (ist $($r.Rc))"
+        Pruefe ($r.Text -match "gesperrt .*windows.* - nichts verschoben") "e3 Lauf ${lauf}: Sperre von windows\ gemeldet"
+        Pruefe ($r.Text -match "nichts verschoben, die installierte Fassung ist unveraendert") "e3 Lauf ${lauf}: 'unveraendert' stimmt"
+        Pruefe (Test-Path (Join-Path $ziel "app\main.py")) "e3 Lauf ${lauf}: app\ am Platz"
+        Pruefe ((Get-Fassung) -eq $version -and (Get-DienstStatus) -eq "Running") "e3 Lauf ${lauf}: $version laeuft"
+    }
+    $g = Get-Gesundheit
+    Pruefe ($null -ne $g -and $g.version -eq $version) "e3: /health meldet $version"
+    if ($Gegenprobe046) {
+        $r = Install-Lauf $Gegenprobe046 "6g-e3-2ea9192-1"
+        Pruefe ($r.Rc -ne 0 -and -not (Test-Path (Join-Path $ziel "app"))) "Gegenprobe e3 2ea9192: app\ fehlt nach dem Abbruch"
+        Pruefe ($r.Text -match "unveraendert") "Gegenprobe e3 2ea9192: meldet trotzdem 'unveraendert'"
+        $r = Install-Lauf $Gegenprobe046 "6g-e3-2ea9192-2"
+        Pruefe (-not (Test-Path (Join-Path $ziel "app")) -and -not (Test-Path (Join-Path $ziel ".install-alt\app"))) "Gegenprobe e3 2ea9192: zweiter Lauf loescht die einzige Sicherung von app\"
+    }
+} finally {
+    Stop-Process -Id $sperre.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+$r = Install-Lauf (New-Baum "q1") "6-e3-entsperrt"
+Pruefe ($r.Rc -eq 0 -and (Get-DienstStatus) -eq "Running") "e3: nach Aufheben der Sperre Exit 0, Dienst laeuft"
+$g = Get-Gesundheit
+Pruefe ($null -ne $g -and $g.version -eq $version) "e3: /health meldet $version"
+
+# 7 -- e4: neue Fassung startet, lauscht aber nicht ------------------------------------------
+function New-StummerBaum([string]$Basis, [string]$Name) {
+    $b = Join-Path $arbeit $Name
+    if (Test-Path $b) { Remove-Item -Recurse -Force $b }
+    New-Item -ItemType Directory -Path $b | Out-Null
+    foreach ($t in @("app", "windows", "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")) {
+        $q = Join-Path $Basis $t
+        if (Test-Path $q) { Copy-Item -Recurse -Force $q (Join-Path $b $t) }
+    }
+    Set-Content -Path (Join-Path $b "VERSION") -Value "9.9.8" -NoNewline
+    $m = Join-Path $b "app\main.py"
+    Set-Content -Path $m -Value (@("import gibt_es_nicht_exo_relay_ci") + @(Get-Content $m)) -Encoding UTF8
+    return $b
+}
+Pruefe ((Get-Umgebungsport) -eq "8443") "e4 vorher: WEBUI_PORT=8443"
+$r = Install-Lauf (New-StummerBaum $Quelle "q4") "7-e4-stumm" @("-WebPort", "9443")
+Pruefe ($r.Rc -ne 0) "e4: Exit <> 0 (ist $($r.Rc))"
+Pruefe ($r.Text -match "ABBRUCH im Schritt 'Lebenszeichen'") "e4: Abbruch im Schritt Lebenszeichen"
+Pruefe ($r.Text -match "Vorige Fassung $([regex]::Escape($version)) zurueckgeholt") "e4: vorige Fassung zurueckgeholt"
+Pruefe ((Get-Fassung) -eq $version) "e4: VERSION wieder $version"
+Pruefe ((Get-Umgebungsport) -eq "8443") "e4: WEBUI_PORT wieder 8443"
+$fw = @(Get-NetFirewallRule -DisplayName "EXO SMTP Relay - Web *")
+Pruefe ($fw.Count -eq 1 -and "$((Get-NetFirewallPortFilter -AssociatedNetFirewallRule $fw[0]).LocalPort)" -eq "8443") "e4: Firewall wieder Port 8443"
+$g = Get-Gesundheit
+Pruefe ($null -ne $g -and $g.version -eq $version) "e4: /health auf 8443 meldet $version"
+if ($Gegenprobe046) {
+    $r = Install-Lauf (New-StummerBaum $Gegenprobe046 "q4g") "7g-e4-2ea9192"
+    Pruefe ($r.Rc -eq 0 -and $r.Text -match "Aktualisiert") "Gegenprobe e4 2ea9192: meldet 'Aktualisiert' (Exit $($r.Rc))"
+    $roh = & curl.exe -sk --max-time 5 "https://localhost:8443/health" 2>$null
+    Pruefe (-not $roh) "Gegenprobe e4 2ea9192: /health bleibt stumm"
+    $r = Install-Lauf (New-Baum "q1") "7g-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq $version) "Wiederherstellen nach e4-Gegenprobe"
+}
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green
