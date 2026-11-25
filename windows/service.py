@@ -137,9 +137,24 @@ class RelayService(win32serviceutil.ServiceFramework):
         if not self._laeuft():
             self._proc = self._starten()
 
+    def _nachholen(self) -> None:
+        """Eine offene Rücknahme (data\\update\\ruecknahme_offen.json, Sperre bei der letzten)
+        erneut versuchen, BEVOR die Anwendung startet (Labtest 0.2.53 l4b)."""
+        if not (UPDATE / "ruecknahme_offen.json").exists():
+            return
+        try:
+            spec = importlib.util.spec_from_file_location("_update_tausch", APP / "update_tausch.py")
+            tausch = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tausch)
+            ok = tausch.ruecknahme_nachholen(WURZEL, DATA)
+            servicemanager.LogInfoMsg(f"EXO SMTP Relay: offene Rücknahme {'nachgeholt' if ok else 'weiter offen'}")
+        except Exception as exc:                               # noqa: BLE001
+            servicemanager.LogErrorMsg(f"EXO SMTP Relay: Rücknahme nicht nachgeholt: {exc}")
+
     def _lauf(self) -> None:
         fehlstarts = 0
         self._waechter_melden()
+        self._nachholen()
         while True:
             self._proc = self._starten()
             gestartet = time.monotonic()

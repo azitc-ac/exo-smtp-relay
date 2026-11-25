@@ -516,6 +516,12 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
 # starten, wenn er vorher lief. Liest die Ablaufvariablen ($gesichert, $pipGelaufen ...).
 function Restore-RelayNachAbbruch {
     try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
+    if ((Test-Path variable:script:RelayOffenInhalt) -and $script:RelayOffenInhalt) {
+        try {
+            Set-Content -LiteralPath (Join-Path $dataDir "update\ruecknahme_offen.json") -Value $script:RelayOffenInhalt -NoNewline -Encoding UTF8
+            Write-Warn "Offene Ruecknahme des Updaters wiederhergestellt"
+        } catch { }
+    }
     # Zurueckgeholt wird nur, was DIESER Lauf verschoben hat oder ein Merker nennt - nie ein Rest
     # ohne Merker (Labtest 0.2.49 Z2: leerer Rest galt als Sicherung, das GUTE windows\ flog raus).
     $inSicherung = @()
@@ -584,7 +590,15 @@ function Restore-RelayNachAbbruch {
 # Fehlschlag wird mit dem SCM-Ereignis und dem Ende von service.log gemeldet; erst wenn alle
 # Versuche scheitern, bricht der Lauf ab (Ruecknahme). Ob die Fassung TRAEGT, entscheidet danach
 # ohnehin das Lebenszeichen (/health).
-function Get-RelayStartGrund([string]$DataDir) {
+function Get-RelayLogLaenge([string]$DataDir) {
+    $log = Join-Path $DataDir "logs\service.log"
+    if (Test-Path -LiteralPath $log) { return (Get-Item -LiteralPath $log).Length }
+    return 0
+}
+
+# service.log nur AB $AbByte (Startzeitpunkt) und als UTF-8 (so schreibt der Dienst-Wrapper sie,
+# PYTHONIOENCODING=utf-8) - sonst standen alte Zeilen vom Vortag in falscher Kodierung da.
+function Get-RelayStartGrund([string]$DataDir, [long]$AbByte = 0) {
     $teile = @()
     try {
         $e = @(Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = (Get-Date).AddMinutes(-5) } -MaxEvents 20 -ErrorAction Stop |
@@ -593,8 +607,18 @@ function Get-RelayStartGrund([string]$DataDir) {
     } catch { }
     $log = Join-Path $DataDir "logs\service.log"
     if (Test-Path -LiteralPath $log) {
-        $ende = @(Get-Content -LiteralPath $log -Tail 4 -ErrorAction SilentlyContinue | Where-Object { "$_".Trim() })
-        if ($ende.Count) { $teile += "service.log: $(($ende | ForEach-Object { "$_".Trim() }) -join ' | ')" }
+        try {
+            $fs = [System.IO.File]::Open($log, "Open", "Read", "ReadWrite, Delete")
+            try {
+                if ($AbByte -gt $fs.Length) { $AbByte = 0 }
+                [void]$fs.Seek($AbByte, "Begin")
+                $puffer = New-Object byte[] ([int]($fs.Length - $AbByte))
+                $gelesen = $fs.Read($puffer, 0, $puffer.Length)
+                $text = [System.Text.Encoding]::UTF8.GetString($puffer, 0, $gelesen)
+            } finally { $fs.Close() }
+            $ende = @($text -split "\r?\n" | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Last 4)
+            if ($ende.Count) { $teile += "service.log: $($ende -join ' | ')" }
+        } catch { }
     }
     if ($teile.Count -eq 0) { return "keine weiteren Angaben (SCM-Ereignis/service.log leer)" }
     $teile -join " ; "
@@ -603,6 +627,7 @@ function Get-RelayStartGrund([string]$DataDir) {
 function Start-RelayDienst([string]$DataDir, [int]$Versuche = 3, [int]$PauseS = 10) {
     for ($i = 1; $i -le $Versuche; $i++) {
         $fehler = ""
+        $ab = Get-RelayLogLaenge $DataDir
         try {
             Start-Service -Name "ExoSmtpRelay" -ErrorAction Stop
             Start-Sleep -Seconds 3
@@ -610,7 +635,7 @@ function Start-RelayDienst([string]$DataDir, [int]$Versuche = 3, [int]$PauseS = 
             if ($st -eq "Running") { return }
             $fehler = "Status nach dem Start: $st"
         } catch { $fehler = "$($_.Exception.Message)" }
-        $grund = Get-RelayStartGrund $DataDir
+        $grund = Get-RelayStartGrund $DataDir $ab
         if ($i -lt $Versuche) {
             Write-Warn "Dienststart, Versuch $i von ${Versuche}: $fehler - $grund; neuer Versuch in $PauseS s"
             try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
@@ -915,6 +940,7 @@ $sicherung = Join-Path $InstallDir ".install-alt"
 $altVersion = ""
 if (Test-Path (Join-Path $InstallDir "VERSION")) { $altVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
 $gesichert = @()
+$script:RelayOffenInhalt = ""
 # Lauf-ID: kennzeichnet, was DIESER Lauf kopiert (.relay-fassung) und gesichert hat (Merker).
 $RelayLauf = [guid]::NewGuid().ToString("N")
 $pipGelaufen = $false
@@ -1088,6 +1114,15 @@ try {
     Set-Content -Path $verknuepfung -Encoding ASCII -Value @("[InternetShortcut]", "URL=https://${rechnername}:$WebPort/")
     Write-Ok "$verknuepfung"
 
+    # Offene Ruecknahme des Updaters (data\update\ruecknahme_offen.json) gehoert zum Stand VOR
+    # diesem Lauf - der Dienst-Wrapper holte sie beim Start nach und spielte damit eine aeltere
+    # Fassung ueber die gerade installierte. Verwerfen; bricht dieser Lauf ab, kommt sie zurueck.
+    $offenDatei = Join-Path $dataDir "update\ruecknahme_offen.json"
+    if (Test-Path -LiteralPath $offenDatei) {
+        $script:RelayOffenInhalt = Get-Content -LiteralPath $offenDatei -Raw
+        Remove-Item -LiteralPath $offenDatei -Force
+        Write-Warn "Offene Ruecknahme des Updaters verworfen - diese Installation ersetzt den Stand vollstaendig"
+    }
     Write-Step "Starte Dienst"
     Start-RelayDienst -DataDir $dataDir
     Write-Ok "Status: Running"

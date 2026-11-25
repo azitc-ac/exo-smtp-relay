@@ -565,10 +565,12 @@ def test_zurueck_nur_fuer_die_marke_des_eigenen_tauschs(tmp_path):
     alt = w / ut.ALT
     (alt / "app").mkdir(parents=True)
     (alt / "app" / "main.py").write_text("vorvorig")
-    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": "0.2.50"})
-    assert "nichts zurückgenommen" in ut.phase_zurueck(w, "0.2.51")
+    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": "0.2.50",
+                                       "lauf": "lauf-a"})
+    assert "nichts zurückgenommen" in ut.phase_zurueck(w, "lauf-b")
+    assert "nichts zurückgenommen" in ut.phase_zurueck(w, "")
     assert (w / "app" / "main.py").read_text(encoding="utf-8") == "print('neu')\n"
-    assert "zurückgesetzt" in ut.phase_zurueck(w, "0.2.50")
+    assert "zurückgesetzt" in ut.phase_zurueck(w, "lauf-a")
     assert (w / "app" / "main.py").read_text(encoding="utf-8") == "vorvorig"
     assert not [p for p in w.iterdir() if ".relay-verworfen" in p.name], "Beiseitegelegtes aufgeräumt"
 
@@ -592,7 +594,144 @@ def test_tauscher_gleiche_fassung_kein_tausch_und_rueckfall_nie_ergaenzend(anlag
     (alt / "app" / "main.py").write_text("alt")
     (alt / "app" / "nur_alt.py").write_text("alt")
     (w / "app" / "nur_neu.py").write_text("neu")
-    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": ALT_V})
-    ut.phase_zurueck(w, ALT_V)
+    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": ALT_V,
+                                       "lauf": "x1"})
+    ut.phase_zurueck(w, "x1")
     assert sorted(p.name for p in (w / "app").iterdir()) == ["main.py", "nur_alt.py"]
     assert (w / "app" / "main.py").read_text() == "alt"
+
+
+
+def _sperre(monkeypatch, pfad_als_quelle):
+    """os.replace scheitert, wenn `pfad_als_quelle` verschoben werden soll (Sperre unter Windows)."""
+    echt = ut.os.replace
+    gesperrt = {"an": True}
+
+    def replace(a, b):
+        if gesperrt["an"] and Path(a) == Path(pfad_als_quelle):
+            raise PermissionError(13, "Der Prozess kann nicht auf die Datei zugreifen", str(a))
+        return echt(a, b)
+    monkeypatch.setattr(ut.os, "replace", replace)
+    return gesperrt
+
+
+@pytest.mark.parametrize("alte_marke", [
+    {"verschoben": ["app", "windows"], "neu": [], "fertig": True, "nach": "0.2.39"},            # Updater ≤ 0.2.53
+    {"verschoben": ["app", "windows"], "neu": [], "fertig": True, "nach": "0.2.39", "lauf": "fremd"},
+])
+def test_alter_rueckfallstand_ohne_eigene_lauf_id_wird_nie_zurueckgenommen(anlage, schluessel, tmp_path,
+                                                                         monkeypatch, alte_marke):
+    """Labtest 0.2.53 l6: Sperre in .update-alt\\windows — tauschen scheitert beim Beiseitelegen
+    des ALTEN .update-alt, bevor der neue Merker steht. Bisher nahm die Rücknahme den alten Merker
+    (ohne „nach“ = „eigener“ Tausch) und holte app\\ aus der vorvorigen Fassung. Jetzt: nichts."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    alt = w / ut.ALT
+    for teil in ("app", "windows"):
+        (alt / teil).mkdir(parents=True)
+        (alt / teil / "vorvorig.txt").write_text("vorvorig")
+    ut.json_schreiben(alt / ut.MARKE, alte_marke)
+    vorher = _baumstempel(w)
+    _sperre(monkeypatch, alt)
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    dienst = _Dienst(w, daten)
+    assert _ablauf(anlage, dienst) == "zurueckgerollt"
+    assert not (w / "app" / "vorvorig.txt").exists() and not (w / "windows" / "vorvorig.txt").exists()
+    nachher = {k: v for k, v in _baumstempel(w).items() if not k.startswith((ut.NEU, ut.ARBEIT))}
+    assert nachher == vorher, "app und windows unverändert"
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert "nichts zurückgenommen, nichts verändert" in s["text"] and ALT_V in s["text"], s
+
+
+@pytest.mark.parametrize("gesperrt_teil", ["app", "windows"])
+def test_rueckfall_scheitert_ehrlich_und_wird_nachgeholt(anlage, schluessel, tmp_path, monkeypatch, gesperrt_teil):
+    """Labtest 0.2.53 l4b: neue Fassung startet nicht UND app\\main.py ist während der Rücknahme
+    gesperrt. Bisher verwarf ablauf() das Ergebnis und meldete „läuft wieder“ — bei neuer VERSION
+    und ohne Listener. Jetzt: Status FEHLER mit Hinweis, Merker für die Rücknahme; beim nächsten
+    Versuch (Dienststart) gelingt sie."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    dienst = _Dienst(w, daten, defekt={NEU_V})
+    # „windows“: app\\ ist beim ersten Versuch schon zurück — der zweite muss es überspringen.
+    gesperrt = _sperre(monkeypatch, w / gesperrt_teil)
+    gesperrt["an"] = False
+
+    echt_zurueck = ut.phase_zurueck
+
+    def zurueck_mit_sperre(wurzel, lauf=""):
+        gesperrt["an"] = True
+        try:
+            return echt_zurueck(wurzel, lauf)
+        finally:
+            gesperrt["an"] = False
+    monkeypatch.setattr(ut, "phase_zurueck", zurueck_mit_sperre)
+    assert _ablauf(anlage, dienst) == "fehler"
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert s["zustand"] == "fehler" and "Rücknahme UNVOLLSTÄNDIG" in s["text"] and "install.ps1" in s["text"], s
+    assert f"Fassung {NEU_V}" in s["text"], s
+    assert "läuft wieder" not in s["text"]
+    assert ut.ruecknahme_offen_pfad(daten).exists()
+
+    monkeypatch.setattr(ut, "phase_zurueck", echt_zurueck)          # Sperre gelöst
+    assert ut.ruecknahme_nachholen(w, daten) is True
+    assert ut.aktuelle_version(w) == ALT_V
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert s["zustand"] == "zurueckgerollt" and "Rücknahme nachgeholt" in s["text"], s
+    assert not ut.ruecknahme_offen_pfad(daten).exists()
+    assert not [p for p in w.iterdir() if ".relay-verworfen" in p.name]
+
+
+def test_offene_ruecknahme_vor_neuem_auftrag(anlage, schluessel, tmp_path):
+    """Liegt eine offene Rücknahme vor und gelingt sie wieder nicht, wird kein neuer Tausch
+    begonnen."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    ut.json_schreiben(ut.ruecknahme_offen_pfad(daten), {"lauf": "gibt-es-nicht", "von": ALT_V, "nach": NEU_V})
+    ut.json_schreiben(w / ut.ALT / ut.MARKE, {"verschoben": [], "neu": [], "lauf": "gibt-es-nicht"})
+    (w / ut.ALT / "app").mkdir()
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+
+    def phase(name, lauf=""):
+        return (False, "gesperrt") if name == "zurueck" else (True, "")
+    dienst = _Dienst(w, daten)
+    assert _ablauf(anlage, dienst, phase) == "fehler"
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert "frühere Rücknahme ist noch offen" in s["text"], s
+    assert ut.aktuelle_version(w) == ALT_V
+
+
+def test_erfolg_raeumt_verworfene_reste_auf(anlage, schluessel, tmp_path):
+    w = anlage["wurzel"]
+    (w / "app.relay-verworfen").mkdir()
+    (w / "app.relay-verworfen" / "x.py").write_text("x")
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(w, anlage["daten"])) == "ok"
+    assert not (w / "app.relay-verworfen").exists()
+
+
+
+def test_pip_scheitert_in_der_ruecknahme_merker_bleibt(anlage, monkeypatch):
+    """Geschwister-Suchlauf 0.2.54: scheiterte pip in der Rücknahme, war .update-alt samt Merker
+    schon gelöscht — ein Nachholen meldete „nachgeholt“ ohne die Abhängigkeiten. Jetzt bleibt der
+    Merker bis nach pip, der zweite Versuch installiert sie."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    alt = w / ut.ALT
+    (alt / "app").mkdir(parents=True)
+    (alt / "app" / "main.py").write_text("alt")
+    (alt / "app" / "requirements.lock").write_text("alt==1\n")
+    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "lauf": "L"})
+    aufrufe = []
+
+    def pip(wurzel, lock=None):
+        aufrufe.append(1)
+        if len(aufrufe) == 1:
+            raise RuntimeError("pip: gesperrt")
+        return "Abhängigkeiten angepasst"
+    monkeypatch.setattr(ut, "phase_pip", pip)
+    with pytest.raises(RuntimeError):
+        ut.phase_ausfuehren("zurueck", w, daten, lauf="L")
+    assert (alt / ut.MARKE).exists() and (w / "app" / "main.py").read_text() == "alt"
+    assert "Abhängigkeiten angepasst" in ut.phase_ausfuehren("zurueck", w, daten, lauf="L")
+    assert len(aufrufe) == 2 and not alt.exists()

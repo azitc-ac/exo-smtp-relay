@@ -44,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,6 +72,12 @@ def status_pfad(daten: Path) -> Path:
 
 def lebenszeichen_pfad(daten: Path) -> Path:
     return bereich(daten) / "lebenszeichen.json"
+
+
+def ruecknahme_offen_pfad(daten: Path) -> Path:
+    """Liegt hier, wenn eine Rücknahme scheiterte (Sperre): Lauf-ID, von, nach. Beim nächsten
+    Dienststart bzw. Auftrag wird sie erneut versucht (ruecknahme_nachholen)."""
+    return bereich(daten) / "ruecknahme_offen.json"
 
 
 def json_schreiben(pfad: Path, inhalt: dict) -> None:
@@ -188,7 +195,7 @@ def _weg(pfad: Path) -> None:
             pass
 
 
-def phase_tauschen(wurzel: Path, version: str = "") -> str:
+def phase_tauschen(wurzel: Path, version: str = "", lauf: str = "") -> str:
     """Verschoben wird nur mit os.replace (MoveFileExW unter Windows: ein Rename, scheitert ganz
     oder gar nicht — anders als PowerShells Move-Item, Labtest 0.2.50; belegt in
     tests/test_aktualisierung.py::test_os_replace_ordner_mit_offener_datei_atomar)."""
@@ -206,7 +213,7 @@ def phase_tauschen(wurzel: Path, version: str = "") -> str:
     alt.mkdir()
     verschoben, neu_angelegt = [], []
     json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False,
-                                 "nach": version})
+                                 "nach": version, "lauf": lauf})
     for teil in up.PAKET_INHALT:
         if not (neu / teil).exists():
             continue
@@ -216,25 +223,37 @@ def phase_tauschen(wurzel: Path, version: str = "") -> str:
         else:
             neu_angelegt.append(teil)
         json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": False,
-                                     "nach": version})
+                                     "nach": version, "lauf": lauf})
         os.replace(neu / teil, wurzel / teil)
     json_schreiben(alt / MARKE, {"verschoben": verschoben, "neu": neu_angelegt, "fertig": True,
-                                 "nach": version})
+                                 "nach": version, "lauf": lauf})
     shutil.rmtree(neu, ignore_errors=True)
     return f"{len(verschoben) + len(neu_angelegt)} Teile getauscht"
 
 
-def phase_zurueck(wurzel: Path, version: str = "") -> str:
+def marke_gehoert_zu(wurzel: Path, lauf: str) -> bool:
+    """Gehört der Rückfallstand in .update-alt zu DIESEM Tausch? Nur bei gleicher Lauf-ID —
+    fehlt sie (Updater ≤ 0.2.53, auch 0.2.42) oder ist sie fremd, NIE (Labtest 0.2.53 l6: das
+    Beiseitelegen des alten .update-alt scheiterte, bevor der neue Merker geschrieben war; die
+    Rücknahme nahm den ALTEN Merker und holte app\\ aus der vorvorigen Fassung zurück)."""
+    marke = json_lesen(Path(wurzel) / ALT / MARKE)
+    return bool(lauf) and marke.get("lauf") == lauf
+
+
+def phase_zurueck(wurzel: Path, lauf: str = "", alt_entfernen: bool = True) -> str:
     """Neues beiseite (atomar), Altes zurück (atomar), dann Müll weg — nie „erst löschen, dann
     ersetzen“: ein gesperrter neuer Teil würde sonst halb gelöscht (Labtest 0.2.50).
-    Nur die Marke DIESES Tauschs zählt (`nach` = Zielversion)."""
+    Nur der Rückfallstand mit der Lauf-ID DIESES Tauschs zählt. Wiederholbar: Teile, die schon
+    zurück sind (nicht mehr in .update-alt), werden übersprungen — scheitert ein Teil, bleibt
+    .update-alt samt Marke für den nächsten Versuch liegen."""
     wurzel = Path(wurzel)
     alt = wurzel / ALT
     marke = json_lesen(alt / MARKE)
     if not marke:
         return "nichts zurückzunehmen"
-    if version and marke.get("nach", version) != version:
-        return f"Marke gehört zu {marke.get('nach')!r}, nicht zu {version} — nichts zurückgenommen"
+    if not marke_gehoert_zu(wurzel, lauf):
+        return (f"Rückfallstand gehört nicht zu diesem Tausch (Lauf {marke.get('lauf') or 'ohne Kennung'})"
+                " — nichts zurückgenommen, nichts verändert")
     muell = []
     for teil in marke.get("neu", []):
         p = wurzel / teil
@@ -243,21 +262,40 @@ def phase_zurueck(wurzel: Path, version: str = "") -> str:
             os.replace(p, w)
             muell.append(w)
     for teil in marke.get("verschoben", []):
-        p = wurzel / teil
+        p, a = wurzel / teil, alt / teil
+        if not a.exists():
+            continue                                # schon zurück (früherer Versuch)
         if p.exists():
             w = _beiseite(p)
             os.replace(p, w)
             muell.append(w)
         try:
-            os.replace(alt / teil, p)
+            os.replace(a, p)
         except OSError:
             if not p.exists() and muell and muell[-1].name.startswith(p.name + ".relay-verworfen"):
                 os.replace(muell.pop(), p)          # lieber die neue Fassung als keine
             raise
     for w in muell:
         _weg(w)
-    shutil.rmtree(alt, ignore_errors=True)
+    if alt_entfernen:
+        shutil.rmtree(alt, ignore_errors=True)
     return f"{len(marke.get('verschoben', []))} Teile zurückgesetzt"
+
+
+def reste_aufraeumen(wurzel: Path) -> list[str]:
+    """*.relay-verworfen* neben Teilen, die am Platz sind, entfernen (Müll gescheiterter
+    Rücknahmen). Was sich nicht löschen lässt, bleibt und wird genannt."""
+    up = _paket_modul()
+    wurzel = Path(wurzel)
+    bleibt = []
+    for teil in up.PAKET_INHALT:
+        if not (wurzel / teil).exists():
+            continue
+        for rest in wurzel.glob(f"{teil}.relay-verworfen*"):
+            _weg(rest)
+            if rest.exists():
+                bleibt.append(rest.name)
+    return bleibt
 
 
 def lock_geaendert(wurzel: Path) -> bool:
@@ -316,21 +354,32 @@ def phase_pip(wurzel: Path, lock: Path | None = None) -> str:
 
 
 def phase_ausfuehren(name: str, wurzel: Path, daten: Path, version: str = "",
-                     paket: str = "") -> str:
+                     paket: str = "", lauf: str = "") -> str:
     if name == "pruefen":
         return phase_pruefen(wurzel, daten, version, paket)
     if name == "tauschen":
-        return phase_tauschen(wurzel, version)
+        return phase_tauschen(wurzel, version, lauf)
     if name == "pip":
         return phase_pip(wurzel) if lock_geaendert(wurzel) else "Lock-Datei unverändert"
     if name == "zurueck":
         # Abhängigkeiten der alten Fassung zurück, BEVOR deren Dateien
         # zurückwandern (danach liegt die alte Lock-Datei wieder in app/).
-        alt_lock = Path(wurzel) / ALT / "app" / "requirements.lock"
-        pip_zurueck = alt_lock.is_file() and lock_geaendert(wurzel)
-        text = phase_zurueck(wurzel, version)
-        if pip_zurueck:
+        if not marke_gehoert_zu(wurzel, lauf):
+            return phase_zurueck(wurzel, lauf)      # meldet „nichts zurückgenommen“, kein pip
+        # Ob pip nötig ist, steht im Merker — ein zweiter Versuch (Sperre beim ersten) weiss es
+        # sonst nicht mehr, weil app/ schon zurück ist. .update-alt verschwindet erst NACH pip:
+        # scheitert pip, bleibt der Merker für den nächsten Versuch (bisher war er weg und ein
+        # Nachholen meldete Erfolg ohne Abhängigkeiten).
+        alt = Path(wurzel) / ALT
+        marke = json_lesen(alt / MARKE)
+        if "pip_noetig" not in marke:
+            alt_lock = alt / "app" / "requirements.lock"
+            marke["pip_noetig"] = bool(alt_lock.is_file() and lock_geaendert(wurzel))
+            json_schreiben(alt / MARKE, marke)
+        text = phase_zurueck(wurzel, lauf, alt_entfernen=False)
+        if marke["pip_noetig"]:
             text += "; " + phase_pip(wurzel)
+        shutil.rmtree(alt, ignore_errors=True)
         return text
     raise ValueError(f"Unbekannte Phase {name!r}")
 
@@ -352,10 +401,10 @@ def arbeitskopie(wurzel: Path) -> Path:
 
 def phasen_als_prozess(python: Path, skript: Path, wurzel: Path, daten: Path,
                        version: str, paket: str):
-    def phase(name: str) -> tuple[bool, str]:
+    def phase(name: str, lauf: str = "") -> tuple[bool, str]:
         r = subprocess.run(
             [str(python), str(skript), "phase", name, "--wurzel", str(wurzel),
-             "--daten", str(daten), "--version", version, "--paket", paket],
+             "--daten", str(daten), "--version", version, "--paket", paket, "--lauf", lauf],
             capture_output=True, text=True, timeout=1200,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         ausgabe = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 \
@@ -366,9 +415,9 @@ def phasen_als_prozess(python: Path, skript: Path, wurzel: Path, daten: Path,
 
 def phasen_im_prozess(wurzel: Path, daten: Path, version: str, paket: str):
     """Für Tests: dieselben Phasen ohne eigenen Prozess."""
-    def phase(name: str) -> tuple[bool, str]:
+    def phase(name: str, lauf: str = "") -> tuple[bool, str]:
         try:
-            return True, phase_ausfuehren(name, wurzel, daten, version, paket)
+            return True, phase_ausfuehren(name, wurzel, daten, version, paket, lauf)
         except Exception as exc:                              # noqa: BLE001
             return False, str(exc)
     return phase
@@ -414,8 +463,19 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
         phase = phasen_als_prozess(python if python.is_file() else Path(sys.executable),
                                    skript, wurzel, daten, version, paket)
 
+    # Eine Rücknahme von früher ist noch offen (Sperre)? Erst die — sonst kein neuer Tausch.
+    if ruecknahme_offen_pfad(daten).exists():
+        stoppen()
+        nachgeholt = ruecknahme_nachholen(wurzel, daten, phase)
+        starten()
+        if not nachgeholt:
+            status_setzen(daten, "fehler", "Nicht eingespielt: eine frühere Rücknahme ist noch offen "
+                          f"und gelang wieder nicht — {_offen_hinweis(wurzel)}", **kopf)
+            return "fehler"
+
+    lauf = uuid.uuid4().hex                     # kennzeichnet .update-alt dieses Tauschs
     status_setzen(daten, "laeuft", "Paket wird geprüft", **kopf)
-    ok, text = phase("pruefen")
+    ok, text = phase("pruefen", lauf)
     if not ok:
         shutil.rmtree(wurzel / NEU, ignore_errors=True)
         shutil.rmtree(wurzel / ARBEIT, ignore_errors=True)
@@ -425,14 +485,10 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
     status_setzen(daten, "laeuft", "Dienst wird angehalten und getauscht", **kopf)
     stoppen()
     for name in ("tauschen", "pip"):
-        ok, text = phase(name)
+        ok, text = phase(name, lauf)
         if not ok:
-            _, zurueck = phase("zurueck")
-            starten()
-            status_setzen(daten, "zurueckgerollt",
-                          f"Phase {name} fehlgeschlagen: {text} — {zurueck}; {von} läuft weiter",
-                          **kopf)
-            return "zurueckgerollt"
+            return _zuruecknehmen(wurzel, daten, phase, lauf, starten, kopf,
+                                  f"Phase {name} fehlgeschlagen: {text}")
 
     try:
         lebenszeichen_pfad(daten).unlink()
@@ -447,15 +503,66 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
                 (bereich(daten) / name).unlink()
             except OSError:
                 pass
-        status_setzen(daten, "ok", f"{version} läuft (vorher {von})", **kopf)
+        bleibt = reste_aufraeumen(wurzel)
+        status_setzen(daten, "ok", f"{version} läuft (vorher {von})"
+                      + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
         return "ok"
 
     stoppen()
-    _, zurueck = phase("zurueck")
+    return _zuruecknehmen(wurzel, daten, phase, lauf, starten, kopf,
+                          f"{version} kam nicht stabil hoch")
+
+
+def _offen_hinweis(wurzel: Path) -> str:
+    return (f"am Platz: Fassung {aktuelle_version(wurzel) or '?'}; Sperre lösen — die Rücknahme wird beim "
+            "nächsten Dienststart erneut versucht — oder windows\\install.ps1 aus dem Paket der vorigen "
+            "Fassung ausführen")
+
+
+def _zuruecknehmen(wurzel: Path, daten: Path, phase, lauf: str, starten, kopf: dict, grund: str) -> str:
+    """Rücknahme mit AUSGEWERTETEM Ergebnis (Labtest 0.2.53 l4b: ein Fehlschlag wurde verworfen,
+    der Status meldete „läuft wieder“, obwohl die neue VERSION am Platz lag und nichts lauschte)."""
+    ok, zurueck = phase("zurueck", lauf)
+    if ok:
+        starten()
+        try:
+            ruecknahme_offen_pfad(daten).unlink()
+        except OSError:
+            pass
+        status_setzen(daten, "zurueckgerollt",
+                      f"{grund} — {zurueck}; {aktuelle_version(wurzel)} läuft wieder", **kopf)
+        return "zurueckgerollt"
+    json_schreiben(ruecknahme_offen_pfad(daten), {"lauf": lauf, "zeit": _jetzt(), "grund": zurueck, **kopf})
     starten()
-    status_setzen(daten, "zurueckgerollt",
-                  f"{version} kam nicht stabil hoch — {zurueck}; {von} läuft wieder", **kopf)
-    return "zurueckgerollt"
+    status_setzen(daten, "fehler", f"{grund} — Rücknahme UNVOLLSTÄNDIG: {zurueck}; {_offen_hinweis(wurzel)}",
+                  **kopf)
+    return "fehler"
+
+
+def ruecknahme_nachholen(wurzel: Path, daten: Path, phase=None) -> bool:
+    """Offene Rücknahme (ruecknahme_offen.json) erneut versuchen — beim Dienststart (Windows:
+    service.py, bevor die Anwendung startet) und vor jedem neuen Auftrag. True, wenn nichts
+    offen ist oder die Rücknahme jetzt gelang."""
+    wurzel, daten = Path(wurzel), Path(daten)
+    offen = json_lesen(ruecknahme_offen_pfad(daten))
+    if not offen:
+        return True
+    lauf = str(offen.get("lauf") or "")
+    kopf = {k: offen.get(k, "") for k in ("von", "nach", "angefordert_von")}
+    if phase is None:
+        phase = phasen_im_prozess(wurzel, daten, str(offen.get("nach") or ""), "")
+    ok, text = phase("zurueck", lauf)
+    if not ok:
+        status_setzen(daten, "fehler", f"Rücknahme weiter UNVOLLSTÄNDIG: {text}; {_offen_hinweis(wurzel)}", **kopf)
+        return False
+    try:
+        ruecknahme_offen_pfad(daten).unlink()
+    except OSError:
+        pass
+    bleibt = reste_aufraeumen(wurzel)
+    status_setzen(daten, "zurueckgerollt", f"Rücknahme nachgeholt: {text}; {aktuelle_version(wurzel)} läuft wieder"
+                  + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
+    return True
 
 
 # ── systemd ──────────────────────────────────────────────────────────────────
@@ -473,19 +580,25 @@ def main(argv: list[str]) -> int:
     p.add_argument("--daten", default="")
     p.add_argument("--version", default="")
     p.add_argument("--paket", default="")
+    p.add_argument("--lauf", default="")
     p.add_argument("--dienst", default="exo-smtp-relay")
     a = p.parse_args(argv)
     wurzel = Path(a.wurzel)
     daten = Path(a.daten) if a.daten else wurzel / "data"
     if a.befehl == "phase":
         try:
-            print(phase_ausfuehren(a.name, wurzel, daten, a.version, a.paket))
+            print(phase_ausfuehren(a.name, wurzel, daten, a.version, a.paket, a.lauf))
             return 0
         except Exception as exc:                              # noqa: BLE001
             print(str(exc), file=sys.stderr)
             return 1
-    # ablauf — systemd (Windows ruft `ablauf()` direkt aus service.py)
+    # ablauf — systemd (Windows ruft `ablauf()` direkt aus service.py). Eine offene Rücknahme
+    # holt ablauf() vor dem Auftrag nach; ohne Auftrag hier (Aufruf ohne Auftrag, z. B. von Hand).
     if not auftrag_pfad(daten).exists():
+        if ruecknahme_offen_pfad(daten).exists():
+            _systemctl("stop", a.dienst)
+            ruecknahme_nachholen(wurzel, daten)
+            _systemctl("start", a.dienst)
         return 0
     ende = ablauf(wurzel, daten,
                   stoppen=lambda: _systemctl("stop", a.dienst),

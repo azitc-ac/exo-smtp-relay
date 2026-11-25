@@ -1,5 +1,37 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.54-beta — 2026-11-25 — Updater: Rücknahme nur des eigenen Tauschs, ehrlich und wiederholbar
+
+Aus dem Labtest von 0.2.53-beta (sonst in allen Punkten grün).
+
+- **Fremder Rückfallstand (l6, vor Stable nötig):** Fehlte im Merker von `.update-alt` das Feld
+  „nach“ (Updater ≤ 0.2.49, auch 0.2.42 stable), galt er als der eigene. Scheiterte dann das
+  Beiseitelegen des alten `.update-alt` (Sperre in `.update-alt\windows`) — bevor der neue
+  Merker stand —, holte die Rücknahme `app\` aus der VORVORIGEN Fassung zurück; `windows\`
+  scheiterte, gemeldet wurde „läuft weiter“. Jetzt trägt jeder Tausch eine **Lauf-ID** (wie
+  `install.ps1`); zurückgenommen wird nur ein Rückfallstand mit genau dieser ID. Fehlt sie oder
+  ist sie fremd, wird nichts angefasst („nichts zurückgenommen, nichts verändert“).
+- **Rücknahme scheitert selbst (l4b, Doppelfehler):** Startete die neue Fassung nicht UND war
+  `app\main.py` während der Rücknahme gesperrt, verwarf `ablauf()` das Ergebnis und meldete
+  „zurückgerollt … läuft wieder“ — bei neuer VERSION und ohne Listener. Jetzt: Status FEHLER
+  („Rücknahme UNVOLLSTÄNDIG“, Fassung am Platz, Hinweis auf `install.ps1`), und
+  `data\update\ruecknahme_offen.json` hält die Rücknahme fest. Sie wird beim nächsten
+  Dienststart (Windows-Dienst-Wrapper, bevor die Anwendung startet) bzw. vor dem nächsten Auftrag
+  erneut versucht; ein neuer Tausch beginnt erst, wenn sie gelang. Die Rücknahme ist
+  wiederholbar: schon zurückgeholte Teile werden übersprungen.
+- **Abhängigkeiten in der Rücknahme:** `.update-alt` samt Merker verschwindet erst NACH pip —
+  scheiterte pip, war der Merker bisher weg und ein Nachholen hätte Erfolg ohne Abhängigkeiten
+  gemeldet. Der pip-Bedarf steht im Merker.
+- **Reste:** `*.relay-verworfen` gescheiterter Rücknahmen räumt der nächste erfolgreiche Lauf weg;
+  was sich nicht löschen lässt, steht im Status.
+- **`install.ps1` und offene Rücknahme:** Der Installer verwirft eine offene Updater-Rücknahme
+  vor dem Dienststart (sonst spielte der Wrapper beim Start eine ältere Fassung über die gerade
+  installierte) und stellt sie bei eigenem Abbruch wieder her.
+- **Kosmetik:** `Start-RelayDienst` zeigt aus `service.log` nur Zeilen ab dem Startversuch, als
+  UTF-8 gelesen (bisher alte Zeilen vom Vortag in falscher Kodierung).
+- systemd: Die offene Rücknahme holt der nächste Auftrag nach (Knopf) bzw. ein Aufruf von
+  `update_tausch.py ablauf` ohne Auftrag.
+
 ## 0.2.53-beta — 2026-11-25 — Offline-Test im Release, Veröffentlichung nur nach grünem Offline-Test
 
 **0.2.52-beta nicht verwenden:** Der Release-Lauf v0.2.52-beta war im Job „Offline-Paket“ rot;

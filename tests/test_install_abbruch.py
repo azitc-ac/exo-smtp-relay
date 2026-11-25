@@ -54,7 +54,7 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
                                              "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
                                              "Get-RelayTeilLauf", "Set-RelayTeilMarke",
-                                             "Get-RelayStartGrund", "Start-RelayDienst",
+                                             "Get-RelayLogLaenge", "Get-RelayStartGrund", "Start-RelayDienst",
                                              "Move-RelayPfad", "Get-RelayFreierName", "Merge-RelayOrdner", "Repair-RelayReste",
                                              "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
@@ -663,7 +663,9 @@ def test_gleiche_fassung_gegenprobe_ohne_lauf_id(tmp_path):
 
 _START_MOCK = """
 $global:Starts = 0; $global:ScheitertBis = 0
-function Start-Service { param($Name) $global:Starts++; if ($global:Starts -le $global:ScheitertBis) { throw "Failed to start service 'EXO SMTP Relay (ExoSmtpRelay)'." } }
+function Start-Service { param($Name) $global:Starts++
+    [System.IO.File]::AppendAllText($global:Log, "Start $($global:Starts): ModuleNotFoundError: No module named 'gr\u00fc\u00dfe'`n", (New-Object System.Text.UTF8Encoding($false)))
+    if ($global:Starts -le $global:ScheitertBis) { throw "Failed to start service 'EXO SMTP Relay (ExoSmtpRelay)'." } }
 function Stop-Service { param($Name, [switch]$Force) }
 function Get-Service { param($Name) [pscustomobject]@{ Status = "Running" } }
 function Start-Sleep { param($Seconds) }
@@ -673,13 +675,14 @@ function Start-Sleep { param($Seconds) }
 def _start_lauf(tmp_path, scheitert_bis: int, funktionen: str | None = None) -> dict:
     data = tmp_path / "data"
     (data / "logs").mkdir(parents=True)
-    (data / "logs" / "service.log").write_text("ModuleNotFoundError: No module named 'x'\n")
+    (data / "logs" / "service.log").write_text("ALT vom Vortag: übersprungen\n", encoding="utf-8")
     skript = tmp_path / "start.ps1"
     skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
                       "$global:M = New-Object System.Collections.ArrayList\n"
                       "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
-                      + (funktionen or (_funktion("Get-RelayStartGrund") + "\n" + _funktion("Start-RelayDienst")))
-                      + _START_MOCK + f"$global:ScheitertBis = {scheitert_bis}\n"
+                      + (funktionen or (_funktion("Get-RelayLogLaenge") + "\n" + _funktion("Get-RelayStartGrund")
+                                        + "\n" + _funktion("Start-RelayDienst")))
+                      + _START_MOCK + f"$global:ScheitertBis = {scheitert_bis}\n$global:Log = '{data / 'logs' / 'service.log'}'\n"
                       f"try {{ Start-RelayDienst -DataDir '{data}'; $f = '' }} catch {{ $f = \"$($_.Exception.Message)\" }}\n"
                       "ConvertTo-Json -Compress -InputObject ([ordered]@{ Fehler = $f; Starts = $global:Starts; Meldungen = @($global:M) })\n",
                       encoding="utf-8-sig")
@@ -697,21 +700,34 @@ def test_dienststart_wiederholt_und_meldet_den_grund(tmp_path):
     (SCM-Ereignis, service.log) in der Ausgabe."""
     e = _start_lauf(tmp_path, 1)
     assert e["Fehler"] == "" and e["Starts"] == 2, e
-    assert any("Versuch 1 von 3: Failed to start service" in m and "service.log: ModuleNotFoundError" in m
-               for m in e["Meldungen"]), e
+    assert any("Versuch 1 von 3: Failed to start service" in m and "service.log: Start 1: ModuleNotFoundError" in m
+               and "grüße" in m and "Vortag" not in m for m in e["Meldungen"]), e
 
 
 @pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
 def test_dienststart_scheitert_ehrlich_nach_allen_versuchen(tmp_path):
     e = _start_lauf(tmp_path, 9)
     assert e["Starts"] == 3 and e["Fehler"].startswith("Dienst startet nicht (3 Versuche): Failed to start service"), e
-    assert "service.log: ModuleNotFoundError" in e["Fehler"], e
+    assert "service.log: Start 3: ModuleNotFoundError: No module named 'grüße'" in e["Fehler"], e
+    assert "Vortag" not in e["Fehler"] and "Start 2" not in e["Fehler"], e
 
 
 @pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
 def test_dienststart_gegenprobe_ohne_wiederholung(tmp_path):
     """Trennscharf: wie bis 0.2.52 nur ein Versuch — ein einzelner Fehlschlag bricht ab."""
-    ein = _funktion("Get-RelayStartGrund") + "\n" + _funktion("Start-RelayDienst").replace(
+    ein = _funktion("Get-RelayLogLaenge") + "\n" + _funktion("Get-RelayStartGrund") + "\n" + _funktion("Start-RelayDienst").replace(
         "[int]$Versuche = 3", "[int]$Versuche = 1")
     e = _start_lauf(tmp_path, 1, ein)
     assert e["Fehler"] != "" and e["Starts"] == 1, e
+
+
+
+def test_install_verwirft_offene_updater_ruecknahme_vor_dem_start():
+    """Geschwister-Suchlauf 0.2.54: service.py holt eine offene Updater-Rücknahme beim Start nach.
+    Nach install.ps1 würde das eine ältere Fassung über die neue spielen — der Installer legt den
+    Merker VOR dem Dienststart weg und stellt ihn bei einem eigenen Abbruch wieder her."""
+    h = _hauptteil(_code())
+    weg = h.index('Remove-Item -LiteralPath $offenDatei -Force')
+    assert h.index("$script:RelayOffenInhalt = Get-Content") < weg < h.index("Start-RelayDienst -DataDir $dataDir")
+    assert 'update\\ruecknahme_offen.json") -Value $script:RelayOffenInhalt' in _funktion("Restore-RelayNachAbbruch")
+    assert (WURZEL / "windows" / "service.py").read_text(encoding="utf-8").count('"ruecknahme_offen.json"') == 1
