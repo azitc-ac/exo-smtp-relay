@@ -569,12 +569,54 @@ function Restore-RelayNachAbbruch {
     }
     if ($dienstLief) {
         try {
-            Start-Service -Name "ExoSmtpRelay"
+            Start-RelayDienst -DataDir $dataDir
             $v = ""
             if (Test-Path (Join-Path $InstallDir "VERSION")) { $v = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
             Write-Warn "Dienst laeuft wieder (Fassung $v)"
         } catch {
             Write-Warn "Dienst startet nicht: $($_.Exception.Message) - Protokoll: $dataDir\logs\app.log"
+        }
+    }
+}
+
+# Dienst starten - bis zu $Versuche Mal (Release v0.2.52-beta: einmaliger "Failed to start service"
+# auf dem CI-Runner, in vier Wiederholungen desselben Pakets nicht wieder aufgetreten). Jeder
+# Fehlschlag wird mit dem SCM-Ereignis und dem Ende von service.log gemeldet; erst wenn alle
+# Versuche scheitern, bricht der Lauf ab (Ruecknahme). Ob die Fassung TRAEGT, entscheidet danach
+# ohnehin das Lebenszeichen (/health).
+function Get-RelayStartGrund([string]$DataDir) {
+    $teile = @()
+    try {
+        $e = @(Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = (Get-Date).AddMinutes(-5) } -MaxEvents 20 -ErrorAction Stop |
+            Where-Object { $_.Message -match "EXO SMTP Relay|ExoSmtpRelay" -and $_.Id -in @(7000, 7009, 7011, 7023, 7024, 7031, 7034) } | Select-Object -First 1)
+        if ($e.Count) { $teile += "SCM $($e[0].Id): $(($e[0].Message -replace '\s+', ' ').Trim())" }
+    } catch { }
+    $log = Join-Path $DataDir "logs\service.log"
+    if (Test-Path -LiteralPath $log) {
+        $ende = @(Get-Content -LiteralPath $log -Tail 4 -ErrorAction SilentlyContinue | Where-Object { "$_".Trim() })
+        if ($ende.Count) { $teile += "service.log: $(($ende | ForEach-Object { "$_".Trim() }) -join ' | ')" }
+    }
+    if ($teile.Count -eq 0) { return "keine weiteren Angaben (SCM-Ereignis/service.log leer)" }
+    $teile -join " ; "
+}
+
+function Start-RelayDienst([string]$DataDir, [int]$Versuche = 3, [int]$PauseS = 10) {
+    for ($i = 1; $i -le $Versuche; $i++) {
+        $fehler = ""
+        try {
+            Start-Service -Name "ExoSmtpRelay" -ErrorAction Stop
+            Start-Sleep -Seconds 3
+            $st = "$((Get-Service -Name "ExoSmtpRelay").Status)"
+            if ($st -eq "Running") { return }
+            $fehler = "Status nach dem Start: $st"
+        } catch { $fehler = "$($_.Exception.Message)" }
+        $grund = Get-RelayStartGrund $DataDir
+        if ($i -lt $Versuche) {
+            Write-Warn "Dienststart, Versuch $i von ${Versuche}: $fehler - $grund; neuer Versuch in $PauseS s"
+            try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
+            Start-Sleep -Seconds $PauseS
+        } else {
+            throw "Dienst startet nicht ($Versuche Versuche): $fehler - $grund"
         }
     }
 }
@@ -1047,11 +1089,8 @@ try {
     Write-Ok "$verknuepfung"
 
     Write-Step "Starte Dienst"
-    Start-Service -Name "ExoSmtpRelay"
-    Start-Sleep -Seconds 3
-    $dienst = Get-Service -Name "ExoSmtpRelay"
-    if ($dienst.Status -ne "Running") { throw "Dienst laeuft nach dem Start nicht (Status: $($dienst.Status)) - Protokoll: $dataDir\logs\app.log" }
-    Write-Ok "Status: $($dienst.Status)"
+    Start-RelayDienst -DataDir $dataDir
+    Write-Ok "Status: Running"
     $schritt = "Lebenszeichen"
     $neuVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim()
     Wait-RelayGesund -Python $venvPython -Port $WebPort -Version $neuVersion

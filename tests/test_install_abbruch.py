@@ -54,6 +54,7 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
                                              "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
                                              "Get-RelayTeilLauf", "Set-RelayTeilMarke",
+                                             "Get-RelayStartGrund", "Start-RelayDienst",
                                              "Move-RelayPfad", "Get-RelayFreierName", "Merge-RelayOrdner", "Repair-RelayReste",
                                              "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
@@ -114,6 +115,7 @@ _DIENST_MOCK = '''
 $global:Dienst = New-Object System.Collections.ArrayList
 function Stop-Service { param($Name, [switch]$Force) [void]$global:Dienst.Add("stop") }
 function Start-Service { param($Name) [void]$global:Dienst.Add("start") }
+function Get-Service { param($Name) [pscustomobject]@{ Status = "Running" } }
 '''
 
 
@@ -156,7 +158,10 @@ def _verstoesse(code: str) -> list[str]:
     versuch, fang = h.find("\ntry {\n"), h.find("\n} catch {\n")
     if not (0 <= stopp < versuch < h.find("Backup-RelayFassung") < h.find("Copy-Item") < fang):
         aus.append("kopieren_im_try")
-    if not (versuch < h.find('Start-Service -Name "ExoSmtpRelay"') < fang) or versuch < 0:
+    start = h.find("Start-RelayDienst -DataDir $dataDir")
+    if start < 0:
+        start = h.find('Start-Service -Name "ExoSmtpRelay"')                 # Stände bis 0.2.52
+    if not (versuch < start < fang) or versuch < 0:
         aus.append("start_im_try")
     if fang < 0 or "Restore-RelayNachAbbruch" not in h[fang:]:
         aus.append("ruecknahme_im_catch")
@@ -266,7 +271,7 @@ def test_dienst_dlls_nur_ohne_path_und_wieder_weg(tmp_path):
 
 def test_dienst_dlls_vor_dem_start_abgeglichen():
     h = _hauptteil(_code())
-    assert h.index("Sync-RelayDienstDlls -Venv $venv") < h.index('Start-Service -Name "ExoSmtpRelay"')
+    assert h.index("Sync-RelayDienstDlls -Venv $venv") < h.index("Start-RelayDienst -DataDir $dataDir")
     assert '[Environment]::GetEnvironmentVariable("Path", "Machine")' in h
 
 
@@ -348,7 +353,7 @@ def test_lebenszeichen_vor_erfolg():
     der Installer im try auf /health mit der Soll-Version; sonst Rücknahme samt Port."""
     h = _hauptteil(_code())
     fang = h.index("\n} catch {\n")
-    assert h.index('Start-Service -Name "ExoSmtpRelay"') < h.index("Wait-RelayGesund -Python $venvPython -Port $WebPort") < fang
+    assert h.index("Start-RelayDienst -DataDir $dataDir") < h.index("Wait-RelayGesund -Python $venvPython -Port $WebPort") < fang
     r = _funktion("Restore-RelayNachAbbruch")
     assert '--setzen "PYTHONPATH=$sp;$sp\\win32;$sp\\win32\\lib" --port "$altPort"' in r
     assert "Sync-RelayFirewall -WebPort $altPort" in r
@@ -653,3 +658,60 @@ def test_gleiche_fassung_gegenprobe_ohne_lauf_id(tmp_path):
     „alt“, es wird nur ergänzt, das kaputte main.py und a.py=neu bleiben."""
     e = _z4_lauf(tmp_path, "")
     assert "main.py=kaputt" in e["Dateien"] and "a.py=neu" in e["Dateien"], e
+
+
+
+_START_MOCK = """
+$global:Starts = 0; $global:ScheitertBis = 0
+function Start-Service { param($Name) $global:Starts++; if ($global:Starts -le $global:ScheitertBis) { throw "Failed to start service 'EXO SMTP Relay (ExoSmtpRelay)'." } }
+function Stop-Service { param($Name, [switch]$Force) }
+function Get-Service { param($Name) [pscustomobject]@{ Status = "Running" } }
+function Start-Sleep { param($Seconds) }
+"""
+
+
+def _start_lauf(tmp_path, scheitert_bis: int, funktionen: str | None = None) -> dict:
+    data = tmp_path / "data"
+    (data / "logs").mkdir(parents=True)
+    (data / "logs" / "service.log").write_text("ModuleNotFoundError: No module named 'x'\n")
+    skript = tmp_path / "start.ps1"
+    skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+                      "$global:M = New-Object System.Collections.ArrayList\n"
+                      "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
+                      + (funktionen or (_funktion("Get-RelayStartGrund") + "\n" + _funktion("Start-RelayDienst")))
+                      + _START_MOCK + f"$global:ScheitertBis = {scheitert_bis}\n"
+                      f"try {{ Start-RelayDienst -DataDir '{data}'; $f = '' }} catch {{ $f = \"$($_.Exception.Message)\" }}\n"
+                      "ConvertTo-Json -Compress -InputObject ([ordered]@{ Fehler = $f; Starts = $global:Starts; Meldungen = @($global:M) })\n",
+                      encoding="utf-8-sig")
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
+                       capture_output=True, text=True, timeout=120, env=umgebung)
+    assert r.returncode == 0, r.stderr + r.stdout
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_dienststart_wiederholt_und_meldet_den_grund(tmp_path):
+    """Release v0.2.52-beta: einmal „Failed to start service“ auf dem Runner, in vier Wiederholungen
+    nicht wieder. Ein einzelner Fehlschlag kippt die Installation nicht mehr; er steht mit Grund
+    (SCM-Ereignis, service.log) in der Ausgabe."""
+    e = _start_lauf(tmp_path, 1)
+    assert e["Fehler"] == "" and e["Starts"] == 2, e
+    assert any("Versuch 1 von 3: Failed to start service" in m and "service.log: ModuleNotFoundError" in m
+               for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_dienststart_scheitert_ehrlich_nach_allen_versuchen(tmp_path):
+    e = _start_lauf(tmp_path, 9)
+    assert e["Starts"] == 3 and e["Fehler"].startswith("Dienst startet nicht (3 Versuche): Failed to start service"), e
+    assert "service.log: ModuleNotFoundError" in e["Fehler"], e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_dienststart_gegenprobe_ohne_wiederholung(tmp_path):
+    """Trennscharf: wie bis 0.2.52 nur ein Versuch — ein einzelner Fehlschlag bricht ab."""
+    ein = _funktion("Get-RelayStartGrund") + "\n" + _funktion("Start-RelayDienst").replace(
+        "[int]$Versuche = 3", "[int]$Versuche = 1")
+    e = _start_lauf(tmp_path, 1, ein)
+    assert e["Fehler"] != "" and e["Starts"] == 1, e

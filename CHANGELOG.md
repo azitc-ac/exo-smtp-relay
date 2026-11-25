@@ -8,6 +8,16 @@ und `:beta` wurden trotzdem gepusht (der Image-Job hing nicht vom Offline-Test a
 zeigt ab diesem Release wieder auf eine geprüfte Fassung; das Tag `0.2.52-beta` bleibt als
 verwaiste Fassung stehen.
 
+- **Ursache des roten Offline-Tests:** keine Regression aus 0.2.51/0.2.52 und nicht das neue
+  Runner-Python 3.13.17. Dasselbe Paket, wie im Release auf Ubuntu gebaut und auf Windows
+  geprüft, lief auf dem heutigen Runner grün für 795b366 (genau der rote Release-Stand),
+  97cc8bf, efbf608 und den aktuellen Stand. Der rote Lauf scheiterte nach rund 22 s schnell mit
+  „Failed to start service“, ohne dass die Probe service.log oder das SCM-Ereignis ausgab — die
+  genaue Ursache ist deshalb nicht belegt (einmaliger Startfehler).
+- **`install.ps1` startet den Dienst bis zu dreimal** (`Start-RelayDienst`, 10 s Pause) und meldet
+  jeden Fehlschlag mit dem SCM-Ereignis und dem Ende von `service.log`; erst wenn alle Versuche
+  scheitern, bricht der Lauf ab (Rücknahme). Ob die Fassung trägt, entscheidet weiter das
+  Lebenszeichen. Gilt auch für den Start nach einer Rücknahme.
 - **Release:** Die Freigabe hängt jetzt auch vom Offline-Test ab (`needs: [pakete, offline]`) —
   ist er rot, wird nichts veröffentlicht, auch kein Abbild (Test).
 - **CI prüft dasselbe Paket wie das Release:** Das Offline-Paket wird wie im Release auf Ubuntu
