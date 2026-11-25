@@ -1,5 +1,60 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.50 — 2026-11-25 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.50, Lieferkette, Offline-Paket
+
+Erste stabile Fassung seit 0.2.42. Fasst 0.2.43-beta, 0.2.44-beta, 0.2.45 und 0.2.46 (beide
+nicht veröffentlicht), 0.2.47-beta, 0.2.48-beta und 0.2.49-beta zusammen — Einzelheiten in deren
+Abschnitten unten. Im Labtest (Windows Server 2025, Linux, Docker) geprüft.
+
+**Upgrade-Hinweise**
+
+- **Windows ohne nachgeladene Wurzelzertifikate** (frischer Server, auf dem nie ein Browser
+  GitHub aufgerufen hat): Die alte Fassung scheitert bei „Aktualisierung prüfen“ mit
+  `CERTIFICATE_VERIFY_FAILED`. Dann **einmal `windows\install.ps1`** aus dem neuen Paket als
+  Administrator ausführen; danach geht das Update per Knopf. Das Upgrade per `install.ps1`
+  behält Kennwort, Port, Dienst-Umgebung und Firewall-Einschränkungen.
+- **Docker:** Das Abbild startet über `docker-entrypoint.sh` als root, macht `/app/data` für
+  `appuser` (uid 1000) beschreibbar und wechselt dann auf `appuser`; der Dienst läuft nie als
+  root. Einfach `docker compose pull && docker compose up -d`. Wer in `docker-compose.yml`
+  einen eigenen `entrypoint:` gesetzt hat, nimmt ihn heraus; mit `user:` startet der Befehl
+  unverändert, `./data` muss dann diesem Nutzer gehören (NFS mit `root_squash`:
+  `sudo chown -R 1000:1000 data`).
+- **Bewusst gesetzte Rechte auf `data\`** (Windows) werden beim nächsten `install.ps1` entfernt
+  und gemeldet: `data\` hat genau SYSTEM und Administratoren.
+- **Offline-Server:** neues Paket `exo-smtp-relay-0.2.50-windows-offline.zip` (README →
+  Offline-Installation). Eine damit installierte Instanz aktualisiert ohne PyPI.
+
+**Das Wichtigste**
+
+- **Lieferkette:** Python-Pakete nur mit Prüfsummen (`pip --require-hashes`) überall;
+  Python-Installer und ExchangeOnlineManagement von festen Adressen mit fester SHA256 und
+  geprüfter Authenticode-Signatur; kein ungeprüfter Download, keine pip-Selbstaktualisierung.
+  Bei der Lieferketten-Arbeit aufgedeckt: `colorama` (Windows) fehlte in der Lock-Datei.
+- **Windows-Offline-Paket** mit Python, 44 Wheels (Python 3.11–3.13) und ExchangeOnlineManagement;
+  vor jeder Veröffentlichung auf Windows ohne Netz installiert und geprüft.
+- **`install.ps1` robust beim Upgrade:** Sperrtest vor dem Austausch, Rücknahme nach dem Inhalt
+  der Sicherung mit Merker, Lebenszeichen (`/health` mit der Soll-Version) vor „Aktualisiert“,
+  Rücknahme von Abhängigkeiten (auch auf Fassungen mit Lock-Datei ohne Prüfsummen), Web-Port
+  und Firewall nach einer Regel; Exit-Codes geprüft; `data\`-Rechte erzwungen, nie beendend.
+- **Python:** nur 3.11–3.13; Dienst startet auch ohne Python im Maschinen-PATH.
+- **TLS:** selbstsigniertes Zertifikat trägt FQDN und Rechnernamen, auch bei Namen über 64 Zeichen.
+- **Firewall:** ein Upgrade öffnet nie weiter als vorher.
+
+Neu in 0.2.50 (Labtest von 0.2.49-beta, seltener Fall: Sperre IN `.install-alt\`):
+
+- **Z1:** Ließ sich die gesicherte alte `windows\` nicht zurückholen (Programm mit
+  Arbeitsverzeichnis darin), war die neue schon beiseite — kein `windows\` am Platz, Dienst
+  gestoppt. Jetzt kommt die neue zurück an ihren Platz; der Dienst startet mit dem, was da
+  ist, und die Rücknahme meldet „UNVOLLSTAENDIG“.
+- **Z2:** Nach einem ERFOLGREICHEN Upgrade blieb bei derselben Sperre ein leerer Rest von
+  `.install-alt\windows` ohne Merker und ohne Meldung; ein Folgelauf hielt ihn für eine
+  Sicherung und verwarf das gute `windows\`. Jetzt: zurückgeholt wird nur, was dieser Lauf
+  verschoben hat oder ein Merker nennt, ein leerer Ordner ist nie eine Sicherung, der Merker
+  wird nach einem Erfolg zuerst gelöscht, ein nicht löschbarer Rest ist eine WARNUNG (Exit 0),
+  und ein Folgelauf bricht an ihm ab, ohne etwas zu verschieben.
+- Tests: CI-Job „Installer echt“ mit Z1 und Z2 (Sperre greift erst während des
+  Lebenszeichens), jeweils mit Folgelauf und Gegenprobe gegen 97cc8bf.
+
 ## 0.2.49-beta — 2026-11-25 — Rücknahme: hash-lose Vorfassung, Sperre während des Lebenszeichens
 
 Aus dem großen Labtest von 0.2.48-beta (sonst grün: offline ohne Netz auf Server 2025,

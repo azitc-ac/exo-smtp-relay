@@ -29,6 +29,14 @@
          windows\ zurueck. Gegenprobe efbf608: Firewall 8443, WEBUI_PORT 9443; Folgelauf loescht
          die Sicherung ("alle Teile am Platz")
 
+     10. Z1: Sperre IN .install-alt\windows waehrend des Lebenszeichens, kaputte Fassung -> windows\
+         bleibt am Platz (die neue), Dienst laeuft mit der alten app\; Folgelauf unter Sperre ebenso.
+         Gegenprobe 97cc8bf: kein windows\ am Platz, Dienst gestoppt
+     11. Z2: dieselbe Sperre bei einem ERFOLGREICHEN Upgrade -> Exit 0 mit WARNUNG zum Rest; Folgelauf
+         unter Sperre bricht ab, ohne das gute windows\ anzufassen. Gegenprobe 97cc8bf: Folgelauf
+         verwirft das gute windows\, Dienst gestoppt
+
+    -Gegenprobe049 gibt den Pfad eines 97cc8bf-Baums an (0.2.49-beta).
     -Gegenprobe048 gibt den Pfad eines efbf608-Baums an (0.2.48-beta).
     -Gegenprobe046 gibt den Pfad eines 2ea9192-Baums an (0.2.46, vom Labtest gestoppt).
     -Gegenprobe gibt den Pfad eines entpackten 0.2.45-Baums an (CI: git worktree).
@@ -37,7 +45,8 @@ param(
     [string]$Quelle = (Split-Path -Parent $PSScriptRoot),
     [string]$Gegenprobe = "",
     [string]$Gegenprobe046 = "",
-    [string]$Gegenprobe048 = ""
+    [string]$Gegenprobe048 = "",
+    [string]$Gegenprobe049 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -330,6 +339,77 @@ if ($Gegenprobe048) {
     } finally { Stop-Sperre $s }
     $r = Install-Lauf (New-Baum "q1") "9g-wiederherstellen" @("-WebPort", "8443")
     Pruefe ($r.Rc -eq 0 -and (Get-Fassung) -eq $version -and (Get-Umgebungsport) -eq "8443") "Wiederherstellen nach e5-Gegenprobe"
+}
+
+# 10/11 -- Sperre IN .install-alt\windows --------------------------------------------------
+function Start-SicherungsSperre([string]$Fassung) {
+    $pidDatei = Join-Path $arbeit "sperre-$([guid]::NewGuid().ToString('N')).pid"
+    $code = "while (-not ((Get-Service ExoSmtpRelay).Status -eq 'Running' -and (Test-Path '$ziel\.install-alt\windows') -and (Test-Path '$ziel\VERSION') -and (Get-Content '$ziel\VERSION' -Raw).Trim() -eq '$Fassung')) { Start-Sleep -Milliseconds 200 }; " +
+            "`$p = Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 900' -WorkingDirectory '$ziel\.install-alt\windows' -WindowStyle Hidden -PassThru; Set-Content '$pidDatei' `$p.Id"
+    $w = Start-Process powershell.exe -ArgumentList @("-NoProfile", "-Command", $code) -WindowStyle Hidden -PassThru
+    return @{ Waechter = $w; PidDatei = $pidDatei }
+}
+function New-Baum997([string]$Basis, [string]$Name) {
+    $b = Join-Path $arbeit $Name
+    if (Test-Path $b) { Remove-Item -Recurse -Force $b }
+    New-Item -ItemType Directory -Path $b | Out-Null
+    foreach ($t in @("app", "windows", "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")) {
+        $q = Join-Path $Basis $t
+        if (Test-Path $q) { Copy-Item -Recurse -Force $q (Join-Path $b $t) }
+    }
+    Set-Content -Path (Join-Path $b "VERSION") -Value "9.9.7" -NoNewline
+    return $b
+}
+function Test-Laeuft([string]$Soll) { $g = Get-Gesundheit; return ((Get-DienstStatus) -eq "Running" -and $null -ne $g -and $g.version -eq $Soll) }
+
+# Z1
+$s = Start-SicherungsSperre "9.9.8"
+try {
+    $r = Install-Lauf (New-StummerBaum $Quelle "qz1") "10-z1-1"
+    Pruefe (Test-Path $s.PidDatei) "Z1: Sperre in .install-alt\windows griff waehrend des Lebenszeichens"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "Ruecknahme UNVOLLSTAENDIG: windows") "Z1: UNVOLLSTAENDIG (windows) gemeldet"
+    Pruefe (Test-Path (Join-Path $ziel "windows\service.py")) "Z1: windows\ am Platz (die neue - lieber als keine)"
+    Pruefe (Test-Laeuft $version) "Z1: Dienst laeuft, /health $version"
+    $r = Install-Lauf (New-Baum "q1") "10-z1-2"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "nicht zurueckholbar: windows") "Z1 Folgelauf: bricht ab"
+    Pruefe ((Test-Path (Join-Path $ziel "windows\service.py")) -and (Test-Laeuft $version)) "Z1 Folgelauf: windows\ am Platz, Dienst laeuft mit $version"
+} finally { Stop-Sperre $s }
+$r = Install-Lauf (New-Baum "q1") "10-z1-3"
+Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "Z1: nach dem Entsperren Exit 0, $version, kein Rest"
+if ($Gegenprobe049) {
+    $s = Start-SicherungsSperre "9.9.8"
+    try {
+        $r = Install-Lauf (New-StummerBaum $Gegenprobe049 "qz1g") "10g-z1-97cc8bf"
+        Pruefe (-not (Test-Path (Join-Path $ziel "windows")) -and (Get-DienstStatus) -ne "Running") "Gegenprobe Z1 97cc8bf: kein windows\ am Platz, Dienst gestoppt"
+    } finally { Stop-Sperre $s }
+    $r = Install-Lauf (New-Baum "q1") "10g-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach Z1-Gegenprobe"
+}
+
+# Z2
+$s = Start-SicherungsSperre "9.9.7"
+try {
+    $r = Install-Lauf (New-Baum997 $Quelle "qz2") "11-z2-1"
+    Pruefe (Test-Path $s.PidDatei) "Z2: Sperre in .install-alt\windows griff waehrend des Lebenszeichens"
+    Pruefe ($r.Rc -eq 0 -and $r.Text -match "nicht loeschbar \(gesperrt\?\) - kein Fehler") "Z2: Upgrade erfolgreich, Exit 0, WARNUNG zum Rest"
+    Pruefe (Test-Laeuft "9.9.7") "Z2: 9.9.7 laeuft"
+    $r = Install-Lauf (New-Baum "q1") "11-z2-2"
+    Pruefe ($r.Rc -ne 0 -and $r.Text -match "nicht entfernbar") "Z2 Folgelauf: bricht am Rest ab"
+    Pruefe ($r.Text -notmatch "zurueckgeholt") "Z2 Folgelauf: nichts 'zurueckgeholt'"
+    Pruefe ((Test-Path (Join-Path $ziel "windows\service.py")) -and (Test-Laeuft "9.9.7")) "Z2 Folgelauf: gutes windows\ bleibt, 9.9.7 laeuft"
+} finally { Stop-Sperre $s }
+$r = Install-Lauf (New-Baum "q1") "11-z2-3"
+Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "Z2: nach dem Entsperren Exit 0, $version, kein Rest"
+if ($Gegenprobe049) {
+    $s = Start-SicherungsSperre "9.9.7"
+    try {
+        $r = Install-Lauf (New-Baum997 $Gegenprobe049 "qz2g") "11g-z2-97cc8bf-1"
+        Pruefe ($r.Rc -eq 0) "Gegenprobe Z2 97cc8bf: Upgrade Exit 0 (Rest bleibt still)"
+        $r = Install-Lauf $Gegenprobe049 "11g-z2-97cc8bf-2"
+        Pruefe ((-not (Test-Path (Join-Path $ziel "windows\service.py"))) -or (Get-DienstStatus) -ne "Running") "Gegenprobe Z2 97cc8bf: Folgelauf verwirft das gute windows\ bzw. Dienst gestoppt"
+    } finally { Stop-Sperre $s }
+    $r = Install-Lauf (New-Baum "q1") "11g-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach Z2-Gegenprobe"
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green

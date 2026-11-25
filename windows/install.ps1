@@ -262,9 +262,15 @@ function Invoke-RelayNativ([string]$Was, [scriptblock]$Befehl) {
 # wird zurueckgeholt - auch ueber ein belegtes Ziel - oder der Lauf bricht ab, ohne ihn anzufassen.
 # Dazu traegt jeder kopierte Ordnerteil .relay-fassung (VERSION), damit sich pruefen laesst, wessen
 # Teil am Platz liegt.
+# Nur echte Inhalte: ein LEERER Ordnerrest (Loeschen scheiterte an einer Sperre darin, Labtest
+# 0.2.49 Z2) ist nie eine Sicherung.
 function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
     if (-not (Test-Path -LiteralPath $Sicherung)) { return }
-    foreach ($teil in $Teile) { if (Test-Path -LiteralPath (Join-Path $Sicherung $teil)) { $teil } }
+    foreach ($teil in $Teile) {
+        $p = Join-Path $Sicherung $teil
+        if (Test-Path -LiteralPath $p -PathType Leaf) { $teil }
+        elseif ((Test-Path -LiteralPath $p -PathType Container) -and @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue | Select-Object -First 1).Count -gt 0) { $teil }
+    }
 }
 
 $RelayMerkerName = "zurueckholen.json"
@@ -319,8 +325,11 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
             }
         }
         if (Test-Path -LiteralPath $Sicherung) {
+            Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $Sicherung) {
+                throw "Rest eines frueheren Laufs nicht entfernbar (gesperrt?): $Sicherung - Sperre loesen, nichts verschoben"
+            }
             Write-Warn "Rest eines frueheren Laufs entfernt (alle Teile am Platz): $Sicherung"
-            Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction Stop
         }
     }
     $gesperrt = @()
@@ -355,6 +364,11 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
             }
             Move-Item -LiteralPath (Join-Path $Sicherung $teil) -Destination $p -ErrorAction Stop
         } catch {
+            # Labtest 0.2.49 Z1: Sperre IN der Sicherung - das Neue war schon beiseite, das Alte kam
+            # nicht. Dann das Neue zurueck an seinen Platz: lieber die neue Fassung als keine.
+            if (-not (Test-Path -LiteralPath $p) -and (Test-Path -LiteralPath $weg)) {
+                try { Move-Item -LiteralPath $weg -Destination $p -ErrorAction Stop } catch { Write-Warn "$teil\ fehlt am Platz und liegt unter $weg - von Hand zurueckbenennen" }
+            }
             $offen += $teil
             continue
         }
@@ -378,7 +392,10 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
 # starten, wenn er vorher lief. Liest die Ablaufvariablen ($gesichert, $pipGelaufen ...).
 function Restore-RelayNachAbbruch {
     try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
-    $inSicherung = @(Get-RelaySicherungsTeile $sicherung $RelayTeile)
+    # Zurueckgeholt wird nur, was DIESER Lauf verschoben hat oder ein Merker nennt - nie ein Rest
+    # ohne Merker (Labtest 0.2.49 Z2: leerer Rest galt als Sicherung, das GUTE windows\ flog raus).
+    $inSicherung = @()
+    if (@($gesichert).Count -gt 0 -or (Read-RelayMerker $sicherung)) { $inSicherung = @(Get-RelaySicherungsTeile $sicherung $RelayTeile) }
     if ($inSicherung.Count -gt 0) {
         $offen = @(Restore-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
         if ($offen.Count -eq 0) {
@@ -912,7 +929,15 @@ try {
     Restore-RelayNachAbbruch
     throw "Installation abgebrochen im Schritt '$schritt': $($grund.Exception.Message)"
 }
-if (Test-Path $sicherung) { Remove-Item -Recurse -Force $sicherung -ErrorAction SilentlyContinue }
+if (Test-Path $sicherung) {
+    # Erst den Merker: ohne ihn gilt ein Rest nie als Sicherung (Get-RelaySicherungsTeile, Ruecknahme).
+    Remove-Item -LiteralPath (Join-Path $sicherung $RelayMerkerName) -Force -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $sicherung -ErrorAction SilentlyContinue
+    if (Test-Path $sicherung) {
+        # Labtest 0.2.49 Z2: Sperre in .install-alt\ - der Rest bleibt, ohne Merker gilt er nie als Sicherung.
+        Write-Warn "Rest $sicherung nicht loeschbar (gesperrt?) - kein Fehler; der naechste Lauf entfernt ihn, sobald die Sperre weg ist"
+    }
+}
 
 # Kennwort-Hinweis nach DERSELBEN Regel wie die Oberflaeche (app\kennwort_stand.py):
 # nach einem Upgrade mit eigenem Kennwort kein "admin / admin" mehr (Labtest 0.2.43).

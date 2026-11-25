@@ -99,6 +99,12 @@ liegen `windows\` und `zurueckholen.json`. Erneuter Lauf mit offener Sperre → 
 zurueckholbar: windows“, Sicherung bleibt. `cmd` schließen, erneut → „zurueckgeholt (Fassung
 <alt>): windows“, Exit 0.
 
+**Sperre in `.install-alt\windows`** (Labtest Z1/Z2): sobald der Dienst während des
+Upgrades läuft, `cmd` mit Arbeitsverzeichnis `C:\ProgramData\exo-smtp-relay\.install-alt\windows`
+öffnen. Kaputte neue Fassung → „UNVOLLSTAENDIG: windows“, `windows\` bleibt am Platz, Dienst
+läuft. Funktionierende neue Fassung → Exit 0 mit „Rest … nicht loeschbar … kein Fehler“; ein
+Folgelauf bei offener Sperre → „Rest … nicht entfernbar“, `windows\` unverändert, Dienst läuft.
+
 (Alles läuft auch im CI-Job „Installer echt“.)
 
 ## 1b Offline-Installation (Windows, ohne Internet)

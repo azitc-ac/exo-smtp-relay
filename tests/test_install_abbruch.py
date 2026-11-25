@@ -268,7 +268,7 @@ def test_dienst_dlls_vor_dem_start_abgeglichen():
 _ABLAUF_VARS = '''
 $InstallDir = "{z}"; $sicherung = "{z}/.install-alt"; $dataDir = "{z}/data"; $venv = "{z}/venv"
 $venvPython = "{z}/venv/gibtsnicht"; $pipGelaufen = $false; $istUpgrade = $true; $dienstLief = $true
-$altVersion = "0.2.44"; $umgebungGesetzt = $false; $firewallGesetzt = $false; $altPort = ""
+$altVersion = "0.2.44"; $umgebungGesetzt = $false; $firewallGesetzt = $false; $altPort = ""; $gesichert = @()
 '''
 
 
@@ -276,6 +276,7 @@ def _installiert(ziel):
     (ziel / "app").mkdir(parents=True)
     (ziel / "app" / "main.py").write_text("alt")
     (ziel / "windows").mkdir()
+    (ziel / "windows" / "service.py").write_text("# alt")
     (ziel / "VERSION").write_text("0.2.44")
 
 
@@ -306,6 +307,8 @@ def test_ruecknahme_liest_inhalt_der_sicherung(tmp_path):
     _installiert(ziel)
     (ziel / ".install-alt").mkdir()
     (ziel / "app").rename(ziel / ".install-alt" / "app")
+    # Backup schreibt den Merker VOR dem ersten Verschieben — er liegt also auch hier.
+    (ziel / ".install-alt" / "zurueckholen.json").write_text('{"teile":["app","windows","VERSION"],"fassung":"0.2.44","port":""}')
     e = _lauf(tmp_path, _DIENST_MOCK + _ABLAUF_VARS.format(z=ziel) + '''
 $gesichert = @()
 Restore-RelayNachAbbruch
@@ -345,7 +348,8 @@ def test_lebenszeichen_vor_erfolg():
     assert '--setzen "PYTHONPATH=$sp;$sp\\win32;$sp\\win32\\lib" --port "$altPort"' in r
     assert "Sync-RelayFirewall -WebPort $altPort" in r
     assert "$firewallGesetzt = $true\n        Sync-RelayFirewall -WebPort $WebPort" in _code()
-    assert "Get-RelaySicherungsTeile $sicherung $RelayTeile" in r and "$gesichert" not in r
+    assert "Get-RelaySicherungsTeile $sicherung $RelayTeile" in r
+    assert "if (@($gesichert).Count -gt 0 -or (Read-RelayMerker $sicherung))" in r
 
 
 _MOVE_SPERRE = '''
@@ -425,3 +429,53 @@ ConvertTo-Json -Compress -InputObject ([ordered]@{{ Fw = @($global:Fw); Merker =
     assert any("UNVOLLSTAENDIG" in m for m in e["Meldungen"]), e
     if not port_zurueck:
         assert any("Web-Port bleibt wie eingestellt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_rest_ohne_merker_wird_nie_zurueckgeholt(tmp_path):
+    """Labtest 0.2.49 Z2: Nach einem ERFOLGREICHEN Upgrade blieb .install-alt\\windows als leerer
+    Rest (Sperre darin). Ein Folgelauf hielt ihn für eine Sicherung und verwarf das gute
+    windows\\. Jetzt: ohne Merker und ohne eigenes Verschieben nichts zurückholen; ein leerer
+    Ordner ist nie eine Sicherung."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / "windows" / "gut.txt").write_text("gut")
+    (ziel / ".install-alt" / "windows").mkdir(parents=True)                     # leerer Rest
+    (ziel / ".install-alt" / "app").mkdir()
+    (ziel / ".install-alt" / "app" / "irgendwas.py").write_text("x")          # Rest mit Inhalt, ohne Merker
+    e = _lauf(tmp_path, _DIENST_MOCK + _ABLAUF_VARS.format(z=ziel) + '''
+$leer = @(Get-RelaySicherungsTeile $sicherung $RelayTeile)
+Restore-RelayNachAbbruch
+ConvertTo-Json -Compress -InputObject ([ordered]@{ Teile = $leer; Gut = (Test-Path "$InstallDir/windows/gut.txt");
+    App = (Get-Content "$InstallDir/app/main.py" -Raw).Trim(); Meldungen = @($global:M) })
+''')
+    assert e["Teile"] == ["app"], e                                     # leerer windows-Rest zählt nicht
+    assert e["Gut"] is True and e["App"] == "alt", e
+    assert not any("zurueckgeholt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_holen_scheitert_neues_kommt_zurueck(tmp_path):
+    """Labtest 0.2.49 Z1: Sperre IN .install-alt\\windows. Das Neue war schon beiseite, das Alte
+    kam nicht — kein windows\\ am Platz. Jetzt kommt das Neue zurück, der Teil bleibt offen."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    e = _lauf(tmp_path, _MOVE_SPERRE + f'''
+$g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile -Fassung "0.2.44" -Port "")
+New-Item -ItemType Directory "{ziel}/app", "{ziel}/windows" | Out-Null
+Set-Content "{ziel}/windows/neu.txt" "neu"
+$global:Gesperrt = @("{ziel}/.install-alt/windows")
+$offen = @(Restore-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile)
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Offen = $offen; Neu = (Test-Path "{ziel}/windows/neu.txt");
+    App = (Get-Content "{ziel}/app/main.py" -Raw).Trim(); Merker = (Get-Content "{ziel}/.install-alt/zurueckholen.json" -Raw | ConvertFrom-Json).teile }})
+''')
+    assert e["Offen"] == ["windows"] or e["Offen"] == "windows", e
+    assert e["Neu"] is True, e                                          # windows\\ am Platz (die neue)
+    assert e["App"] == "alt", e
+    assert e["Merker"] in ("windows", ["windows"]), e
+
+
+def test_rest_nach_erfolg_als_warnung():
+    code = _code()
+    ende = code[code.index("\n} catch {\n", code.index("# -- Dienst anhalten")):]
+    assert "nicht loeschbar (gesperrt?) - kein Fehler" in ende
