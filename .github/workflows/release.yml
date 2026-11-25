@@ -82,6 +82,10 @@ jobs:
       - name: Installieren und pruefen
         shell: powershell
         run: .\tools\offline_probe.ps1 -Paket "dist\exo-smtp-relay-${{ needs.pakete.outputs.version }}-windows-offline.zip"
+      - name: Protokoll des Dienstes
+        if: always()
+        shell: powershell
+        run: Get-Content C:\ProgramData\exo-smtp-relay\data\logs\app.log -Tail 60 -ErrorAction SilentlyContinue
 
   # Freigabe durch einen Menschen: Stable-Releases warten im Environment
   # „release“ auf die Bestätigung von Alexander Zarenko (Pflicht-Prüfer),
@@ -89,7 +93,9 @@ jobs:
   # veröffentlicht (Image, Release) wird erst danach.
   freigabe:
     name: Freigabe (${{ needs.pakete.outputs.kanal }})
-    needs: pakete
+    # Auch vom Offline-Test abhaengig: ist er rot, wird NICHTS veroeffentlicht - auch kein
+    # Image (v0.2.52-beta: Images gepusht, obwohl der Offline-Test rot war).
+    needs: [pakete, offline]
     runs-on: ubuntu-latest
     environment: ${{ needs.pakete.outputs.kanal == 'stable' && 'release' || 'beta' }}
     steps:

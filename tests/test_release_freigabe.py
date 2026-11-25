@@ -51,3 +51,9 @@ def test_veroeffentlichung_nur_nach_freigabe():
 
     for name in ("image", "manifest", "release"):
         assert haengt_ab(name, "freigabe"), f"{name} veröffentlicht ohne Freigabe"
+        # v0.2.52-beta: Images gingen raus, obwohl der Offline-Test rot war.
+        assert haengt_ab(name, "offline"), f"{name} veröffentlicht ohne grünen Offline-Test"
+
+
+def test_freigabe_wartet_auf_offline_test():
+    assert set(_needs(_jobs()["freigabe"])) >= {"pakete", "offline"}

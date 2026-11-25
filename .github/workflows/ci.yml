@@ -8,6 +8,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      stand:
+        description: "Nur Offline-Bau und -Probe: anderer Commit (Gegenprobe), leer = dieser"
+        required: false
+        default: ""
   # Wöchentlich auch ohne Push: Neue Lücken in den festgenagelten
   # Abhängigkeiten (pip-audit unten) entstehen, ohne dass sich der Code ändert.
   schedule:
@@ -133,11 +138,16 @@ jobs:
   # fuer pip installieren: PIP_NO_INDEX, toter Index/Proxy, ausgehende Firewall-Sperre fuer
   # python.exe. Prueft Authenticode des Python-Installers samt Gegenproben, die Microsoft-
   # Signatur des Moduls, Dienststart, /health und den Offline-Weg des Updaters.
-  offline:
-    name: Offline-Paket (Windows, ohne Netz)
-    runs-on: windows-latest
+  # Gebaut wie im Release: auf ubuntu-latest (Release-Job „pakete“), geprueft auf Windows.
+  # v0.2.52-beta: Der Release-Offline-Test war rot, die CI (Bau auf Windows) gruen - die CI
+  # muss DASSELBE Paket pruefen wie das Release.
+  offline-bau:
+    name: Offline-Paket bauen (wie Release)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.stand || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -145,6 +155,26 @@ jobs:
         run: |
           python tools/offline_paket.py vorbereiten offline-stufe
           python tools/release.py bauen dist-offline offline-stufe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-offline
+          path: dist-offline/
+
+  offline:
+    name: Offline-Paket (Windows, ohne Netz)
+    needs: offline-bau
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.stand || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-offline
+          path: dist-offline
       - name: Offline installieren und pruefen
         shell: powershell
         run: |

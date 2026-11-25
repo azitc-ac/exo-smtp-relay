@@ -22,8 +22,21 @@ $basis = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $arbeit = Join-Path $basis "offline-probe"
 $ziel = "C:\ProgramData\exo-smtp-relay"
 
+function Show-Diagnose {
+    Write-Host "`n--- Diagnose ---" -ForegroundColor Yellow
+    & sc.exe qc ExoSmtpRelay
+    Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\ExoSmtpRelay" -ErrorAction SilentlyContinue | Format-List ImagePath, Environment
+    foreach ($f in @("service.log", "app.log")) {
+        $l = Join-Path $ziel "data\logs\$f"
+        if (Test-Path $l) { Write-Host "--- $f"; Get-Content $l -Tail 60 }
+    }
+    Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = (Get-Date).AddMinutes(-20) } -MaxEvents 8 -ErrorAction SilentlyContinue | Format-List TimeCreated, Id, Message
+    Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = (Get-Date).AddMinutes(-20) } -MaxEvents 12 -ErrorAction SilentlyContinue | Format-List TimeCreated, ProviderName, Id, Message
+    if (Test-Path "$ziel\venv") { Get-ChildItem "$ziel\venv" -Force | Format-Table Name, Length; Get-Content "$ziel\venv\pyvenv.cfg" -ErrorAction SilentlyContinue }
+}
+
 function Pruefe([bool]$Bedingung, [string]$Text) {
-    if (-not $Bedingung) { throw "FEHLGESCHLAGEN: $Text" }
+    if (-not $Bedingung) { Show-Diagnose; throw "FEHLGESCHLAGEN: $Text" }
     Write-Host "  OK  $Text" -ForegroundColor Green
 }
 

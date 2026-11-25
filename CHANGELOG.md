@@ -1,5 +1,21 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.53-beta — 2026-11-25 — Offline-Test im Release, Veröffentlichung nur nach grünem Offline-Test
+
+**0.2.52-beta nicht verwenden:** Der Release-Lauf v0.2.52-beta war im Job „Offline-Paket“ rot;
+ein GitHub-Release gibt es nicht, die Abbilder `ghcr.io/azitc-ac/exo-smtp-relay:0.2.52-beta`
+und `:beta` wurden trotzdem gepusht (der Image-Job hing nicht vom Offline-Test ab). `:beta`
+zeigt ab diesem Release wieder auf eine geprüfte Fassung; das Tag `0.2.52-beta` bleibt als
+verwaiste Fassung stehen.
+
+- **Release:** Die Freigabe hängt jetzt auch vom Offline-Test ab (`needs: [pakete, offline]`) —
+  ist er rot, wird nichts veröffentlicht, auch kein Abbild (Test).
+- **CI prüft dasselbe Paket wie das Release:** Das Offline-Paket wird wie im Release auf Ubuntu
+  gebaut und auf Windows geprüft (bisher baute die CI auf Windows selbst — grün, während der
+  Release-Test rot war). Bei einem Fehlschlag gibt die Probe Dienst-Konfiguration,
+  `service.log`, `app.log` und die SCM-/Anwendungsereignisse aus. Für Gegenproben nimmt der
+  CI-Workflow per `workflow_dispatch` einen anderen Stand (`stand`).
+
 ## 0.2.52-beta — 2026-11-25 — Rücknahme bei gleicher Fassung; Beta vor Stable
 
 **0.2.51 wurde nicht veröffentlicht** — der Labtest fand eine Regression (unten); ihr Inhalt
