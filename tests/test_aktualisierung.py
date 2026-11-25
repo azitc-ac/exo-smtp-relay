@@ -494,7 +494,7 @@ def test_release_workflow_nur_durch_tag():
     pakete = yml.split("\n  image:", 1)[0]
     assert "release.py signieren" in pakete and "release.py pruefen" in pakete
     assert "secrets.RELEASE_SIGNING_KEY" in pakete
-    assert "needs: pakete" in yml and "needs: [pakete, image]" in yml and "needs: [pakete, manifest]" in yml
+    assert "needs: pakete" in yml and "needs: [pakete, image]" in yml and "needs: [pakete, manifest, offline]" in yml
     for andere in (WURZEL / ".github" / "workflows").glob("*.yml"):
         if andere.name != "release.yml":
             t = andere.read_text(encoding="utf-8")

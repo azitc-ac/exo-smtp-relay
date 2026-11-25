@@ -15,12 +15,13 @@ nötig: Ohne Smarthost stellt das Relay nichts zu und antwortet mit 451.
 
 ```bash
 B=https://github.com/azitc-ac/exo-smtp-relay/releases/download/v<v>
-for f in SHA256SUMS SHA256SUMS.sig exo-smtp-relay-<v>-linux.tar.gz exo-smtp-relay-<v>-windows.zip; do
+for f in SHA256SUMS SHA256SUMS.sig exo-smtp-relay-<v>-linux.tar.gz exo-smtp-relay-<v>-windows.zip \
+         exo-smtp-relay-<v>-windows-offline.zip; do
   curl -sSfLO $B/$f; done
 sha256sum -c SHA256SUMS
 ```
 
-Erwartet: beide Pakete `OK`. Unter Windows:
+Erwartet: alle drei Pakete `OK`. Unter Windows:
 `(Get-FileHash .\exo-smtp-relay-<v>-windows.zip).Hash` mit `SHA256SUMS` vergleichen.
 
 ## 1 Neuinstallation
@@ -77,6 +78,57 @@ Zeile `gibt-es-nicht==0.0.1` anhängen, `install.ps1 -Unattended` → Exit ≠ 0
 „ABBRUCH im Schritt 'Abhaengigkeiten'“, „Vorige Fassung <alt> zurueckgeholt“, „Dienst
 laeuft wieder (Fassung <alt>)“; `/health` meldet `<alt>`, kein `.install-alt\` bleibt.
 (Beides läuft auch im CI-Job „Installer echt“.)
+
+## 1b Offline-Installation (Windows, ohne Internet)
+
+Frischer Windows Server **ohne Python** und ohne Internetzugang (Netzwerkkarte getrennt
+oder ausgehend gesperrt); das Offline-Paket per USB/Freigabe übertragen.
+
+```powershell
+(Get-FileHash .\exo-smtp-relay-<v>-windows-offline.zip).Hash        # gegen SHA256SUMS
+Expand-Archive .\exo-smtp-relay-<v>-windows-offline.zip C:\temp\relay
+powershell.exe -ExecutionPolicy Bypass -File C:\temp\relay\exo-smtp-relay-<v>\windows\install.ps1 -Unattended
+```
+
+Erwartet, in dieser Reihenfolge:
+- `==> Offline-Installation: Python, Wheels und ExchangeOnlineManagement aus dem Paket - kein Download`
+- `OK: python-3.12.10-amd64.exe: Pruefsumme und Signatur (Python Software Foundation) gueltig`
+  — **Prüfpunkt:** Auf einem völlig netzlosen Server muss Windows die Kette der Signatur
+  (Wurzel „Microsoft Identity Verification Root Certificate Authority 2020“) offline
+  bilden können. Scheitert das, bricht der Installer mit `Authenticode-Signatur nicht
+  gueltig (UnknownError …)` ab — dann notieren; die Wurzel lässt sich über
+  `certutil -addstore Root` nachtragen.
+- `OK: Offline: pip --no-index aus offline\wheels`
+- `OK: installiert: ExchangeOnlineManagement 3.10.1 (Pruefsumme und Microsoft-Signatur geprueft)`
+- Exit 0, Dienst `Running`, `/health` meldet `<v>`.
+- `C:\ProgramData\exo-smtp-relay\offline\wheels` vorhanden, `offline\python` **nicht**.
+- *Aktualisierung → Installationsart*: „Offline-Paket“, geladen wird `…-windows-offline.zip`.
+
+**Gegenprobe Manipulation:** eine Kopie des Pakets, in `offline\python\` ein Byte des
+Installers ändern → `Pruefsumme stimmt nicht … Datei NICHT verwendet`, Abbruch vor der
+Python-Installation. Dasselbe für `offline\module\*.nupkg`: WARNUNG, kein Modul.
+
+**Update offline-installiert:** mit Kanal `beta` auf `<v>` aktualisieren (Netz nur zu
+GitHub). In `data\update\status.json` „ok“; im Dienstprotokoll kein Zugriff auf
+`pypi.org`; `offline\wheels` gehört danach zu `<v>` (`offline\inhalt.json`, Feld `relay`).
+
+Der CI-Job „Offline-Paket“ (`tools/offline_probe.ps1`) prüft das alles außer dem Lauf des
+Python-Installers selbst (der Runner hat Python schon) und der netzlosen Signaturkette.
+
+## Lieferkette aktualisieren (Python, ExchangeOnlineManagement, Pakete)
+
+- **Python-Installer**: neue Fassung in `$RelayPythonInstaller` (`windows/install.ps1`):
+  Datei laden, `sha256sum` selbst rechnen, MD5 gegen
+  `https://www.python.org/api/v2/downloads/release_file/?release=<id>` und die PGP-Signatur
+  (`.asc`, Schlüssel laut `python.org/downloads/metadata/pgp`) prüfen. Nur Fassungen, für
+  die `requirements.lock` Wheels hat (3.11–3.13).
+- **ExchangeOnlineManagement**: `$RelayExoModul` — nupkg von
+  `https://www.powershellgallery.com/api/v2/package/ExchangeOnlineManagement/<fassung>`
+  laden, SHA256 eintragen, `Dockerfile` (`-RequiredVersion`) mitziehen.
+- **Python-Pakete**: Fassungen wie im Gateway in `app/requirements.lock`, dann
+  `python3 tools/lock_hashes.py schreiben` und `abdeckung` (jede Zielplattform hat ein Wheel).
+- Danach `python3 tools/offline_paket.py vorbereiten <stufe>` — bricht bei jeder
+  Abweichung ab.
 
 ## 2 Oberfläche
 

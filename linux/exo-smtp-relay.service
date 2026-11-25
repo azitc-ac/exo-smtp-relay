@@ -6,7 +6,8 @@
 #   sudo mkdir -p /opt/exo-smtp-relay
 #   sudo tar -xzf exo-smtp-relay-<version>-linux.tar.gz --strip-components=1 -C /opt/exo-smtp-relay
 #   sudo python3 -m venv /opt/exo-smtp-relay/venv
-#   sudo /opt/exo-smtp-relay/venv/bin/pip install -r /opt/exo-smtp-relay/app/requirements.lock
+#   sudo /opt/exo-smtp-relay/venv/bin/pip install --require-hashes --only-binary :all: -r /opt/exo-smtp-relay/app/requirements.lock
+#   (nur Wheels mit den Prüfsummen aus der Lock-Datei; Python 3.11–3.13, x86_64 oder aarch64)
 #   sudo mkdir -p /opt/exo-smtp-relay/data && sudo chown -R exo-relay /opt/exo-smtp-relay/data
 #   sudo cp /opt/exo-smtp-relay/linux/*.service /opt/exo-smtp-relay/linux/*.path /etc/systemd/system/
 #   sudo systemctl daemon-reload

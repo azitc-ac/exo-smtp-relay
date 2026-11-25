@@ -101,8 +101,11 @@ def modul_pruefen() -> dict:
     if r["ok"]:
         return {"ok": True, "text": r["output"].splitlines()[-1] if r["output"] else "vorhanden"}
     if "MODUL-FEHLT" in r.get("output", ""):
-        return {"ok": False, "text": "Modul ExchangeOnlineManagement fehlt — "
-                                     "`Install-Module ExchangeOnlineManagement -Scope AllUsers`"}
+        # Fassung wie install.ps1 ($RelayExoModul) und Dockerfile — nie ungepinnt.
+        return {"ok": False, "text": "Modul ExchangeOnlineManagement fehlt — Windows: "
+                                     "`windows\\install.ps1` erneut ausführen (installiert 3.10.1 "
+                                     "geprüft), sonst `Install-Module ExchangeOnlineManagement "
+                                     "-RequiredVersion 3.10.1 -Scope AllUsers`"}
     return {"ok": False, "text": r.get("output") or "PowerShell nicht ausführbar"}
 
 

@@ -384,7 +384,7 @@ def test_data_acl_echt_unzugaengliche_datei(tmp_path):
     """Labtest 0.2.45, Fall c2: Datei mit Eigentümer SYSTEM und nur SYSTEM:F. Im Temp-Verzeichnis
     des CI-Runners darf der Administrator sie trotzdem zurücksetzen (gemessen 25.11.2026; dort
     gehört ihm der Ordner) — dieser Test prüft dann nur: kein Abbruch, Exit 0; scheitert icacls,
-    mit echtem Exit-Code und WARNUNG. Den echten Fall in data\ (Exit 5, „Access is denied“)
+    mit echtem Exit-Code und WARNUNG. Den echten Fall in data\\ (Exit 5, „Access is denied“)
     prüft der CI-Job „Installer echt“ (tests/installer_echt.ps1), den Fehlerweg ohne
     Sonderrechte test_reset_echt_icacls_fehler_unter_ps51 samt Gegenprobe ohne EAP."""
     data = tmp_path / "data"

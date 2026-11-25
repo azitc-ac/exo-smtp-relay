@@ -54,17 +54,26 @@ NAME = "exo-smtp-relay"
 PAKET_INHALT: tuple[str, ...] = (
     "app", "windows", "linux",
     "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md",
+    "offline",
 )
+# Offline-Paket (Windows x64): offline/inhalt.json, offline/wheels/ (alle Wheels für
+# win_amd64, Python 3.11–3.13), offline/python/ (festgelegter Python-Installer),
+# offline/module/ (ExchangeOnlineManagement-nupkg). Der Updater braucht davon nur
+# inhalt.json und wheels/ — Installer und Modul installiert nur install.ps1, deshalb
+# entpackt `entpacken` sie gar nicht erst (spart Platz; nichts davon wird ausgeführt).
+OFFLINE = "offline"
+OFFLINE_NUR_INSTALLER: tuple[str, ...] = ("offline/python", "offline/module")
 PFLICHT = ("app/main.py", "app/requirements.lock", "VERSION", "LICENSE.md", "NOTICE")
 
 SUMMEN = "SHA256SUMS"
 SIGNATUR = "SHA256SUMS.sig"
-ART_ENDUNG = {"windows": "windows.zip", "linux": "linux.tar.gz"}
+ART_ENDUNG = {"windows": "windows.zip", "windows-offline": "windows-offline.zip",
+              "linux": "linux.tar.gz"}
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-beta(?:\.(\d+))?)?$")
-_PAKET_RE = re.compile(r"^exo-smtp-relay-(\d+\.\d+\.\d+(?:-beta(?:\.\d+)?)?)-(windows\.zip|linux\.tar\.gz)$")
+_PAKET_RE = re.compile(r"^exo-smtp-relay-(\d+\.\d+\.\d+(?:-beta(?:\.\d+)?)?)-(windows\.zip|windows-offline\.zip|linux\.tar\.gz)$")
 # Obergrenze für ein entpacktes Paket — schützt vor Archivbomben.
-MAX_ENTPACKT = 200 * 1024 * 1024
+MAX_ENTPACKT = 300 * 1024 * 1024
 
 
 class PaketFehler(ValueError):
@@ -180,6 +189,11 @@ def _sicherer_name(name: str, wurzel: str) -> PurePosixPath | None:
     return rest
 
 
+def _nur_installer(rest: PurePosixPath) -> bool:
+    s = rest.as_posix()
+    return any(s == p or s.startswith(p + "/") for p in OFFLINE_NUR_INSTALLER)
+
+
 def entpacken(paket: Path, ziel: Path, version: str) -> None:
     """Paket nach `ziel` entpacken (Inhalt des Kopfordners). Nur reguläre
     Dateien und Verzeichnisse; keine Links, kein `..`, nichts ausserhalb der
@@ -191,7 +205,7 @@ def entpacken(paket: Path, ziel: Path, version: str) -> None:
         with zipfile.ZipFile(paket) as z:
             for info in z.infolist():
                 rest = _sicherer_name(info.filename.rstrip("/"), wurzel)
-                if rest is None:
+                if rest is None or _nur_installer(rest):
                     continue
                 if (info.external_attr >> 16) & 0o170000 == 0o120000:
                     raise PaketFehler(f"Verknüpfung im Paket: {info.filename!r}")
@@ -207,7 +221,7 @@ def entpacken(paket: Path, ziel: Path, version: str) -> None:
         with tarfile.open(paket, "r:gz") as t:
             for info in t.getmembers():
                 rest = _sicherer_name(info.name.rstrip("/"), wurzel)
-                if rest is None:
+                if rest is None or _nur_installer(rest):
                     continue
                 if info.isdir():
                     (ziel / rest).mkdir(parents=True, exist_ok=True)
@@ -234,6 +248,8 @@ def entpacken(paket: Path, ziel: Path, version: str) -> None:
 
 def _dateien(quelle: Path):
     for teil in PAKET_INHALT:
+        if teil == OFFLINE:
+            continue                    # nur im Offline-Paket, aus der Stufe (bauen(offline=…))
         p = quelle / teil
         if p.is_file():
             yield p, teil
@@ -243,7 +259,7 @@ def _dateien(quelle: Path):
                     yield f, f.relative_to(quelle).as_posix()
 
 
-def bauen(quelle: Path, ziel: Path, version: str) -> list[Path]:
+def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None) -> list[Path]:
     """Windows-ZIP und Linux-Archiv aus dem Baum `quelle` bauen (gleicher
     Inhalt, Kopfordner exo-smtp-relay-<version>/). Feste Zeitstempel, damit
     zweimal Bauen dieselben Bytes ergibt."""
@@ -264,6 +280,10 @@ def bauen(quelle: Path, ziel: Path, version: str) -> list[Path]:
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, f.read_bytes())
 
+    pakete = [zip_pfad]
+    if offline is not None:
+        pakete.append(_offline_zip(ziel, version, kopf, dateien, Path(offline)))
+
     tar_pfad = ziel / paket_name(version, "linux")
     puffer = io.BytesIO()
     with tarfile.open(fileobj=puffer, mode="w", format=tarfile.PAX_FORMAT) as t:
@@ -277,4 +297,26 @@ def bauen(quelle: Path, ziel: Path, version: str) -> list[Path]:
     with open(tar_pfad, "wb") as roh, gzip.GzipFile(fileobj=roh, mode="wb", mtime=0,
                                                        filename="") as gz:
         gz.write(puffer.getvalue())
-    return [zip_pfad, tar_pfad]
+    return pakete + [tar_pfad]
+
+
+OFFLINE_PFLICHT = ("inhalt.json", "wheels", "python", "module")
+
+
+def _offline_zip(ziel: Path, version: str, kopf: str, dateien, stufe: Path) -> Path:
+    """Windows-ZIP plus offline/ aus `stufe` (tools/offline_paket.py vorbereiten). Wheels,
+    Installer und Modul speichert ZIP nur (schon komprimiert)."""
+    for teil in OFFLINE_PFLICHT:
+        if not (stufe / teil).exists():
+            raise PaketFehler(f"Offline-Stufe unvollständig: {teil} fehlt in {stufe}")
+    pfad = ziel / paket_name(version, "windows-offline")
+    with zipfile.ZipFile(pfad, "w", zipfile.ZIP_DEFLATED) as z:
+        eintraege = list(dateien) + [(f, f"{OFFLINE}/{f.relative_to(stufe).as_posix()}")
+                                     for f in sorted(stufe.rglob("*")) if f.is_file()]
+        for f, rel in eintraege:
+            info = zipfile.ZipInfo(f"{kopf}/{rel}", date_time=(2020, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_STORED if f.suffix in (".whl", ".exe", ".nupkg") \
+                else zipfile.ZIP_DEFLATED
+            z.writestr(info, f.read_bytes())
+    return pfad

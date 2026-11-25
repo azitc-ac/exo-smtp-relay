@@ -38,13 +38,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Werkzeuge (Fassung aus der Lock-Datei)
-        run: pip install "$(grep -E '^cryptography==' app/requirements.lock)"
+      - name: Werkzeuge (Lock-Datei, nur mit Prüfsummen)
+        run: pip install --require-hashes --only-binary ":all:" -r app/requirements.lock
       - name: Tag, VERSION und Kanal
         id: tag
         run: python tools/release.py kanal "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-      - name: Windows-ZIP, Linux-Archiv, SHA256SUMS
-        run: python tools/release.py bauen dist
+      # Offline-Paket: Python-Installer und ExchangeOnlineManagement von den FESTEN Adressen
+      # aus windows/install.ps1, je gegen die dort eingetragene SHA256 geprueft; Wheels per
+      # `pip download --require-hashes` gegen die Lock-Datei. Bricht bei jeder Abweichung ab.
+      - name: Offline-Stufe (feste Quellen, Pruefsummen)
+        run: python tools/offline_paket.py vorbereiten offline-stufe
+      - name: Windows-ZIP, Windows-Offline-ZIP, Linux-Archiv, SHA256SUMS
+        run: python tools/release.py bauen dist offline-stufe
       - name: Prüfsummen signieren (Ed25519)
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
@@ -59,6 +64,24 @@ jobs:
           path: |
             dist/
             dist-notizen.md
+
+  # Das SIGNIERTE Offline-Paket auf Windows ohne Netz fuer pip installieren (Authenticode,
+  # Gegenproben, Dienststart, Updater-Weg). Ohne gruenes Ergebnis kein Release.
+  offline:
+    name: Offline-Paket (Windows, ohne Netz)
+    needs: pakete
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: Installieren und pruefen
+        shell: powershell
+        run: .\tools\offline_probe.ps1 -Paket "dist\exo-smtp-relay-${{ needs.pakete.outputs.version }}-windows-offline.zip"
 
   # Nativ je Architektur: pwsh unter QEMU stürzt beim Modul-Install ab
   # (siehe Dockerfile). Erst Digests, dann EIN Manifest mit beiden.
@@ -137,7 +160,7 @@ jobs:
 
   release:
     name: GitHub-Release
-    needs: [pakete, manifest]
+    needs: [pakete, manifest, offline]
     runs-on: ubuntu-latest
     permissions:
       contents: write

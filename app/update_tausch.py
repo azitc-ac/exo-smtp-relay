@@ -227,17 +227,38 @@ def lock_geaendert(wurzel: Path) -> bool:
         return True
 
 
+OFFLINE = "offline"             # Offline-Installation: offline/inhalt.json + offline/wheels/
+
+
+def offline_wheels(wurzel: Path) -> Path | None:
+    """Wheels einer Offline-Installation (install.ps1 aus dem Offline-Paket), sonst None."""
+    w = Path(wurzel) / OFFLINE
+    return w / "wheels" if (w / "inhalt.json").is_file() and (w / "wheels").is_dir() else None
+
+
+def pip_argumente(wurzel: Path, lock: Path) -> list[str]:
+    """`pip install`-Argumente — DIESELBEN wie in install.ps1: nur Wheels, nur mit den
+    Prüfsummen aus der Lock-Datei; offline zusätzlich ohne Index, nur aus offline/wheels."""
+    args = ["-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+            "--require-hashes", "--only-binary", ":all:"]
+    wheels = offline_wheels(wurzel)
+    if wheels is not None:
+        args += ["--no-index", "--find-links", str(wheels)]
+    return args + ["-r", str(lock)]
+
+
 def phase_pip(wurzel: Path, lock: Path | None = None) -> str:
     """Abhängigkeiten aus der (neuen bzw. bei `lock` angegebenen) Lock-Datei."""
     python = venv_python(wurzel)
     if not python.is_file():
         return "keine venv — übersprungen"
     lock = lock or Path(wurzel) / "app" / "requirements.lock"
-    r = subprocess.run([str(python), "-m", "pip", "install", "--quiet",
-                        "--disable-pip-version-check", "-r", str(lock)],
+    r = subprocess.run([str(python), *pip_argumente(wurzel, lock)],
                        capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
         raise RuntimeError("pip: " + (r.stderr or r.stdout).strip()[-600:])
+    if offline_wheels(wurzel) is not None:
+        return "Abhängigkeiten angepasst (offline, mitgelieferte Wheels)"
     return "Abhängigkeiten angepasst"
 
 

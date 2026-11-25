@@ -12,8 +12,8 @@
       * Windows Server 2016+ oder Windows 10/11, als Administrator ausfuehren
       * Python 3.11 bis 3.13 (https://www.python.org/downloads/windows/,
         "Add python.exe to PATH" anhaken) - oder -PythonExe angeben
-      * Fuer die Postfachabfrage: Install-Module ExchangeOnlineManagement
-        (der Installer bietet es an)
+      * Fuer die Postfachabfrage: ExchangeOnlineManagement (der Installer bietet die
+        festgelegte, gepruefte Fassung an; im Offline-Paket liegt sie bei)
 
     Laeuft unter Windows PowerShell 5.1 und PowerShell 7.
 
@@ -35,6 +35,13 @@
 
 .PARAMETER SkipExoModule
     ExchangeOnlineManagement nicht installieren/pruefen.
+
+.NOTES
+    Lieferkette: Python-Installer und ExchangeOnlineManagement kommen von fest eingetragenen
+    Adressen mit fester SHA256 (siehe $RelayPythonInstaller / $RelayExoModul) und werden vor
+    Gebrauch auf Pruefsumme und Authenticode-Signatur geprueft; Python-Pakete nur mit
+    pip --require-hashes. Offline-Paket (exo-smtp-relay-<version>-windows-offline.zip): bringt
+    alles mit, installiert OHNE Internet und meldet "Offline-Installation".
 
 .EXAMPLE
     .\install.ps1
@@ -211,7 +218,7 @@ function Set-RelayDataAclKern([string]$Pfad) {
 
 # Was install.ps1 aus dem Paket nach InstallDir kopiert - und beim Upgrade vorher nach
 # .install-alt\ sichert. data\ und venv\ stehen nie darin.
-$RelayTeile = @("app", "windows", "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md")
+$RelayTeile = @("app", "windows", "VERSION", "CHANGELOG.md", "LICENSE.md", "NOTICE", "README.md", "offline")
 
 # Natives Programm aufrufen und den Exit-Code PRUEFEN (Labtest 0.2.45: venv, pip und service.py
 # meldeten nach einem Fehler trotzdem "OK"). EAP lokal Continue: unter PS 5.1 wird stderr bei 2>&1
@@ -278,7 +285,8 @@ function Restore-RelayNachAbbruch {
         $lock = Join-Path $InstallDir "app\requirements.lock"
         if ($pipGelaufen -and (Test-Path $venvPython) -and (Test-Path $lock)) {
             try {
-                Invoke-RelayNativ "pip (Ruecknahme)" { & $venvPython -m pip install --quiet --disable-pip-version-check -r $lock } | Out-Null
+                $pipArgs = @(Get-RelayPipArgumente -InstallDir $InstallDir -Lock $lock)
+                Invoke-RelayNativ "pip (Ruecknahme)" { & $venvPython @pipArgs } | Out-Null
                 Write-Warn "Abhaengigkeiten auf Fassung $altVersion zurueckgesetzt"
             } catch {
                 Write-Warn "Abhaengigkeiten nicht zurueckgesetzt: $($_.Exception.Message)"
@@ -351,6 +359,112 @@ function Sync-RelayDienstDlls([string]$Venv, [string]$Basis, [string]$MaschinenP
     Write-Ok "Python-DLLs neben pythonservice.exe gelegt ($Basis steht nicht im Maschinen-PATH): $(($dlls | ForEach-Object { $_.Name }) -join ', ')"
 }
 
+# -- Feste Quellen der Lieferkette ------------------------------------------------
+# Nichts wird ungeprueft ausgefuehrt: Jede Datei von aussen hat hier Adresse, SHA256 und den
+# erwarteten Authenticode-Signierer. Dieselben Eintraege liest tools\offline_paket.py fuer das
+# Offline-Paket. AKTUALISIEREN: docs/release-test.md, Abschnitt "Lieferkette".
+#   Python: SHA256 selbst berechnet, MD5 gegen die python.org-API und die PGP-Signatur (.asc,
+#   Schluessel 7ED10B6531D7C8E1BC296021FC624643487034E5 laut python.org/downloads/metadata/pgp)
+#   gegengeprueft am 24.11.2026. Nur x64: cryptography hat kein Windows-ARM64-Wheel.
+$RelayPythonInstaller = @{
+    Version   = "3.12.10"
+    Datei     = "python-3.12.10-amd64.exe"
+    Url       = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+    Sha256    = "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb"
+    Signierer = "Python Software Foundation"
+}
+#   ExchangeOnlineManagement: unveraendertes nupkg der PowerShell Gallery (Fassung wie Gateway
+#   und Dockerfile), Lizenztext im Paket (license.txt, MIT-Text). Skriptdateien darin tragen eine
+#   Authenticode-Signatur von Microsoft.
+$RelayExoModul = @{
+    Name      = "ExchangeOnlineManagement"
+    Version   = "3.10.1"
+    Datei     = "exchangeonlinemanagement.3.10.1.nupkg"
+    Url       = "https://www.powershellgallery.com/api/v2/package/ExchangeOnlineManagement/3.10.1"
+    Sha256    = "545fb0fdf65b96abed37f4f5b5d7db661276ddc7de48a742bb6e7199ab9414a3"
+    Signierer = "Microsoft Corporation"
+}
+
+# Authenticode: Status Valid UND der erwartete Signierer (CN oder O im Zertifikat).
+function Test-RelaySignatur([string]$Pfad, [string]$Signierer) {
+    $sig = Get-AuthenticodeSignature -FilePath $Pfad
+    $name = Split-Path -Leaf $Pfad
+    if ("$($sig.Status)" -ne "Valid") {
+        throw "${name}: Authenticode-Signatur nicht gueltig ($($sig.Status): $($sig.StatusMessage)) - Datei NICHT verwendet."
+    }
+    $subjekt = "$($sig.SignerCertificate.Subject)"
+    if ($subjekt -notmatch "(^|,\s*)(CN|O)=$([regex]::Escape($Signierer))(,|$)") {
+        throw "${name}: signiert von '$subjekt', erwartet '$Signierer' - Datei NICHT verwendet."
+    }
+}
+
+# Feste Pruefsumme (und Signatur) einer Datei aus $RelayPythonInstaller / $RelayExoModul.
+function Test-RelayDatei([string]$Pfad, [hashtable]$Quelle, [switch]$OhneSignatur) {
+    if (-not (Test-Path -LiteralPath $Pfad)) { throw "$($Quelle.Datei) fehlt: $Pfad" }
+    $ist = (Get-FileHash -LiteralPath $Pfad -Algorithm SHA256).Hash
+    if ($ist -ne $Quelle.Sha256) {
+        throw "$($Quelle.Datei): Pruefsumme stimmt nicht (erwartet $($Quelle.Sha256), erhalten $ist) - Datei NICHT verwendet."
+    }
+    if (-not $OhneSignatur) { Test-RelaySignatur $Pfad $Quelle.Signierer }
+}
+
+# Der EINZIGE Download-Weg. In der Offline-Installation verweigert er.
+function Get-RelayDownload([string]$Url, [string]$Ziel) {
+    if ($script:RelayOffline) { throw "Offline-Installation: kein Download ($Url)" }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = "SilentlyContinue"
+    Invoke-WebRequest -Uri $Url -OutFile $Ziel -UseBasicParsing -ErrorAction Stop
+}
+
+function Install-RelayPython([string]$Installer) {
+    Test-RelayDatei $Installer $RelayPythonInstaller
+    Write-Ok "$($RelayPythonInstaller.Datei): Pruefsumme und Signatur ($($RelayPythonInstaller.Signierer)) gueltig"
+    $p = Start-Process -FilePath $Installer -Wait -PassThru -ArgumentList @("/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0")
+    if ($p.ExitCode -notin @(0, 3010)) { throw "Python-Installer: Exit $($p.ExitCode)" }
+}
+
+# nupkg pruefen, entpacken (ohne NuGet-Verwaltungsdateien), jede Skriptdatei auf die
+# Microsoft-Signatur pruefen, erst dann nach Program Files\WindowsPowerShell\Modules.
+function Install-RelayExoModul([string]$Nupkg) {
+    $em = $RelayExoModul
+    Test-RelayDatei $Nupkg $em -OhneSignatur          # nupkg selbst: Pruefsumme; Inhalt: Authenticode
+    $ziel = Join-Path $env:ProgramFiles "WindowsPowerShell\Modules\$($em.Name)\$($em.Version)"
+    $tmp = "$ziel.neu"
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+    $wurzel = [IO.Path]::GetFullPath($tmp).TrimEnd("\") + "\"
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($Nupkg)
+    try {
+        foreach ($e in $zip.Entries) {
+            $name = [Uri]::UnescapeDataString($e.FullName)
+            if ($name.EndsWith("/") -or $name -match '^(_rels/|package/)' -or $name -match '^\[Content_Types\]\.xml$' -or $name -match '\.nuspec$') { continue }
+            $pfad = [IO.Path]::GetFullPath((Join-Path $tmp $name))
+            if (-not $pfad.StartsWith($wurzel, [StringComparison]::OrdinalIgnoreCase)) { throw "Unzulaessiger Pfad im Modulpaket: $name" }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pfad) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $pfad, $true)
+        }
+    } finally { $zip.Dispose() }
+    $skripte = @(Get-ChildItem -LiteralPath $tmp -Recurse -File | Where-Object { $_.Extension -in @(".ps1", ".psm1", ".psd1") })
+    if ($skripte.Count -eq 0) { throw "$($em.Datei): keine Skriptdateien im Modul" }
+    foreach ($s in $skripte) { Test-RelaySignatur $s.FullName $em.Signierer }
+    if (Test-Path -LiteralPath $ziel) { Remove-Item -LiteralPath $ziel -Recurse -Force }
+    Move-Item -LiteralPath $tmp -Destination $ziel
+    return $ziel
+}
+
+# pip-Argumente - DIESELBEN wie app\update_tausch.pip_argumente (Updater): nur Wheels, nur mit
+# den Pruefsummen der Lock-Datei; liegt offline\wheels in der Installation, ohne Index daraus.
+# Gleichheit prueft tests\test_abhaengigkeiten.py.
+function Get-RelayPipArgumente([string]$InstallDir, [string]$Lock) {
+    $a = @("-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--require-hashes", "--only-binary", ":all:")
+    $o = Join-Path $InstallDir "offline"
+    if ((Test-Path -LiteralPath (Join-Path $o "inhalt.json")) -and (Test-Path -LiteralPath (Join-Path $o "wheels"))) {
+        $a += @("--no-index", "--find-links", (Join-Path $o "wheels"))
+    }
+    $a + @("-r", $Lock)
+}
+
 # -- Administrator? ---------------------------------------------------------------
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -362,6 +476,15 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $quelle = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not (Test-Path (Join-Path $quelle "app\main.py"))) {
     throw "app\main.py nicht gefunden unter $quelle - das Skript gehoert nach windows\ im Anwendungsbaum."
+}
+
+# -- Offline-Paket? (exo-smtp-relay-<version>-windows-offline.zip) ------------------
+# offline\inhalt.json + offline\wheels\ + offline\python\ + offline\module\: Python, alle
+# Wheels und ExchangeOnlineManagement liegen bei - es wird NICHTS heruntergeladen
+# (Get-RelayDownload verweigert dann), pip laeuft mit --no-index aus offline\wheels.
+$script:RelayOffline = (Test-Path (Join-Path $quelle "offline\inhalt.json")) -and (Test-Path (Join-Path $quelle "offline\wheels"))
+if ($RelayOffline) {
+    Write-Step "Offline-Installation: Python, Wheels und ExchangeOnlineManagement aus dem Paket - kein Download"
 }
 
 # -- Python finden oder installieren ------------------------------------------------
@@ -392,29 +515,29 @@ if ($PythonExe -ne "") {
 
 if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
     Write-Warn "Python $RelayPythonMin bis $RelayPythonMax nicht gefunden."
-    $antwort = if ($Unattended) { "j" } else { Read-Host "Jetzt herunterladen und installieren? (j/n)" }
+    $pq = $RelayPythonInstaller
+    if ($RelayOffline) {
+        $installer = Join-Path $quelle "offline\python\$($pq.Datei)"
+        $antwort = "j"
+    } else {
+        $installer = Join-Path $env:TEMP $pq.Datei
+        $antwort = if ($Unattended) { "j" } else { Read-Host "Python $($pq.Version) von python.org laden, pruefen und installieren? (j/n)" }
+    }
     if ($antwort -match "^[jJyY]") {
-        Write-Step "Lade Python 3.12 herunter"
-        $pythonZip = "$env:TEMP\python-3.11-windows.zip"
-        $pythonMsi = "$env:TEMP\python-installer.exe"
-
-        # Nutzer zur Python.org-Seite fuehren oder automatisch MSI runterladen
-        # Hier: directed install von der aktuellsten stabilen Version
-        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-        $url = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-$arch.exe"
-
+        if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+            Write-Warn "Windows auf ARM64: es kommt Python fuer x64 (Emulation) - cryptography hat kein ARM64-Wheel fuer Windows."
+        }
         try {
-            Write-Host "    Lade herunter: $url" -ForegroundColor Gray
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $url -OutFile $pythonMsi -ErrorAction Stop
-
-            Write-Step "Installiere Python 3.12"
-            & $pythonMsi /quiet InstallAllUsers=1 PrependPath=1 | Out-Null
-            Remove-Item $pythonMsi -ErrorAction SilentlyContinue
-
-            # Nach Installation neuerlich versuchen
+            if (-not $RelayOffline) {
+                Write-Step "Lade Python $($pq.Version) herunter"
+                Write-Host "    Quelle: $($pq.Url)" -ForegroundColor Gray
+                Get-RelayDownload $pq.Url $installer
+            }
+            Write-Step "Pruefe und installiere Python $($pq.Version)"
+            Install-RelayPython $installer
+            if (-not $RelayOffline) { Remove-Item $installer -ErrorAction SilentlyContinue }
             $py = Get-Command py -ErrorAction SilentlyContinue
-            if ($py) { $PythonExe = Get-RelayPythonFassung $py.Source @("-3.12") -Pfad }
+            if ($py) { $PythonExe = Get-RelayPythonFassung $py.Source @("-$(($pq.Version -split '\.')[0..1] -join '.')") -Pfad }
             if ($PythonExe -and (Test-Path $PythonExe)) {
                 Write-Ok "Python installiert: $PythonExe"
             } else {
@@ -422,12 +545,12 @@ if ($PythonExe -eq "" -or -not (Test-Path $PythonExe)) {
             }
         } catch {
             Write-Host ""
-            Write-Host "Automatischer Download fehlgeschlagen." -ForegroundColor Yellow
-            Write-Host "Bitte von https://www.python.org/downloads/windows/ installieren:" -ForegroundColor Yellow
+            Write-Host "Python nicht installiert: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "Von Hand: https://www.python.org/downloads/windows/" -ForegroundColor Yellow
             Write-Host "  * Python 3.11, 3.12 oder 3.13 waehlen (neuere haben noch keine passenden Pakete)" -ForegroundColor Yellow
             Write-Host "  * Haken bei 'Add python.exe to PATH' setzen" -ForegroundColor Yellow
             Write-Host "  * Installation abschliessen und dann dieses Skript erneut ausfuehren" -ForegroundColor Yellow
-            throw "Python erforderlich. Siehe obige Anleitung."
+            throw "Python erforderlich: $($_.Exception.Message)"
         }
     } else {
         throw "Python 3.11 bis 3.13 erforderlich. Bitte von https://www.python.org/downloads/windows/ installieren (Haken 'Add python.exe to PATH')."
@@ -467,7 +590,19 @@ try {
     $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile)
     foreach ($teil in $RelayTeile) {
         $q = Join-Path $quelle $teil
+        if ($teil -eq "offline") { continue }
         if (Test-Path $q) { Copy-Item -Recurse -Force $q (Join-Path $InstallDir $teil) }
+    }
+    # offline\: nur Wheels und inhalt.json (der Updater installiert daraus). Installer und
+    # Modulpaket bleiben im Paket. Eine Online-Installation hat keins - war vorher eins da,
+    # liegt es jetzt in .install-alt\ und verschwindet mit ihr.
+    if ($RelayOffline) {
+        $oz = Join-Path $InstallDir "offline"
+        New-Item -ItemType Directory -Force -Path $oz | Out-Null
+        Copy-Item -Force (Join-Path $quelle "offline\inhalt.json") (Join-Path $oz "inhalt.json")
+        Copy-Item -Recurse -Force (Join-Path $quelle "offline\wheels") (Join-Path $oz "wheels")
+    } elseif ($gesichert -contains "offline") {
+        Write-Ok "Online-Installation: offline\ entfernt - Aktualisierungen laden kuenftig das normale Paket"
     }
     # __pycache__ aus der Quelle nicht mitschleppen
     Get-ChildItem -Path (Join-Path $InstallDir "app") -Recurse -Directory -Filter "__pycache__" |
@@ -483,13 +618,13 @@ try {
     }
     $schritt = "Abhaengigkeiten"
     Write-Step "Installiere Abhaengigkeiten (requirements.lock)"
-    try {
-        Invoke-RelayNativ "pip aktualisieren" { & $venvPython -m pip install --quiet --upgrade pip } | Out-Null
-    } catch {
-        Write-Warn "pip nicht aktualisiert (weiter mit der vorhandenen Fassung): $($_.Exception.Message)"
-    }
+    # pip aus der venv (kommt mit dem geprueften Python) - KEINE Selbstaktualisierung aus dem
+    # Netz: die waere die einzige ungepruefte Datei. Nur Wheels, nur mit Pruefsummen.
     $pipGelaufen = $true
-    Invoke-RelayNativ "pip install (requirements.lock)" { & $venvPython -m pip install --quiet --disable-pip-version-check -r (Join-Path $InstallDir "app\requirements.lock") } | Out-Null
+    $lock = Join-Path $InstallDir "app\requirements.lock"
+    $pipArgs = @(Get-RelayPipArgumente -InstallDir $InstallDir -Lock $lock)
+    if ($RelayOffline) { Write-Ok "Offline: pip --no-index aus offline\wheels" }
+    Invoke-RelayNativ "pip install (requirements.lock)" { & $venvPython @pipArgs } | Out-Null
     # pywin32: Nachinstallation registriert die Dienst-DLLs
     $post = Join-Path $venv "Scripts\pywin32_postinstall.py"
     if (Test-Path $post) {
@@ -503,23 +638,35 @@ try {
     Write-Step "Setze Rechte auf data\"
     Set-RelayDataAcl -Pfad $dataDir
 
-    # -- ExchangeOnlineManagement ---------------------------------------------------------
+    # -- ExchangeOnlineManagement (Fassung, Pruefsumme und Signatur fest) -------------
+    # Nicht ueber Install-Module/PSGallery-Aufloesung, sondern das festgelegte nupkg: online
+    # von der festen Adresse geladen, offline aus offline\module\ - in BEIDEN Faellen erst
+    # SHA256 geprueft, dann jede Skriptdatei auf die Microsoft-Signatur (Install-RelayExoModul).
+    # Nie beendend: ohne Modul laeuft das Relay, nur die Postfachabfrage fehlt.
     if (-not $SkipExoModule) {
-        Write-Step "Pruefe PowerShell-Modul ExchangeOnlineManagement"
-        $modul = Get-Module -ListAvailable ExchangeOnlineManagement | Sort-Object Version -Descending | Select-Object -First 1
+        $schritt = "ExchangeOnlineManagement"
+        $em = $RelayExoModul
+        Write-Step "Pruefe PowerShell-Modul $($em.Name)"
+        $modul = Get-Module -ListAvailable $em.Name | Sort-Object Version -Descending | Select-Object -First 1
         if ($modul) {
             Write-Ok "vorhanden: $($modul.Version)"
+            if ("$($modul.Version)" -ne $em.Version) { Write-Ok "(erprobt ist $($em.Version); die vorhandene Fassung bleibt)" }
         } else {
-            $antwort = if ($Unattended) { "j" } else { Read-Host "Modul fehlt. Jetzt aus der PowerShell Gallery installieren? (j/n)" }
+            if ($RelayOffline) {
+                $nupkg = Join-Path $quelle "offline\module\$($em.Datei)"
+                $antwort = "j"
+            } else {
+                $nupkg = Join-Path $env:TEMP $em.Datei
+                $antwort = if ($Unattended) { "j" } else { Read-Host "Modul fehlt. $($em.Name) $($em.Version) aus der PowerShell Gallery laden und pruefen? (j/n)" }
+            }
             if ($antwort -match "^[jJyY]") {
-                # Nie beendend: ohne Modul laeuft das Relay, nur die Postfachabfrage fehlt.
                 try {
-                    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-                    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
-                    Install-Module ExchangeOnlineManagement -Scope AllUsers -Force -AllowClobber
-                    Write-Ok "installiert"
+                    if (-not $RelayOffline) { Get-RelayDownload $em.Url $nupkg }
+                    $wohin = Install-RelayExoModul $nupkg
+                    if (-not $RelayOffline) { Remove-Item $nupkg -ErrorAction SilentlyContinue }
+                    Write-Ok "installiert: $($em.Name) $($em.Version) (Pruefsumme und Microsoft-Signatur geprueft) - $wohin"
                 } catch {
-                    Write-Warn "ExchangeOnlineManagement nicht installiert: $($_.Exception.Message) - spaeter: Install-Module ExchangeOnlineManagement -Scope AllUsers"
+                    Write-Warn "$($em.Name) nicht installiert: $($_.Exception.Message)"
                 }
             } else {
                 Write-Warn "Ohne das Modul gibt es keine Postfachabfrage - Adressen dann von Hand eintragen."

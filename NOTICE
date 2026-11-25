@@ -3,5 +3,14 @@ Copyright 2026 Alexander Zarenko / Alexander Zarenko IT Consulting (AZITC)
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE.md).
 
+The Windows offline package (exo-smtp-relay-<version>-windows-offline.zip)
+additionally contains, unmodified, third-party files under offline\:
+  * the Python installer of the Python Software Foundation (PSF License),
+  * Python packages from PyPI listed in app/requirements.lock (each under its
+    own license, contained in its wheel),
+  * the ExchangeOnlineManagement module from the PowerShell Gallery
+    (c) Microsoft; license text in the package (license.txt).
+These are not covered by the Apache License of this product.
+
 The Apache License does not grant permission to use the trade names,
 trademarks, service marks or product names of the licensor (section 6).

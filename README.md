@@ -177,19 +177,50 @@ NFS mit `root_squash`), setze den Besitz selbst: `sudo chown -R 1000:1000 data`.
 ```
 
 Das Skript:
-- **Prüft Python 3.11 bis 3.13** (dafür hat `requirements.lock` Wheels; `py -3.13`, `-3.12`, `-3.11` vor `py -3`, das sonst die höchste Fassung nimmt) — falls keine passende vorhanden ist, bietet es Download und Installation von Python 3.12 von python.org an
+- **Prüft Python 3.11 bis 3.13** (dafür hat `requirements.lock` Wheels; `py -3.13`, `-3.12`, `-3.11` vor `py -3`, das sonst die höchste Fassung nimmt) — falls keine passende vorhanden ist, lädt es Python 3.12.10 von der fest eingetragenen python.org-Adresse und installiert es **nur**, wenn SHA256 und Authenticode-Signatur („Python Software Foundation“) stimmen, sonst Abbruch
 - Kopiert die Anwendung nach `C:\ProgramData\exo-smtp-relay`
-- Legt eine Python venv an und installiert Abhängigkeiten
+- Legt eine Python venv an und installiert die Abhängigkeiten **nur mit Prüfsummen** (`pip --require-hashes --only-binary :all:` aus `requirements.lock`; keine pip-Selbstaktualisierung aus dem Netz)
 - Registriert den Dienst **ExoSmtpRelay** mit Autostart
 - Legt einen Startmenü-Eintrag **EXO SMTP Relay** an, der die Weboberfläche öffnet (`https://<Rechnername>:8443`; anderer Port: `.\windows\install.ps1 -WebPort <Port>`, der Installer warnt, wenn er belegt ist). Ein erneuter Aufruf (Upgrade) ohne `-WebPort` behält den bisherigen Port; eigene Einträge in der Dienst-Umgebung (Registry, z. B. `WEBUI_PASSWORD`) bleiben erhalten
 - Öffnet die Firewall für Port 25 (eingehend von Geräten) und den Web-Port, in allen Netzwerkprofilen
-- Bietet die Installation des PowerShell-Moduls **ExchangeOnlineManagement** an (optional, aber für den Einrichtungsassistenten nötig)
+- Bietet die Installation des PowerShell-Moduls **ExchangeOnlineManagement** an (optional, aber für den Einrichtungsassistenten nötig): Fassung 3.10.1 als nupkg von der fest eingetragenen PowerShell-Gallery-Adresse, geprüft auf SHA256 und die Microsoft-Signatur jeder Skriptdatei — kein `Install-Module`
 
 Der Installer läuft unter **Windows PowerShell 5.1** und PowerShell 7. Für Skripte und Fernausführung gibt es `-Unattended` (keine Rückfragen).
 
 **Upgrade mit Rücknahme:** Vor dem Kopieren wandert die installierte Fassung nach `.install-alt\`. Scheitert danach ein Schritt (pip, Dienstregistrierung, Start …), holt der Installer sie zurück, setzt die Abhängigkeiten auf ihre Lock-Datei zurück und startet den Dienst wieder, wenn er vorher lief; Exit-Code ungleich 0 und „ABBRUCH im Schritt …“. Rechte auf `data\`, die sich nicht setzen lassen, und ein fehlendes ExchangeOnlineManagement sind nur WARNUNGEN.
 
 **Deinstallation:** `.\windows\uninstall.ps1`
+
+#### Offline-Installation (Server ohne Internet)
+
+Jedes Release hat zusätzlich `exo-smtp-relay-<version>-windows-offline.zip` (Windows x64, rund
+90 MB, steht in `SHA256SUMS` und ist wie die anderen signiert). Es enthält die Anwendung und unter
+`offline\`:
+
+| Teil | Inhalt | Prüfung |
+|---|---|---|
+| `python\` | Python-Installer 3.12.10 (amd64) der PSF | SHA256 + Authenticode, fest in `install.ps1` |
+| `wheels\` | alle Pakete aus `requirements.lock` für win_amd64 und Python 3.11–3.13 | SHA256 aus der Lock-Datei (`pip --require-hashes`) |
+| `module\` | ExchangeOnlineManagement 3.10.1 (nupkg, unverändert) | SHA256 + Microsoft-Signatur der Skripte |
+| `inhalt.json` | Fassungen, Dateien, Prüfsummen | — |
+
+Entpacken (vorher `Get-FileHash` gegen `SHA256SUMS`), dann wie online `.\windows\install.ps1`.
+Der Installer erkennt den Inhalt selbst, meldet **„Offline-Installation“**, lädt nichts herunter
+(der Download-Weg verweigert dann) und installiert mit `pip --no-index` aus `offline\wheels`.
+Gefunden wird ein vorhandenes Python 3.11–3.13; sonst installiert er das mitgelieferte. Python
+kommt als **voller Installer, nicht als Embeddable-Distribution**: Die hat kein venv/ensurepip und
+eine feste `._pth`-Datei, der Dienst läuft aber in einer venv über `pythonservice.exe`.
+
+Die Installation behält `offline\wheels` und `inhalt.json` (nicht Installer und Modul). Daran
+erkennt der Updater sie: Er lädt beim Einspielen das **Offline-Paket** statt des normalen und
+installiert dessen Wheels ohne PyPI — Lebenszeichen, Rückfall und `data\` wie gehabt. Die
+Oberfläche zeigt unter *Aktualisierung → Installationsart*, welches Paket geladen wird. Wechsel in
+die andere Richtung: `install.ps1` aus dem normalen Paket entfernt `offline\` wieder.
+
+**Bleibt online:** Exchange Online selbst (Postfachabfrage, Connector, Anmeldung) — ein Dienst von
+Microsoft, ohne den das Relay nicht zustellt. Und der Updater holt das Release von GitHub; ganz
+ohne Netz aktualisierst du, indem du `install.ps1` aus dem neuen Offline-Paket ausführst.
+Für Linux gibt es noch kein Offline-Archiv (Debian braucht für die venv zudem `python3-venv`).
 
 **Hinweis:** Ist Port 25 bereits belegt (IIS-SMTP, Virenscanner, anderer Mail-Relay), nennt dir
 der Installer den Prozess. Der Dienst startet erst, wenn der Port frei ist.
@@ -338,7 +369,8 @@ er in diesem eigenen Repository.
 ## Entwicklung
 
 ```bash
-pip install -r app/requirements.lock -r tests/requirements.txt
+pip install --require-hashes --only-binary :all: -r app/requirements.lock   # Hash-Modus: eigener Aufruf
+pip install -r tests/requirements.txt
 pytest tests/ -v
 python tools/driftcheck.py          # Spiegelung gegen das Gateway prüfen
 python tools/spiegel_holen.py       # Abweichungen zeigen, --uebernehmen kopiert
@@ -356,7 +388,10 @@ Ein Release entsteht **nur** durch ein Tag `v*` (`.github/workflows/release.yml`
 Das Tag muss zu `VERSION` passen. Der Lauf baut
 
 - das Windows-Paket `exo-smtp-relay-<version>-windows.zip` (entpacken,
-  `windows\install.ps1` als Administrator) und das Linux-Archiv
+  `windows\install.ps1` als Administrator), das Windows-Offline-Paket
+  `exo-smtp-relay-<version>-windows-offline.zip` (dasselbe plus `offline\`, siehe
+  Offline-Installation; vor der Veröffentlichung auf Windows ohne Netz installiert und
+  geprüft, Job „Offline-Paket“) und das Linux-Archiv
   `exo-smtp-relay-<version>-linux.tar.gz` — gleicher Inhalt, jeweils mit
   `LICENSE.md` und `NOTICE`,
 - `SHA256SUMS` und dessen Ed25519-Signatur `SHA256SUMS.sig`,

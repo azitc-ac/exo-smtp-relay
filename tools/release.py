@@ -3,6 +3,8 @@
 
     python tools/release.py kanal v0.2.40            Tag prüfen; version=/kanal= ausgeben
     python tools/release.py bauen dist               Windows-ZIP, Linux-Archiv, SHA256SUMS
+    python tools/release.py bauen dist <stufe>       dazu das Windows-Offline-Paket aus der Stufe
+                                                     von tools/offline_paket.py vorbereiten
     python tools/release.py notizen 0.2.40           Abschnitt aus CHANGELOG.md
     python tools/release.py signieren dist/SHA256SUMS
                                  Schlüssel aus RELEASE_SIGNING_KEY (PEM); fehlt er → Abbruch
@@ -50,9 +52,9 @@ def kanal(tag: str) -> int:
     return 0
 
 
-def bauen(ziel: str) -> int:
+def bauen(ziel: str, stufe: str | None = None) -> int:
     version = (WURZEL / "VERSION").read_text(encoding="utf-8").strip()
-    pakete = up.bauen(WURZEL, Path(ziel), version)
+    pakete = up.bauen(WURZEL, Path(ziel), version, Path(stufe) if stufe else None)
     (Path(ziel) / up.SUMMEN).write_text(up.summen_schreiben(pakete), encoding="utf-8")
     for p in pakete:
         print(f"{p.name}  {p.stat().st_size} Byte")
@@ -140,6 +142,8 @@ BEFEHLE = {"kanal": kanal, "bauen": bauen, "notizen": notizen, "signieren": sign
            "oeffentlich": oeffentlich}
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["bauen"] and len(sys.argv) == 4:
+        sys.exit(bauen(sys.argv[2], sys.argv[3]))
     if len(sys.argv) != 3 or sys.argv[1] not in BEFEHLE:
         print(__doc__)
         sys.exit(2)

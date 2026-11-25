@@ -1,5 +1,39 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.47-beta — 2026-11-25 — Lieferkette gehärtet, Windows-Offline-Paket
+
+**Lieferkette: Beim Kunden wird nichts Ungeprüftes geladen oder ausgeführt.**
+
+- **Python-Installer**: feste Adresse (python.org, 3.12.10 amd64) mit fest eingetragener
+  SHA256; vor dem Start Authenticode `Valid` mit Signierer „Python Software Foundation“,
+  sonst Abbruch mit klarer Meldung. Bisher lief der Download ungeprüft. Nur noch x64:
+  cryptography hat kein Windows-ARM64-Wheel (Windows auf ARM nutzt die x64-Emulation).
+- **Python-Pakete nur mit Prüfsummen**: `app/requirements.lock` trägt zu jeder
+  Anforderung die SHA-256 ihrer Wheels für win_amd64 und manylinux x86_64/aarch64,
+  Python 3.11–3.13 (81 Prüfsummen, Quelle PyPI-JSON, `tools/lock_hashes.py`). Installiert
+  wird überall mit `pip --require-hashes --only-binary :all:`: `install.ps1`, Updater
+  (`update_tausch.phase_pip`), Dockerfile, systemd-Einrichtung, CI. Keine Quellpakete,
+  keine pip-Selbstaktualisierung aus dem Netz mehr. `PyJWT[crypto]` steht mit Extra in der
+  Lock-Datei (msal fordert es; im Hash-Modus sonst Abbruch). CI prüft die Prüfsummen gegen
+  PyPI und dass jede Zielplattform ein Wheel hat. Fassungen unverändert (Gateway-Stand).
+- **ExchangeOnlineManagement** kommt nicht mehr über `Install-Module` (unpinned, samt
+  NuGet-Bootstrap), sondern als festgelegtes nupkg 3.10.1 von der PowerShell Gallery:
+  SHA256 fest, jede Skriptdatei mit gültiger Microsoft-Signatur, erst dann nach
+  `Program Files\WindowsPowerShell\Modules`. Fassung wie Dockerfile und Gateway.
+- `install.ps1` hat genau einen Download-Weg (`Get-RelayDownload`); install.ps1 und der
+  Updater bauen ihre pip-Argumente gleich (geprüft).
+
+**Neu: `exo-smtp-relay-<version>-windows-offline.zip`** (Windows x64, ~91 MB): App, Python-
+Installer, alle Wheels für win_amd64 (Python 3.11–3.13), ExchangeOnlineManagement-nupkg und
+`inhalt.json`. Steht in `SHA256SUMS`, ist signiert wie die anderen. `install.ps1` erkennt
+den Inhalt, meldet „Offline-Installation“ und installiert ohne Internet (`pip --no-index`).
+Eine offline installierte Instanz lädt beim Update das Offline-Paket und installiert dessen
+Wheels ohne PyPI; Lebenszeichen, Rückfall und `data\` wie gehabt. Anzeige unter
+*Aktualisierung → Installationsart*. Die Release-CI baut das Paket aus festen Quellen mit
+Prüfsummen und installiert es vor der Veröffentlichung auf Windows ohne Netz für pip
+(Job „Offline-Paket“; ebenso in der normalen CI). Einzige Online-Komponente bleibt Exchange
+Online selbst. Ein Linux-Offline-Archiv folgt später.
+
 ## 0.2.46 — 2026-11-24 — Stable-Kandidat: Labtest-Korrekturen aus 0.2.43-beta, 0.2.44-beta, 0.2.45 und 0.2.46
 
 **0.2.45 wurde nicht veröffentlicht** — der Labtest hat sie gestoppt (siehe unten). Ihr

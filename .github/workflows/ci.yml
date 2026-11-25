@@ -24,8 +24,8 @@ jobs:
           python-version: "3.11"
       - name: Abhängigkeiten
         run: |
-          python -m pip install --upgrade pip
-          pip install -r app/requirements.lock -r tests/requirements.txt
+          pip install --require-hashes --only-binary :all: -r app/requirements.lock
+          pip install -r tests/requirements.txt
       - name: Tests
         run: pytest tests/ -v
 
@@ -36,7 +36,15 @@ jobs:
       - name: Bekannte Lücken in Abhängigkeiten (pip-audit)
         run: |
           pip install pip-audit==2.10.1
-          pip-audit -r app/requirements.lock --no-deps --disable-pip --progress-spinner off
+          pip-audit -r app/requirements.lock --require-hashes --no-deps --disable-pip --progress-spinner off
+
+      # Lieferkette: Die Prüfsummen in der Lock-Datei entsprechen PyPI, und jede
+      # Zielplattform (win_amd64, manylinux x86_64/aarch64, Python 3.11–3.13) hat
+      # für jedes Paket ein Wheel. Sonst bricht die Installation beim Kunden ab.
+      - name: Prüfsummen der Lock-Datei (PyPI) und Wheel-Abdeckung
+        run: |
+          python tools/lock_hashes.py pruefen
+          python tools/lock_hashes.py abdeckung
 
       # Nur hohe Schwere UND hohe Sicherheit — sonst geht das Signal im
       # Rauschen unter (subprocess, assert …). Bewusste Ausnahmen stehen
@@ -75,14 +83,14 @@ jobs:
           python-version: "3.11"
       - name: Abhängigkeiten
         run: |
-          python -m pip install --upgrade pip
-          pip install -r app/requirements.lock -r tests/requirements.txt
+          pip install --require-hashes --only-binary :all: -r app/requirements.lock
+          pip install -r tests/requirements.txt
       - name: Tests
         run: pytest tests/ -v
       - name: PowerShell 5.1 parst die Skripte
         shell: powershell
         run: |
-          foreach ($s in (Get-ChildItem app\scripts\*.ps1, windows\*.ps1, tests\*.ps1)) {
+          foreach ($s in (Get-ChildItem app\scripts\*.ps1, windows\*.ps1, tests\*.ps1, tools\*.ps1)) {
             $fehler = $null
             [System.Management.Automation.Language.Parser]::ParseFile($s.FullName, [ref]$null, [ref]$fehler) | Out-Null
             if ($fehler.Count -gt 0) { $fehler | ForEach-Object { Write-Host $_.ToString() }; throw "Parse-Fehler in $($s.Name)" }
@@ -114,6 +122,32 @@ jobs:
         if: always()
         shell: powershell
         run: Get-Content C:\ProgramData\exo-smtp-relay\data\logs\app.log -Tail 80 -ErrorAction SilentlyContinue
+
+  # Offline-Paket wie im Release bauen (feste Quellen, Pruefsummen) und auf Windows OHNE Netz
+  # fuer pip installieren: PIP_NO_INDEX, toter Index/Proxy, ausgehende Firewall-Sperre fuer
+  # python.exe. Prueft Authenticode des Python-Installers samt Gegenproben, die Microsoft-
+  # Signatur des Moduls, Dienststart, /health und den Offline-Weg des Updaters.
+  offline:
+    name: Offline-Paket (Windows, ohne Netz)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Offline-Stufe und Pakete bauen
+        run: |
+          python tools/offline_paket.py vorbereiten offline-stufe
+          python tools/release.py bauen dist-offline offline-stufe
+      - name: Offline installieren und pruefen
+        shell: powershell
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          .\tools\offline_probe.ps1 -Paket "dist-offline\exo-smtp-relay-$v-windows-offline.zip"
+      - name: Protokoll des Dienstes
+        if: always()
+        shell: powershell
+        run: Get-Content C:\ProgramData\exo-smtp-relay\data\logs\app.log -Tail 60 -ErrorAction SilentlyContinue
 
   build:
     name: Container baut

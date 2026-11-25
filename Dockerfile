@@ -51,8 +51,9 @@ RUN pwsh -NoProfile -NonInteractive -Command \
        -Force -AllowClobber -Scope AllUsers"
 
 # ── Python-Abhängigkeiten — aus der LOCK-Datei ───────────────────────────────
+# Nur Wheels, nur mit den Prüfsummen aus der Lock-Datei (tools/lock_hashes.py).
 COPY app/requirements.txt app/requirements.lock ./
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.lock
 
 # ── Anwendung ────────────────────────────────────────────────────────────────
 COPY app/ .

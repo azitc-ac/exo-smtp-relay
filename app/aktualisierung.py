@@ -42,7 +42,7 @@ API_RELEASES = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 IMAGE = f"ghcr.io/{REPO}"
 KANAELE = ("stable", "beta")
 INTERVALLE_H = (0, 6, 24, 168)          # 0 = keine planmässige Prüfung
-MAX_DOWNLOAD = 100 * 1024 * 1024
+MAX_DOWNLOAD = 200 * 1024 * 1024        # Offline-Paket: Python, Modul, Wheels
 BETRIEBSARTEN = ("docker", "windows", "systemd", "manuell")
 SYSTEMD_TAUSCHER = "exo-smtp-relay-update.path"
 
@@ -121,8 +121,21 @@ def tauscher_bereit(art: str | None = None) -> tuple[bool, str]:
                    "linux/exo-smtp-relay-update.service.")
 
 
-def paket_art(art: str | None = None) -> str:
-    return "windows" if (art or betriebsart()) == "windows" else "linux"
+WURZEL = Path(__file__).resolve().parent.parent
+
+
+def offline_installiert(wurzel: Path | None = None) -> bool:
+    """Mit dem Offline-Paket installiert (install.ps1 legte offline/inhalt.json und
+    offline/wheels/ an)? Dann holt der Updater das Offline-Paket — mit Wheels, ohne PyPI."""
+    return update_tausch.offline_wheels(wurzel or WURZEL) is not None
+
+
+def paket_art(art: str | None = None, wurzel: Path | None = None) -> str:
+    """windows | windows-offline | linux. Eine offline installierte Windows-Instanz lädt das
+    Offline-Paket: dessen Wheels installiert update_tausch.phase_pip ohne Index."""
+    if (art or betriebsart()) != "windows":
+        return "linux"
+    return "windows-offline" if offline_installiert(wurzel) else "windows"
 
 
 # ── Prüfen ───────────────────────────────────────────────────────────────────
@@ -296,6 +309,8 @@ def zustand() -> dict:
     kanal = settings_store.get("UPDATE_KANAL") or "stable"
     return {"ok": True, "aktuell": config.VERSION, "betriebsart": art,
             "bereit": bereit, "hinweis": hinweis,
+            "offline": art == "windows" and offline_installiert(),
+            "paket": update_paket.paket_name("<neu>", paket_art(art)) if art != "docker" else "",
             "schluessel": bool(update_paket.RELEASE_SCHLUESSEL),
             "kanal": kanal, "intervall": int(settings_store.get("UPDATE_PRUEF_STUNDEN") or 0),
             "stand": stand(), "status": status(),

@@ -11,6 +11,11 @@
   <div class="settings-row"><label>Laufende Fassung</label><span><strong>v{{ z.aktuell }}</strong></span></div>
   <div class="settings-row"><label>Betriebsart</label>
     <span id="betriebsart">{{ {'docker': 'Docker-Container', 'windows': 'Windows-Dienst', 'systemd': 'Linux (systemd)', 'manuell': 'von Hand gestartet'}[z.betriebsart] }}</span></div>
+  {% if z.betriebsart in ('windows', 'systemd') %}
+  <div class="settings-row"><label>Installationsart</label>
+    <span id="installationsart">{% if z.offline %}Offline-Paket — Aktualisierungen bringen ihre Wheels mit, pip ohne PyPI{% else %}online — Pakete von PyPI, nur mit Prüfsummen aus der Lock-Datei{% endif %}
+      <span class="hint">(geladen wird <code>{{ z.paket }}</code>; Wechsel: <code>windows\install.ps1</code> aus dem jeweils anderen Paket)</span></span></div>
+  {% endif %}
   <div class="settings-row"><label>Neueste im Kanal {{ z.kanal }}</label>
     <span id="neueste">{% if z.stand.neueste %}v{{ z.stand.neueste }}{% if z.stand.url %} — <a href="{{ z.stand.url }}" target="_blank" rel="noopener">Release ansehen</a>{% endif %}{% elif z.stand.hinweis %}{{ z.stand.hinweis }}{% elif z.stand.error %}{{ z.stand.error }}{% else %}noch nicht geprüft{% endif %}</span></div>
   <div class="settings-row"><label>Zuletzt geprüft</label><span id="geprueft">{{ z.stand.geprueft or '—' }}</span></div>

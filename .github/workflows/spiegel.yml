@@ -64,7 +64,8 @@ jobs:
         id: tests
         run: |
           set +e
-          pip install -q -r app/requirements.lock -r tests/requirements.txt
+          pip install -q --require-hashes --only-binary :all: -r app/requirements.lock
+          pip install -q -r tests/requirements.txt
           pytest tests/ -q 2>&1 | tail -20 | tee tests.txt
           echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           set -e
