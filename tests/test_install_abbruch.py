@@ -678,6 +678,7 @@ def _start_lauf(tmp_path, scheitert_bis: int, funktionen: str | None = None) -> 
     (data / "logs" / "service.log").write_text("ALT vom Vortag: übersprungen\n", encoding="utf-8")
     skript = tmp_path / "start.ps1"
     skript.write_text("Set-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n"
+                      "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
                       "$global:M = New-Object System.Collections.ArrayList\n"
                       "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
                       + (funktionen or (_funktion("Get-RelayLogLaenge") + "\n" + _funktion("Get-RelayStartGrund")
@@ -688,7 +689,7 @@ def _start_lauf(tmp_path, scheitert_bis: int, funktionen: str | None = None) -> 
                       encoding="utf-8-sig")
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
     r = subprocess.run([_ps(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(skript)],
-                       capture_output=True, text=True, timeout=120, env=umgebung)
+                       capture_output=True, text=True, encoding="utf-8", timeout=120, env=umgebung)
     assert r.returncode == 0, r.stderr + r.stdout
     return json.loads(r.stdout.strip().splitlines()[-1])
 
