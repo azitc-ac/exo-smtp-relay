@@ -351,7 +351,8 @@ def test_lebenszeichen_vor_erfolg():
 _MOVE_SPERRE = '''
 $global:Gesperrt = @()
 function Move-Item { param([string]$LiteralPath, [string]$Destination, $ErrorAction)
-    if ($global:Gesperrt -contains $LiteralPath.Replace("\\", "/")) { throw "Der Prozess kann nicht auf die Datei zugreifen: $LiteralPath" }
+    $n = $LiteralPath.Replace('\\', '/')
+    if (@($global:Gesperrt | ForEach-Object { $_.Replace('\\', '/') }) -contains $n) { throw "Der Prozess kann nicht auf die Datei zugreifen: $LiteralPath" }
     Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop }
 $global:Fw = New-Object System.Collections.ArrayList
 function Sync-RelayFirewall([int]$WebPort) { [void]$global:Fw.Add($WebPort) }
