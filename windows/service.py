@@ -146,8 +146,11 @@ class RelayService(win32serviceutil.ServiceFramework):
             spec = importlib.util.spec_from_file_location("_update_tausch", APP / "update_tausch.py")
             tausch = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(tausch)
-            ok = tausch.ruecknahme_nachholen(WURZEL, DATA)
-            servicemanager.LogInfoMsg(f"EXO SMTP Relay: offene Rücknahme {'nachgeholt' if ok else 'weiter offen'}")
+            ok = tausch.beim_dienststart(WURZEL, DATA)          # derselbe Pfad wie systemd
+            if ok is True:
+                servicemanager.LogInfoMsg("EXO SMTP Relay: offene Rücknahme nachgeholt")
+            elif ok is False:
+                servicemanager.LogWarningMsg("EXO SMTP Relay: offene Rücknahme NICHT nachgeholt - siehe Aktualisierung")
         except Exception as exc:                               # noqa: BLE001
             servicemanager.LogErrorMsg(f"EXO SMTP Relay: Rücknahme nicht nachgeholt: {exc}")
 

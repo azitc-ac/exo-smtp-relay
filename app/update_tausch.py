@@ -80,19 +80,57 @@ def ruecknahme_offen_pfad(daten: Path) -> Path:
     return bereich(daten) / "ruecknahme_offen.json"
 
 
+# Wiederholen beim Schreiben (Labtest 0.2.54, Windows): Ein fremder Leser ohne FileShare.Delete
+# (Virenscanner, Sicherung) lässt os.replace mit WinError 5 scheitern — bisher brach das ablauf()
+# ab, die neue Fassung lief ohne Überwachung. Kurz wiederholen, mit wachsender Pause.
+SCHREIB_PAUSEN_S: tuple[float, ...] = (0.1, 0.2, 0.4, 0.8, 1.5, 2.0, 2.5, 2.5)     # ≈ 10 s
+
+
 def json_schreiben(pfad: Path, inhalt: dict) -> None:
-    """Atomar (Zwischendatei + os.replace). Kein Geheimnis darin."""
+    """Atomar (Zwischendatei + os.replace), UTF-8 ohne BOM. Wiederholt bei OSError (Sperre durch
+    einen fremden Leser); scheitert es endgültig, kommt die letzte Ausnahme. Kein Geheimnis darin."""
+    pfad = Path(pfad)
     pfad.parent.mkdir(parents=True, exist_ok=True)
     tmp = pfad.with_name(pfad.name + ".tmp")
-    tmp.write_text(json.dumps(inhalt, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, pfad)
+    daten = json.dumps(inhalt, ensure_ascii=False, indent=1)
+    for i, pause in enumerate((0.0,) + SCHREIB_PAUSEN_S):
+        if pause:
+            time.sleep(pause)
+        try:
+            tmp.write_text(daten, encoding="utf-8")
+            os.replace(tmp, pfad)
+            return
+        except OSError:
+            if i == len(SCHREIB_PAUSEN_S):
+                raise
+
+
+class JsonUnlesbar(ValueError):
+    """Die Datei gibt es, sie ist aber kein lesbares JSON-Objekt — NICHT dasselbe wie „fehlt“."""
+
+
+def json_lesen_streng(pfad: Path) -> dict | None:
+    """None, wenn es die Datei nicht gibt; sonst das Objekt (UTF-8, BOM erlaubt). Kaputt oder
+    unlesbar → JsonUnlesbar (Labtest 0.2.54: install.ps1 schrieb mit BOM, json_lesen lieferte {},
+    und „{}“ galt als „nichts offen“)."""
+    pfad = Path(pfad)
+    if not pfad.exists():
+        return None
+    try:
+        d = json.loads(pfad.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise JsonUnlesbar(f"{pfad.name} unlesbar: {exc}") from exc
+    if not isinstance(d, dict):
+        raise JsonUnlesbar(f"{pfad.name} ist kein JSON-Objekt")
+    return d
 
 
 def json_lesen(pfad: Path) -> dict:
+    """Nachsichtig: {} bei fehlender oder kaputter Datei. Nur, wo {} die SICHERE Bedeutung hat
+    (nicht bereit, nicht gesund, kein Auftrag); sonst json_lesen_streng."""
     try:
-        d = json.loads(Path(pfad).read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
+        return json_lesen_streng(pfad) or {}
+    except JsonUnlesbar:
         return {}
 
 
@@ -101,9 +139,14 @@ def _jetzt() -> str:
 
 
 def status_setzen(daten: Path, zustand: str, text: str, **mehr) -> None:
-    """zustand: wartet | laeuft | ok | fehler | zurueckgerollt."""
-    json_schreiben(status_pfad(daten), {"zustand": zustand, "text": text,
-                                        "zeit": _jetzt(), **mehr})
+    """zustand: wartet | laeuft | ok | fehler | zurueckgerollt. Bricht NIE ab: Der Status ist
+    Anzeige — scheitert er endgültig, steht es auf stderr (Dienstprotokoll), der Ablauf geht
+    weiter (Labtest 0.2.54: eine gesperrte status.json beendete ablauf())."""
+    try:
+        json_schreiben(status_pfad(daten), {"zustand": zustand, "text": text,
+                                            "zeit": _jetzt(), **mehr})
+    except OSError as exc:
+        print(f"update_tausch: Status nicht geschrieben ({zustand}: {text[:120]}): {exc}", file=sys.stderr)
 
 
 def lebenszeichen_schreiben(daten: Path, version: str) -> None:
@@ -236,7 +279,7 @@ def marke_gehoert_zu(wurzel: Path, lauf: str) -> bool:
     fehlt sie (Updater ≤ 0.2.53, auch 0.2.42) oder ist sie fremd, NIE (Labtest 0.2.53 l6: das
     Beiseitelegen des alten .update-alt scheiterte, bevor der neue Merker geschrieben war; die
     Rücknahme nahm den ALTEN Merker und holte app\\ aus der vorvorigen Fassung zurück)."""
-    marke = json_lesen(Path(wurzel) / ALT / MARKE)
+    marke = json_lesen_streng(Path(wurzel) / ALT / MARKE) or {}
     return bool(lauf) and marke.get("lauf") == lauf
 
 
@@ -248,7 +291,7 @@ def phase_zurueck(wurzel: Path, lauf: str = "", alt_entfernen: bool = True) -> s
     .update-alt samt Marke für den nächsten Versuch liegen."""
     wurzel = Path(wurzel)
     alt = wurzel / ALT
-    marke = json_lesen(alt / MARKE)
+    marke = json_lesen_streng(alt / MARKE)        # kaputt → Ausnahme, NICHT „nichts zurückzunehmen“
     if not marke:
         return "nichts zurückzunehmen"
     if not marke_gehoert_zu(wurzel, lauf):
@@ -371,7 +414,7 @@ def phase_ausfuehren(name: str, wurzel: Path, daten: Path, version: str = "",
         # scheitert pip, bleibt der Merker für den nächsten Versuch (bisher war er weg und ein
         # Nachholen meldete Erfolg ohne Abhängigkeiten).
         alt = Path(wurzel) / ALT
-        marke = json_lesen(alt / MARKE)
+        marke = json_lesen_streng(alt / MARKE) or {}
         if "pip_noetig" not in marke:
             alt_lock = alt / "app" / "requirements.lock"
             marke["pip_noetig"] = bool(alt_lock.is_file() and lock_geaendert(wurzel))
@@ -451,6 +494,12 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
         auftrag_pfad(daten).unlink()
     except OSError:
         pass
+    if auftrag.get("nachholen"):
+        # Knopf bei offener Rücknahme (aktualisierung.einspielen): nur nachholen.
+        stoppen()
+        nachgeholt = ruecknahme_nachholen(wurzel, daten)
+        starten()
+        return "zurueckgerollt" if nachgeholt else "fehler"
     version, paket = str(auftrag.get("version") or ""), str(auftrag.get("paket") or "")
     von = aktuelle_version(wurzel)
     kopf = {"von": von, "nach": version, "angefordert_von": auftrag.get("angefordert_von", "")}
@@ -514,9 +563,16 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
 
 
 def _offen_hinweis(wurzel: Path) -> str:
-    return (f"am Platz: Fassung {aktuelle_version(wurzel) or '?'}; Sperre lösen — die Rücknahme wird beim "
-            "nächsten Dienststart erneut versucht — oder windows\\install.ps1 aus dem Paket der vorigen "
-            "Fassung ausführen")
+    """Plattformrichtig (Labtest 0.2.54: unter Linux stand dort windows\\install.ps1)."""
+    if os.name == "nt":
+        befehl = ("Sperre lösen und den Dienst neu starten (Restart-Service ExoSmtpRelay) — die Rücknahme "
+                  "wird beim Start nachgeholt — oder windows\\install.ps1 aus dem Paket der vorigen Fassung")
+    else:
+        befehl = ("Sperre lösen und sudo systemctl restart exo-smtp-relay — die Rücknahme wird beim Start "
+                  "nachgeholt (ExecStartPre)")
+    return (f"am Platz: Fassung {aktuelle_version(wurzel) or '?'}; {befehl}, oder auf der Seite "
+            "Aktualisierung „Rücknahme nachholen“. Der nächste Dienststart spielt die vorige Fassung "
+            "zurück — auch wenn die neue inzwischen läuft")
 
 
 def _zuruecknehmen(wurzel: Path, daten: Path, phase, lauf: str, starten, kopf: dict, grund: str) -> str:
@@ -532,7 +588,10 @@ def _zuruecknehmen(wurzel: Path, daten: Path, phase, lauf: str, starten, kopf: d
         status_setzen(daten, "zurueckgerollt",
                       f"{grund} — {zurueck}; {aktuelle_version(wurzel)} läuft wieder", **kopf)
         return "zurueckgerollt"
-    json_schreiben(ruecknahme_offen_pfad(daten), {"lauf": lauf, "zeit": _jetzt(), "grund": zurueck, **kopf})
+    try:
+        json_schreiben(ruecknahme_offen_pfad(daten), {"lauf": lauf, "zeit": _jetzt(), "grund": zurueck, **kopf})
+    except OSError as exc:
+        zurueck += f"; Merker ruecknahme_offen.json NICHT geschrieben ({exc}) — Nachholen nur von Hand"
     starten()
     status_setzen(daten, "fehler", f"{grund} — Rücknahme UNVOLLSTÄNDIG: {zurueck}; {_offen_hinweis(wurzel)}",
                   **kopf)
@@ -540,15 +599,23 @@ def _zuruecknehmen(wurzel: Path, daten: Path, phase, lauf: str, starten, kopf: d
 
 
 def ruecknahme_nachholen(wurzel: Path, daten: Path, phase=None) -> bool:
-    """Offene Rücknahme (ruecknahme_offen.json) erneut versuchen — beim Dienststart (Windows:
-    service.py, bevor die Anwendung startet) und vor jedem neuen Auftrag. True, wenn nichts
-    offen ist oder die Rücknahme jetzt gelang."""
+    """Offene Rücknahme (ruecknahme_offen.json) erneut versuchen. True NUR, wenn nichts offen ist
+    oder die Rücknahme jetzt gelang. Eine unlesbare Datei ist NICHT „nichts offen“ (Labtest
+    0.2.54: mit BOM geschrieben → {} → „nachgeholt“, SMTP blieb aus)."""
     wurzel, daten = Path(wurzel), Path(daten)
-    offen = json_lesen(ruecknahme_offen_pfad(daten))
-    if not offen:
+    try:
+        offen = json_lesen_streng(ruecknahme_offen_pfad(daten))
+    except JsonUnlesbar as exc:
+        status_setzen(daten, "fehler", f"Offene Rücknahme NICHT nachgeholt: {exc}; {_offen_hinweis(wurzel)}")
+        return False
+    if offen is None:
         return True
     lauf = str(offen.get("lauf") or "")
     kopf = {k: offen.get(k, "") for k in ("von", "nach", "angefordert_von")}
+    if not lauf:
+        status_setzen(daten, "fehler", f"Offene Rücknahme NICHT nachgeholt: ohne Lauf-Kennung; {_offen_hinweis(wurzel)}",
+                      **kopf)
+        return False
     if phase is None:
         phase = phasen_im_prozess(wurzel, daten, str(offen.get("nach") or ""), "")
     ok, text = phase("zurueck", lauf)
@@ -565,6 +632,15 @@ def ruecknahme_nachholen(wurzel: Path, daten: Path, phase=None) -> bool:
     return True
 
 
+def beim_dienststart(wurzel: Path, daten: Path) -> bool | None:
+    """DER gemeinsame Pfad beim Dienststart, bevor die Anwendung startet — Windows
+    (windows/service.py) und systemd (ExecStartPre=+… update_tausch.py nachholen). None, wenn
+    nichts offen war; sonst das Ergebnis von ruecknahme_nachholen."""
+    if not ruecknahme_offen_pfad(daten).exists():
+        return None
+    return ruecknahme_nachholen(wurzel, daten)
+
+
 # ── systemd ──────────────────────────────────────────────────────────────────
 
 def _systemctl(*args: str) -> int:
@@ -574,7 +650,7 @@ def _systemctl(*args: str) -> int:
 def main(argv: list[str]) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Austausch des EXO SMTP Relay")
-    p.add_argument("befehl", choices=("ablauf", "phase"))
+    p.add_argument("befehl", choices=("ablauf", "phase", "nachholen"))
     p.add_argument("name", nargs="?", default="")
     p.add_argument("--wurzel", required=True)
     p.add_argument("--daten", default="")
@@ -585,6 +661,12 @@ def main(argv: list[str]) -> int:
     a = p.parse_args(argv)
     wurzel = Path(a.wurzel)
     daten = Path(a.daten) if a.daten else wurzel / "data"
+    if a.befehl == "nachholen":
+        # systemd ExecStartPre (als root, vor dem Start der Anwendung). Nie den Start blockieren:
+        # scheitert es, steht es im Status, und das Relay läuft mit dem, was am Platz ist.
+        ergebnis = beim_dienststart(wurzel, daten)
+        print({None: "nichts offen", True: "Rücknahme nachgeholt", False: "Rücknahme weiter offen"}[ergebnis])
+        return 0
     if a.befehl == "phase":
         try:
             print(phase_ausfuehren(a.name, wurzel, daten, a.version, a.paket, a.lauf))

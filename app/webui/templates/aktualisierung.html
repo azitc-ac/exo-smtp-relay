@@ -47,9 +47,17 @@
     ({{ 'Dienst-Wrapper' if z.betriebsart == 'windows' else 'exo-smtp-relay-update.service' }}). Der Dienst
     ist dabei kurz nicht erreichbar.</p>
   <div class="actions">
+    {% if z.ruecknahme_offen %}
+    <div class="alert warn" id="ruecknahme-offen">Eine Rücknahme ist noch offen (Sperre bei der letzten
+      Aktualisierung). Der nächste Dienststart holt sie nach und spielt die vorige Fassung zurück — auch
+      wenn die neue inzwischen läuft. Sofort: „Rücknahme nachholen“.</div>
+    <button class="btn primary" id="einspielen-btn" onclick="einspielen(this)"
+            {% if not (z.bereit and z.schluessel) %}disabled{% endif %}>Rücknahme nachholen</button>
+    {% else %}
     <button class="btn primary" id="einspielen-btn" onclick="einspielen(this)"
             {% if not (z.bereit and z.schluessel and z.stand.verfuegbar) %}disabled{% endif %}>
       Einspielen{% if z.stand.verfuegbar %} (v{{ z.stand.neueste }}){% endif %}</button>
+    {% endif %}
   </div>
   {% endif %}
   <div id="status" class="hint" style="margin-top:12px">
@@ -103,7 +111,8 @@ async function einspielen(btn) {
   btn.disabled = true;
   const r = await postJSON('/api/aktualisierung/einspielen', {});
   if (!r.ok) { btn.disabled = false; showMsg('status', r.error || 'Nicht eingespielt', false); return; }
-  showMsg('status', 'Auftrag übergeben — v' + r.version + ' wird eingespielt …', true);
+  showMsg('status', r.nachholen ? 'Auftrag übergeben — die offene Rücknahme wird nachgeholt …'
+                              : 'Auftrag übergeben — v' + r.version + ' wird eingespielt …', true);
   statusVerfolgen();
 }
 function statusVerfolgen() {

@@ -282,9 +282,15 @@ function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
 
 $RelayMerkerName = "zurueckholen.json"
 
+# UTF-8 OHNE BOM - alles, was Python liest (Labtest 0.2.54: Set-Content -Encoding UTF8 schreibt
+# unter PS 5.1 eine BOM; json.loads scheiterte, die offene Ruecknahme galt als "nichts offen").
+function Write-RelayTextOhneBom([string]$Pfad, [string]$Text) {
+    [System.IO.File]::WriteAllText($Pfad, $Text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function Write-RelayMerker([string]$Sicherung, [string[]]$Teile, [string]$Fassung, [string]$Port, [string]$Lauf = "") {
     $inhalt = [ordered]@{ teile = @($Teile); fassung = $Fassung; port = $Port; lauf = $Lauf; zeit = (Get-Date).ToString("s") }
-    Set-Content -LiteralPath (Join-Path $Sicherung $RelayMerkerName) -Value (ConvertTo-Json -Compress -InputObject $inhalt) -Encoding UTF8
+    Write-RelayTextOhneBom (Join-Path $Sicherung $RelayMerkerName) (ConvertTo-Json -Compress -InputObject $inhalt)
 }
 
 function Read-RelayMerker([string]$Sicherung) {
@@ -518,7 +524,7 @@ function Restore-RelayNachAbbruch {
     try { Stop-Service -Name "ExoSmtpRelay" -Force -ErrorAction SilentlyContinue } catch { }
     if ((Test-Path variable:script:RelayOffenInhalt) -and $script:RelayOffenInhalt) {
         try {
-            Set-Content -LiteralPath (Join-Path $dataDir "update\ruecknahme_offen.json") -Value $script:RelayOffenInhalt -NoNewline -Encoding UTF8
+            Write-RelayTextOhneBom (Join-Path $dataDir "update\ruecknahme_offen.json") $script:RelayOffenInhalt
             Write-Warn "Offene Ruecknahme des Updaters wiederhergestellt"
         } catch { }
     }
@@ -1119,7 +1125,7 @@ try {
     # Fassung ueber die gerade installierte. Verwerfen; bricht dieser Lauf ab, kommt sie zurueck.
     $offenDatei = Join-Path $dataDir "update\ruecknahme_offen.json"
     if (Test-Path -LiteralPath $offenDatei) {
-        $script:RelayOffenInhalt = Get-Content -LiteralPath $offenDatei -Raw
+        $script:RelayOffenInhalt = [System.IO.File]::ReadAllText($offenDatei, [System.Text.Encoding]::UTF8)
         Remove-Item -LiteralPath $offenDatei -Force
         Write-Warn "Offene Ruecknahme des Updaters verworfen - diese Installation ersetzt den Stand vollstaendig"
     }
@@ -1136,6 +1142,14 @@ try {
     Write-Warn "ABBRUCH im Schritt '$schritt': $($grund.Exception.Message)"
     Restore-RelayNachAbbruch
     throw "Installation abgebrochen im Schritt '$schritt': $($grund.Exception.Message)"
+}
+# Der Updater-Status zeigte nach verworfener offener Ruecknahme weiter "UNVOLLSTAENDIG" (Labtest
+# 0.2.54, gelb) - diese Installation ist jetzt der Stand.
+if ($script:RelayOffenInhalt) {
+    try {
+        $st = [ordered]@{ zustand = "ok"; text = "install.ps1 hat $((Get-Content (Join-Path $InstallDir 'VERSION') -Raw).Trim()) installiert; die offene Ruecknahme des Updaters ist damit erledigt"; zeit = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
+        Write-RelayTextOhneBom (Join-Path $dataDir "update\status.json") (ConvertTo-Json -Compress -InputObject $st)
+    } catch { Write-Warn "Status der Aktualisierung nicht zurueckgesetzt: $($_.Exception.Message)" }
 }
 if (Test-Path $sicherung) {
     # Erst den Merker: ohne ihn gilt ein Rest nie als Sicherung (Get-RelaySicherungsTeile, Ruecknahme).

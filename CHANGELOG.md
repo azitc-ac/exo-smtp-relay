@@ -1,5 +1,39 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.55-beta — 2026-11-25 — Offene Rücknahme: Nachholen überall, robustes Schreiben, BOM
+
+Aus dem Nachtest von 0.2.54-beta (l6 und l4b unter Windows grün).
+
+- **systemd holte eine offene Rücknahme nie nach (ROT 1).** Ohne Weboberfläche gab es keinen Weg;
+  `systemctl restart exo-smtp-relay` (das der Status empfahl) half nicht; startete die neue
+  Fassung später doch, lehnte der Knopf mit 409 „Keine neuere Fassung bekannt“ ab. Jetzt:
+  - **Ein gemeinsamer Pfad beim Dienststart** (`update_tausch.beim_dienststart`): Windows über
+    den Dienst-Wrapper, systemd über `ExecStartPre=+… update_tausch.py nachholen` (als root, vor
+    der Anwendung, blockiert den Start nie).
+  - Der **Knopf beauftragt bei offener Rücknahme das Nachholen** („Rücknahme nachholen“) statt
+    abzulehnen; die Seite Aktualisierung zeigt die offene Rücknahme an.
+  - Der Status nennt den **plattformrichtigen** Befehl (Linux: `systemctl restart`, Windows:
+    `Restart-Service` oder `install.ps1`) und kündigt an, dass der nächste Dienststart die vorige
+    Fassung zurückspielt — auch wenn die neue inzwischen läuft.
+- **Gesperrte status.json brach den Ablauf ab (ROT 2, Windows).** Ein fremder Leser ohne
+  FileShare.Delete ließ `os.replace` mit WinError 5 scheitern; die neue Fassung lief dann ohne
+  Überwachung bzw. der Status hing auf „startet“. Jetzt wiederholt `json_schreiben` mit wachsender
+  Pause (bis ≈ 10 s); der Status bricht den Ablauf nie ab (Fehler auf stderr). Kritische Merker
+  (Tausch-Merker, `ruecknahme_offen.json`) werden ebenso wiederholt; scheitert der Tausch-Merker
+  endgültig, endet der Lauf, bevor etwas getauscht ist.
+- **BOM (ROT 3).** `install.ps1` schrieb die offene Rücknahme mit `Set-Content -Encoding UTF8`
+  zurück — unter PS 5.1 mit BOM; Python las `{}`, „nichts offen“, das Ereignisprotokoll meldete
+  „nachgeholt“. Jetzt schreibt `install.ps1` alles für Python ohne BOM (`Write-RelayTextOhneBom`)
+  und liest UTF-8 ausdrücklich; Python liest `utf-8-sig`. **Unlesbar ist nicht „nichts offen“**,
+  sondern FEHLER mit Hinweis (`json_lesen_streng`); „nachgeholt“ nur bei echtem Erfolg. Ebenso
+  der Tausch-Merker und die Status-Anzeige.
+- **Gelb:** Nach erfolgreichem `install.ps1` bei offener Rücknahme schreibt der Installer den
+  Updater-Status neu (statt weiter „UNVOLLSTÄNDIG“).
+- **Bestehende systemd-Installationen:** Die Unit in `/etc/systemd/system` tauscht der Updater
+  nicht aus. Für das Nachholen beim Start einmal
+  `sudo cp /opt/exo-smtp-relay/linux/*.service /etc/systemd/system/ && sudo systemctl daemon-reload`;
+  bis dahin holt der Knopf „Rücknahme nachholen“ nach.
+
 ## 0.2.54-beta — 2026-11-25 — Updater: Rücknahme nur des eigenen Tauschs, ehrlich und wiederholbar
 
 Aus dem Labtest von 0.2.53-beta (sonst in allen Punkten grün).

@@ -52,7 +52,7 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         "function Write-Warn([string]$m) { [void]$global:M.Add(\"WARN: $m\") }\n"
         + _teile() + "\n$RelayMerkerName = \"zurueckholen.json\"\n"
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
-                                             "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
+                                             "Write-RelayTextOhneBom", "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
                                              "Get-RelayTeilLauf", "Set-RelayTeilMarke",
                                              "Get-RelayLogLaenge", "Get-RelayStartGrund", "Start-RelayDienst",
                                              "Move-RelayPfad", "Get-RelayFreierName", "Merge-RelayOrdner", "Repair-RelayReste",
@@ -729,6 +729,43 @@ def test_install_verwirft_offene_updater_ruecknahme_vor_dem_start():
     Merker VOR dem Dienststart weg und stellt ihn bei einem eigenen Abbruch wieder her."""
     h = _hauptteil(_code())
     weg = h.index('Remove-Item -LiteralPath $offenDatei -Force')
-    assert h.index("$script:RelayOffenInhalt = Get-Content") < weg < h.index("Start-RelayDienst -DataDir $dataDir")
-    assert 'update\\ruecknahme_offen.json") -Value $script:RelayOffenInhalt' in _funktion("Restore-RelayNachAbbruch")
+    assert h.index("$script:RelayOffenInhalt = [System.IO.File]::ReadAllText") < weg < h.index("Start-RelayDienst -DataDir $dataDir")
+    assert 'Write-RelayTextOhneBom (Join-Path $dataDir "update\\ruecknahme_offen.json") $script:RelayOffenInhalt' in _funktion("Restore-RelayNachAbbruch")
     assert (WURZEL / "windows" / "service.py").read_text(encoding="utf-8").count('"ruecknahme_offen.json"') == 1
+
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_offene_ruecknahme_wird_ohne_bom_zurueckgeschrieben_und_ist_lesbar(tmp_path):
+    """Labtest 0.2.54 (ROT 3): install.ps1 schrieb die offene Rücknahme mit Set-Content -Encoding UTF8
+    zurück — unter PS 5.1 mit BOM; Python las {} und hielt das für „nichts offen“. Jetzt ohne BOM,
+    Umlaute bleiben (UTF-8 gelesen, nicht in der ANSI-Codepage)."""
+    import update_tausch as ut
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    (ziel / "data" / "update").mkdir(parents=True)
+    inhalt = '{"lauf": "abc", "von": "0.2.53", "nach": "0.2.54", "grund": "Sperre — läuft"}'
+    e = _lauf(tmp_path, _DIENST_MOCK + _ABLAUF_VARS.format(z=ziel) + f"""
+$script:RelayOffenInhalt = '{inhalt}'
+Restore-RelayNachAbbruch
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Ok = $true }})
+""")
+    roh = (ziel / "data" / "update" / "ruecknahme_offen.json").read_bytes()
+    assert not roh.startswith(b"\xef\xbb\xbf"), roh[:8]
+    assert ut.json_lesen_streng(ziel / "data" / "update" / "ruecknahme_offen.json")["grund"] == "Sperre — läuft"
+
+
+def test_install_schreibt_nichts_mit_bom():
+    """PS 5.1: -Encoding UTF8 heisst MIT BOM (pwsh 7 unter Linux nicht — daher statisch)."""
+    code = "\n".join(z for z in _code().splitlines() if not z.lstrip().startswith("#"))
+    assert "-Encoding UTF8" not in code and "Out-File" not in code
+    assert "UTF8Encoding($false)" in _funktion("Write-RelayTextOhneBom")
+
+
+def test_install_setzt_updater_status_nach_verworfener_ruecknahme():
+    """Labtest 0.2.54 (gelb): Nach erfolgreichem install.ps1 stand der Updater-Status weiter auf
+    „UNVOLLSTÄNDIG“. Jetzt schreibt der Installer ihn neu — nach dem Erfolg, ohne BOM."""
+    code = _code()
+    ende = code[code.index("\n} catch {\n", code.index("# -- Dienst anhalten")):]
+    assert 'Write-RelayTextOhneBom (Join-Path $dataDir "update\\status.json")' in ende
+    assert 'zustand = "ok"' in ende

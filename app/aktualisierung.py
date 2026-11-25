@@ -241,10 +241,18 @@ def planmaessig_pruefen() -> bool:
 # ── Einspielen ───────────────────────────────────────────────────────────────
 
 def status() -> dict:
-    return update_tausch.json_lesen(update_tausch.status_pfad(_daten())) or {"zustand": "ruhe"}
+    # Unlesbar ist nicht „ruhe“ (Suchlauf 0.2.55: {} galt bisher als „nichts los“).
+    try:
+        return update_tausch.json_lesen_streng(update_tausch.status_pfad(_daten())) or {"zustand": "ruhe"}
+    except update_tausch.JsonUnlesbar as exc:
+        return {"zustand": "fehler", "text": f"Status der Aktualisierung unlesbar: {exc}"}
 
 
 DOCKER_BEFEHL = "docker compose pull && docker compose up -d"
+
+
+def ruecknahme_offen() -> bool:
+    return update_tausch.ruecknahme_offen_pfad(_daten()).exists()
 
 
 def einspielen(angefordert_von: str) -> dict:
@@ -257,6 +265,17 @@ def einspielen(angefordert_von: str) -> dict:
         return {"ok": False, "error": "Kein Prüfschlüssel eingebaut — Einspielen gesperrt."}
     if status().get("zustand") in ("wartet", "laeuft") and update_tausch.auftrag_pfad(_daten()).exists():
         return {"ok": False, "error": "Eine Aktualisierung läuft bereits."}
+    if ruecknahme_offen():
+        # Labtest 0.2.54: Bei offener Rücknahme lehnte der Knopf mit „Keine neuere Fassung bekannt“
+        # ab (409) — ohne Weboberflächen-Weg blieb unter systemd nur ein Befehl von Hand. Jetzt
+        # beauftragt er das Nachholen; der Tauscher macht nichts anderes, bis es gelang.
+        update_tausch.status_setzen(_daten(), "wartet", "Rücknahme nachholen — an den Tauscher übergeben",
+                                    angefordert_von=angefordert_von)
+        update_tausch.json_schreiben(update_tausch.auftrag_pfad(_daten()), {
+            "nachholen": True, "angefordert_von": angefordert_von, "zeit": _jetzt(),
+            "protokoll": update_tausch.PROTOKOLL})
+        log.warning("Rücknahme nachholen durch %s angefordert (%s)", angefordert_von, art)
+        return {"ok": True, "nachholen": True}
     s = stand()
     if not (s.get("ok") and s.get("verfuegbar") and s.get("neueste")):
         return {"ok": False, "error": "Keine neuere Fassung bekannt — bitte zuerst prüfen."}
@@ -310,6 +329,7 @@ def zustand() -> dict:
     return {"ok": True, "aktuell": config.VERSION, "betriebsart": art,
             "bereit": bereit, "hinweis": hinweis,
             "offline": art == "windows" and offline_installiert(),
+            "ruecknahme_offen": ruecknahme_offen(),
             "paket": update_paket.paket_name("<neu>", paket_art(art)) if art != "docker" else "",
             "schluessel": bool(update_paket.RELEASE_SCHLUESSEL),
             "kanal": kanal, "intervall": int(settings_store.get("UPDATE_PRUEF_STUNDEN") or 0),

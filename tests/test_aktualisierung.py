@@ -659,16 +659,18 @@ def test_rueckfall_scheitert_ehrlich_und_wird_nachgeholt(anlage, schluessel, tmp
 
     echt_zurueck = ut.phase_zurueck
 
-    def zurueck_mit_sperre(wurzel, lauf=""):
+    def zurueck_mit_sperre(wurzel, lauf="", alt_entfernen=True):
         gesperrt["an"] = True
         try:
-            return echt_zurueck(wurzel, lauf)
+            return echt_zurueck(wurzel, lauf, alt_entfernen)
         finally:
             gesperrt["an"] = False
     monkeypatch.setattr(ut, "phase_zurueck", zurueck_mit_sperre)
     assert _ablauf(anlage, dienst) == "fehler"
     s = ut.json_lesen(ut.status_pfad(daten))
-    assert s["zustand"] == "fehler" and "Rücknahme UNVOLLSTÄNDIG" in s["text"] and "install.ps1" in s["text"], s
+    befehl = "install.ps1" if os.name == "nt" else "systemctl restart exo-smtp-relay"
+    assert s["zustand"] == "fehler" and "Rücknahme UNVOLLSTÄNDIG" in s["text"] and befehl in s["text"], s
+    assert "PermissionError" in s["text"] or "zugreifen" in s["text"], s
     assert f"Fassung {NEU_V}" in s["text"], s
     assert "läuft wieder" not in s["text"]
     assert ut.ruecknahme_offen_pfad(daten).exists()
@@ -735,3 +737,150 @@ def test_pip_scheitert_in_der_ruecknahme_merker_bleibt(anlage, monkeypatch):
     assert (alt / ut.MARKE).exists() and (w / "app" / "main.py").read_text() == "alt"
     assert "Abhängigkeiten angepasst" in ut.phase_ausfuehren("zurueck", w, daten, lauf="L")
     assert len(aufrufe) == 2 and not alt.exists()
+
+
+# ── 0.2.55: Labtest 0.2.54 ───────────────────────────────────────────────────
+
+def _offene_ruecknahme_anlegen(anlage, schluessel, tmp_path, monkeypatch):
+    """Neue Fassung startet nicht, app\\ während der Rücknahme gesperrt → offene Rücknahme."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    gesperrt = _sperre(monkeypatch, w / "app")
+    gesperrt["an"] = False
+    echt = ut.phase_zurueck
+
+    def zurueck_gesperrt(wurzel, lauf="", alt_entfernen=True):
+        gesperrt["an"] = True
+        try:
+            return echt(wurzel, lauf, alt_entfernen)
+        finally:
+            gesperrt["an"] = False
+    monkeypatch.setattr(ut, "phase_zurueck", zurueck_gesperrt)
+    assert _ablauf(anlage, _Dienst(w, daten, defekt={NEU_V})) == "fehler"
+    monkeypatch.setattr(ut, "phase_zurueck", echt)
+    assert ut.ruecknahme_offen_pfad(daten).exists()
+
+
+def test_knopf_holt_offene_ruecknahme_nach_statt_abzulehnen(anlage, schluessel, tmp_path, monkeypatch):
+    """Labtest 0.2.54 ROT 1c: bei offener Rücknahme lehnte der Knopf mit 409 „Keine neuere Fassung
+    bekannt“ ab. Jetzt beauftragt er das Nachholen; der Tauscher holt es nach."""
+    import aktualisierung
+    _offene_ruecknahme_anlegen(anlage, schluessel, tmp_path, monkeypatch)
+    w, daten = anlage["wurzel"], anlage["daten"]
+    assert aktualisierung.zustand()["ruecknahme_offen"] is True
+    r = aktualisierung.einspielen("admin")
+    assert r == {"ok": True, "nachholen": True}, r
+    assert ut.json_lesen(ut.auftrag_pfad(daten))["nachholen"] is True
+    dienst = _Dienst(w, daten)
+    assert ut.ablauf(w, daten, dienst.stoppen, dienst.starten, dienst.laeuft) == "zurueckgerollt"
+    assert ut.aktuelle_version(w) == ALT_V and not ut.ruecknahme_offen_pfad(daten).exists()
+    assert "Rücknahme nachgeholt" in ut.json_lesen(ut.status_pfad(daten))["text"]
+
+
+def test_dienststart_holt_nach_gemeinsamer_pfad(anlage, schluessel, tmp_path, monkeypatch):
+    """ROT 1a/b: Unter systemd wurde die offene Rücknahme nie nachgeholt. Jetzt beim Dienststart —
+    systemd über ExecStartPre (update_tausch.py nachholen), Windows über service.py — beide über
+    beim_dienststart()."""
+    _offene_ruecknahme_anlegen(anlage, schluessel, tmp_path, monkeypatch)
+    w, daten = anlage["wurzel"], anlage["daten"]
+    assert ut.main(["nachholen", "--wurzel", str(w), "--daten", str(daten)]) == 0
+    assert ut.aktuelle_version(w) == ALT_V and not ut.ruecknahme_offen_pfad(daten).exists()
+    assert ut.beim_dienststart(w, daten) is None                  # nichts mehr offen
+    unit = (WURZEL / "linux" / "exo-smtp-relay.service").read_text(encoding="utf-8")
+    assert re.search(r"^ExecStartPre=\+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch\.py nachholen ",
+                     unit, re.M)
+    assert "tausch.beim_dienststart(WURZEL, DATA)" in (WURZEL / "windows" / "service.py").read_text(encoding="utf-8")
+
+
+def test_hinweis_plattformrichtig_und_kuendigt_ruecksprung_an(anlage):
+    text = ut._offen_hinweis(anlage["wurzel"])
+    if os.name == "nt":
+        assert "Restart-Service ExoSmtpRelay" in text and "install.ps1" in text
+    else:
+        assert "systemctl restart exo-smtp-relay" in text and "install.ps1" not in text
+    assert "auch wenn die neue inzwischen läuft" in text
+
+
+@pytest.mark.parametrize("inhalt", [b"\xef\xbb\xbf{\"lauf\": \"", b"kaputt", b"[1, 2]"])
+def test_unlesbare_offene_ruecknahme_ist_fehler_nicht_nichts_offen(anlage, inhalt):
+    """ROT 3: {} galt als „nichts offen“, gemeldet wurde „nachgeholt“. Unlesbar ist FEHLER."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    ut.ruecknahme_offen_pfad(daten).parent.mkdir(parents=True, exist_ok=True)
+    ut.ruecknahme_offen_pfad(daten).write_bytes(inhalt)
+    assert ut.ruecknahme_nachholen(w, daten) is False
+    s = ut.json_lesen(ut.status_pfad(daten))
+    assert s["zustand"] == "fehler" and "NICHT nachgeholt" in s["text"], s
+    assert ut.ruecknahme_offen_pfad(daten).exists()
+
+
+def test_offene_ruecknahme_mit_bom_wird_gelesen(anlage):
+    w, daten = anlage["wurzel"], anlage["daten"]
+    ut.ruecknahme_offen_pfad(daten).parent.mkdir(parents=True, exist_ok=True)
+    ut.ruecknahme_offen_pfad(daten).write_bytes(b"\xef\xbb\xbf" + json.dumps({"lauf": "x"}).encode())
+    assert ut.json_lesen_streng(ut.ruecknahme_offen_pfad(daten)) == {"lauf": "x"}
+
+
+def _status_gesperrt(monkeypatch, daten, mal):
+    """os.replace auf status.json scheitert `mal` Mal (None = immer) — fremder Leser ohne
+    FileShare.Delete (Labtest 0.2.54 ROT 2)."""
+    echt = ut.os.replace
+    zaehler = {"n": 0}
+
+    def replace(a, b):
+        if Path(b) == ut.status_pfad(daten) and (mal is None or zaehler["n"] < mal):
+            zaehler["n"] += 1
+            raise PermissionError(5, "Zugriff verweigert", str(b))
+        return echt(a, b)
+    monkeypatch.setattr(ut.os, "replace", replace)
+    monkeypatch.setattr(ut, "SCHREIB_PAUSEN_S", (0.0, 0.0, 0.0))
+    return zaehler
+
+
+def test_status_schreiben_wiederholt(anlage, monkeypatch):
+    daten = anlage["daten"]
+    z = _status_gesperrt(monkeypatch, daten, 2)
+    ut.status_setzen(daten, "laeuft", "x")
+    assert z["n"] == 2 and ut.json_lesen(ut.status_pfad(daten))["text"] == "x"
+
+
+def test_gesperrter_status_bricht_den_ablauf_nie_ab(anlage, schluessel, tmp_path, monkeypatch):
+    """ROT 2: Eine dauerhaft gesperrte status.json beendete ablauf() — die neue Fassung lief ohne
+    Überwachung, ohne Rücknahme. Jetzt geht der Ablauf weiter und rollt zurück."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    _status_gesperrt(monkeypatch, daten, None)
+    dienst = _Dienst(w, daten, defekt={NEU_V})
+    assert _ablauf(anlage, dienst) == "zurueckgerollt"
+    assert ut.aktuelle_version(w) == ALT_V and dienst.starts[-1] == ALT_V
+
+
+def test_tausch_merker_nicht_schreibbar_bricht_vor_dem_tausch_ab(anlage, schluessel, tmp_path, monkeypatch):
+    """Kritische Merker (Tausch-Merker): wiederholen; scheitert es endgültig, Abbruch BEVOR etwas
+    getauscht ist."""
+    w, daten = anlage["wurzel"], anlage["daten"]
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    vorher = _baumstempel(w)
+    echt = ut.os.replace
+    monkeypatch.setattr(ut, "SCHREIB_PAUSEN_S", (0.0,))
+
+    def replace(a, b):
+        if Path(b).name == ut.MARKE:
+            raise PermissionError(5, "Zugriff verweigert", str(b))
+        return echt(a, b)
+    monkeypatch.setattr(ut.os, "replace", replace)
+    assert _ablauf(anlage, _Dienst(w, daten)) == "zurueckgerollt"
+    nachher = {k: v for k, v in _baumstempel(w).items() if not k.startswith((ut.NEU, ut.ARBEIT, ut.ALT))}
+    assert nachher == vorher
+
+
+
+def test_unlesbarer_status_ist_nicht_ruhe(anlage):
+    import aktualisierung
+    ut.status_pfad(anlage["daten"]).parent.mkdir(parents=True, exist_ok=True)
+    ut.status_pfad(anlage["daten"]).write_bytes(b"\xef\xbb\xbf{kaputt")
+    assert aktualisierung.status()["zustand"] == "fehler"
+    ut.status_pfad(anlage["daten"]).write_bytes(b"\xef\xbb\xbf" + json.dumps({"zustand": "ok", "text": "x"}).encode())
+    assert aktualisierung.status()["zustand"] == "ok"
