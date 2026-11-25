@@ -529,7 +529,8 @@ if ($Gegenprobe051) {
 function Invoke-Tausch([string]$Ausdruck) {
     $code = "import sys, pathlib; sys.path.insert(0, r'$ziel\app'); import update_tausch as u; W = pathlib.Path(r'$ziel'); D = W / 'data'; print($Ausdruck)"
     $alt = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    try { $aus = @(& "$ziel\venv\Scripts\python.exe" -c $code 2>&1 | ForEach-Object { "$_" }) } finally { $ErrorActionPreference = $alt }
+    $env:PYTHONIOENCODING = "utf-8"
+    try { $aus = @(& "$ziel\venv\Scripts\python.exe" -c $code 2>&1 | ForEach-Object { "$_" }) } finally { $ErrorActionPreference = $alt; Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue }
     $aus -join " "
 }
 $sidTyp = [System.Security.Principal.SecurityIdentifier]

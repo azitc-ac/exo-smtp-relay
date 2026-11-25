@@ -63,3 +63,12 @@ def einstellungen(monkeypatch):
     monkeypatch.setattr(settings_store, "get", lambda k, *a, **kw: werte.get(k))
     monkeypatch.setattr(settings_store, "update", lambda patch: werte.update(patch))
     return werte
+
+
+@pytest.fixture(autouse=True)
+def _windows_wege_aus(monkeypatch):
+    """update_tausch.WINDOWS steht unter Windows auf True: data\\-Rechte per install.ps1 und
+    Wrapper-Neustart per schtasks würden in jedem Ablauf-Test ECHT laufen. Aus — Tests, die genau
+    das prüfen, schalten es gezielt ein (test_aktualisierung._windows)."""
+    import update_tausch
+    monkeypatch.setattr(update_tausch, "WINDOWS", False)

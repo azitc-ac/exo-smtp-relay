@@ -309,9 +309,9 @@ def wrapper_abgleichen(wurzel: Path, daten: Path) -> str:
         json_schreiben(bereich(daten) / WRAPPER_NEUSTART, {"erwartet": datei, "vorher": laufend, "zeit": _jetzt()})
         _neustart_einplanen()
     except Exception as exc:                                  # noqa: BLE001
-        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} → {datei}, Neustart NICHT eingeplant ({exc}) — "
+        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} -> {datei}, Neustart NICHT eingeplant ({exc}) — "
                 "von Hand: Restart-Service ExoSmtpRelay")
-    return f"Dienst-Wrapper {laufend or 'alt'} → {datei}: Neustart des Windows-Dienstes eingeplant"
+    return f"Dienst-Wrapper {laufend or 'alt'} -> {datei}: Neustart des Windows-Dienstes eingeplant"
 
 
 def wrapper_gestartet(daten: Path, fassung: str) -> None:
