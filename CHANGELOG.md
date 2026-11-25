@@ -29,6 +29,20 @@ Aus dem Nachtest von 0.2.54-beta (l6 und l4b unter Windows grün).
   der Tausch-Merker und die Status-Anzeige.
 - **Gelb:** Nach erfolgreichem `install.ps1` bei offener Rücknahme schreibt der Installer den
   Updater-Status neu (statt weiter „UNVOLLSTÄNDIG“).
+- **Windows: was bisher nur `install.ps1` setzte, zieht jetzt auch der Knopf nach.**
+  (a) **Rechte auf `data\`** (erzwungen seit 0.2.45): Der Tauscher ruft nach dem Tausch
+  `windows\install.ps1 -NurDatenRechte` auf — dieselbe Funktion (`Set-RelayDataAcl`) wie die
+  Installation, keine zweite Kopie. Entfernte Einträge stehen im Status; Scheitern bricht nichts
+  ab, steht aber als WARNUNG da. (b) **Dienst-Wrapper:** Den neuen `windows\service.py` lud Windows
+  erst beim nächsten Dienstneustart. Der Wrapper meldet beim Start seine Fassung
+  (`waechter.json`); weicht die Datei auf der Platte davon ab — nach einem Tausch oder einer
+  Rücknahme —, plant der Tauscher den Neustart des Windows-Dienstes per einmaliger Aufgabe als
+  SYSTEM ein (nicht aus dem Dienst heraus), die sich danach löscht. Der neue Wrapper bestätigt im
+  Status („Dienst-Wrapper neu gestartet (Fassung …)“), eine falsche Fassung ist eine WARNUNG;
+  ist der Neustart nicht einplanbar, nennt der Status `Restart-Service ExoSmtpRelay`.
+  Suchlauf gegen die Git-Historie ab v0.2.42: Dienst-Umgebung, Firewall-Regeln, Startmenü-Link
+  und Dienstregistrierung sind seither gleich; die Python-DLLs (0.2.46) braucht nur, wer Python
+  ohne PATH-Eintrag hat — solche Installationen liefen vorher nicht.
 - **Der Updater zieht die systemd-Units mit** (Dienst, Update-Service, `.path`). Bisher bekam
   wer per Knopf aktualisierte nie eine neue Unit — das Nachholen beim Start (`ExecStartPre`) wäre
   genau dort wirkungslos geblieben. Der Tauscher (root) vergleicht die Units im Paket mit

@@ -45,6 +45,11 @@
      13. Z4: DIESELBE Fassung noch einmal, main.py wirft -> Ruecknahme; app\ und windows\ PER HASH
          wie vorher, keine "ergaenzt"-Meldung. Gegenprobe 3095166: Hash anders ("ergaenzt").
 
+     14. Knopf-Weg unter Windows: (a) update_tausch.daten_rechte_setzen entfernt eine fremde
+         Berechtigung auf data\ ueber install.ps1 -NurDatenRechte; (b) wrapper_abgleichen plant bei
+         abweichender Wrapper-Fassung einen Neustart per einmaliger Aufgabe, der neue Wrapper
+         bestaetigt ihn im Status, die Aufgabe ist danach weg.
+
     -Gegenprobe051 gibt den Pfad eines 3095166-Baums an (0.2.51, vom Labtest gestoppt).
     -Gegenprobe050 gibt den Pfad eines aa45770-Baums an (0.2.50, vom Labtest gestoppt).
     -Gegenprobe049 gibt den Pfad eines 97cc8bf-Baums an (0.2.49-beta).
@@ -519,6 +524,46 @@ if ($Gegenprobe051) {
     $r = Install-Lauf (New-Baum "q1") "13g-wiederherstellen"
     Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach Z4-Gegenprobe"
 }
+
+# 14 -- Knopf-Weg unter Windows: data\-Rechte und Wrapper-Neustart -------------------------
+function Invoke-Tausch([string]$Ausdruck) {
+    $code = "import sys, pathlib; sys.path.insert(0, r'$ziel\app'); import update_tausch as u; W = pathlib.Path(r'$ziel'); D = W / 'data'; print($Ausdruck)"
+    $alt = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try { $aus = @(& "$ziel\venv\Scripts\python.exe" -c $code 2>&1 | ForEach-Object { "$_" }) } finally { $ErrorActionPreference = $alt }
+    $aus -join " "
+}
+$sidTyp = [System.Security.Principal.SecurityIdentifier]
+function Test-FremdeAce { @((Get-Acl (Join-Path $ziel "data")).GetAccessRules($true, $false, $sidTyp) | Where-Object { "$($_.IdentityReference.Value)" -eq "S-1-5-32-551" }).Count -gt 0 }
+& icacls.exe (Join-Path $ziel "data") /grant "*S-1-5-32-551:(OI)(CI)(R)" | Out-Null
+Pruefe (Test-FremdeAce) "(a) fremde Berechtigung auf data\ gesetzt (Backup Operators: Read)"
+$r = Invoke-Tausch "u.daten_rechte_setzen(W)"
+Write-Host "  $r"
+Pruefe ($r -match "Rechte auf data\\: entfernt: .*Allow Read") "(a) Updater-Weg meldet die entfernte Berechtigung"
+Pruefe (-not (Test-FremdeAce)) "(a) fremde Berechtigung entfernt (dieselbe Logik wie install.ps1)"
+
+$waechter = Join-Path $ziel "data\update\waechter.json"
+$w = Get-Content $waechter -Raw | ConvertFrom-Json
+$echt = "$($w.fassung)"
+Pruefe ($echt -match '^[0-9a-f]{12}$') "(b) laufender Wrapper meldet seine Fassung ($echt)"
+$w.fassung = "000000000000"
+[System.IO.File]::WriteAllText($waechter, ($w | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+$pidVorher = (Get-CimInstance Win32_Service -Filter "Name='ExoSmtpRelay'").ProcessId
+$r = Invoke-Tausch "u.wrapper_abgleichen(W, D)"
+Write-Host "  $r"
+Pruefe ($r -match "Neustart des Windows-Dienstes eingeplant") "(b) Neustart per einmaliger Aufgabe eingeplant"
+$neu = $null
+for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 3
+    $pid2 = (Get-CimInstance Win32_Service -Filter "Name='ExoSmtpRelay'").ProcessId
+    $w2 = Get-Content $waechter -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if ($pid2 -and $pid2 -ne $pidVorher -and $w2 -and "$($w2.fassung)" -eq $echt -and (Get-DienstStatus) -eq "Running") { $neu = $w2; break }
+}
+Pruefe ($null -ne $neu) "(b) Windows-Dienst neu gestartet, Wrapper meldet wieder $echt"
+$st = Get-Content (Join-Path $ziel "data\update\status.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+Pruefe ("$($st.text)" -match "Dienst-Wrapper neu gestartet \(Fassung $echt\)") "(b) Neustart im Status bestaetigt"
+$ErrorActionPreference = "Continue"; & schtasks.exe /Query /TN ExoSmtpRelay-Neustart 2>&1 | Out-Null; $rcAufgabe = $LASTEXITCODE; $ErrorActionPreference = "Stop"
+Pruefe ($rcAufgabe -ne 0) "(b) einmalige Aufgabe hat sich geloescht"
+Pruefe (Test-Laeuft $version) "(b) /health $version"
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green
 # Der Actions-Wrapper beendet mit $LASTEXITCODE - das letzte curl der Gegenprobe ist absichtlich gescheitert.

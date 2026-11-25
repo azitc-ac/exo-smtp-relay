@@ -790,7 +790,7 @@ def test_dienststart_holt_nach_gemeinsamer_pfad(anlage, schluessel, tmp_path, mo
     unit = (WURZEL / "linux" / "exo-smtp-relay.service").read_text(encoding="utf-8")
     assert re.search(r"^ExecStartPre=\+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch\.py nachholen ",
                      unit, re.M)
-    assert "tausch.beim_dienststart(WURZEL, DATA)" in (WURZEL / "windows" / "service.py").read_text(encoding="utf-8")
+    assert "tausch.beim_dienststart(WURZEL, DATA, WRAPPER_FASSUNG)" in (WURZEL / "windows" / "service.py").read_text(encoding="utf-8")
 
 
 def test_hinweis_plattformrichtig_und_kuendigt_ruecksprung_an(anlage):
@@ -950,3 +950,145 @@ def test_aktuelle_units_stehen_in_der_liste_bekannter_fassungen():
     import einheiten_bekannt
     assert einheiten_bekannt.fehlende() == []
     assert set(einheiten_bekannt.EINHEITEN) == set(ut.EINHEITEN)
+
+
+# ── 0.2.55: Windows — data\-Rechte und Dienst-Wrapper nach dem Knopf-Update ───
+
+def _release_mit(tmp_path, k, dateien: dict, version=NEU_V):
+    quelle = _baum(tmp_path / f"q-{version}-mit", version)
+    for rel, inhalt in dateien.items():
+        (quelle / rel).write_bytes(inhalt)
+    dist = tmp_path / f"dist-{version}-mit"
+    pakete = up.bauen(quelle, dist, version)
+    (dist / up.SUMMEN).write_text(up.summen_schreiben(pakete))
+    (dist / up.SIGNATUR).write_text(base64.b64encode(k.sign((dist / up.SUMMEN).read_bytes())).decode())
+    return dist
+
+
+def _windows(monkeypatch, ausgabe="OK: data\\ nur fuer SYSTEM und Administratoren lesbar", rc=0):
+    monkeypatch.setattr(ut, "WINDOWS", True)
+    aufrufe = {"ps": [], "neustart": 0}
+
+    def ps(args):
+        aufrufe["ps"].append(args)
+        return rc, ausgabe
+    monkeypatch.setattr(ut, "_powershell", ps)
+    monkeypatch.setattr(ut, "_neustart_einplanen", lambda: aufrufe.__setitem__("neustart", aufrufe["neustart"] + 1))
+    return aufrufe
+
+
+def _wrapper(anlage, inhalt: bytes):
+    """Installierter Wrapper; waechter.json meldet ihn als laufend (wie service.py beim Start)."""
+    import hashlib
+    (anlage["wurzel"] / "windows" / "service.py").write_bytes(inhalt)
+    ut.json_schreiben(anlage["daten"] / "update" / "waechter.json",
+                      {"protokoll": ut.PROTOKOLL, "fassung": hashlib.sha256(inhalt).hexdigest()[:12]})
+
+
+def test_knopf_update_setzt_data_rechte_ueber_install_ps1(anlage, schluessel, tmp_path, monkeypatch):
+    """(a) Wer nur per Knopf aktualisierte, bekam die data\\-Rechte (0.2.45) nie. Jetzt ruft der
+    Tauscher install.ps1 -NurDatenRechte auf — dieselbe Funktion wie die Installation."""
+    aufrufe = _windows(monkeypatch, "==> Setze Rechte\n    OK: entfernt: BUILTIN\\Backup Operators Allow Read\n"
+                                    "    OK: data\\ nur fuer SYSTEM und Administratoren lesbar (1 fremde Eintraege entfernt)\n")
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    args = aufrufe["ps"][0]
+    assert args[:2] == ["-File", str(anlage["wurzel"] / "windows" / "install.ps1")] and "-NurDatenRechte" in args
+    assert args[args.index("-InstallDir") + 1] == str(anlage["wurzel"])
+    text = ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
+    assert "Rechte auf data\\: entfernt: BUILTIN\\Backup Operators Allow Read" in text, text
+
+
+@pytest.mark.parametrize("rc, ausgabe, erwartet", [
+    (1, "Bitte als Administrator ausfuehren.", "WARNUNG: Rechte auf data\\ nicht gesetzt (Exit 1)"),
+    (0, "    WARNUNG: nicht zurueckgesetzt: x.json (Exit 5: Access is denied)", "WARNUNG: nicht zurueckgesetzt: x.json"),
+])
+def test_data_rechte_scheitern_bricht_nicht_ab(anlage, schluessel, tmp_path, monkeypatch, rc, ausgabe, erwartet):
+    _windows(monkeypatch, ausgabe, rc)
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    assert erwartet in ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
+
+
+def test_install_ps1_nur_daten_rechte_ist_derselbe_pfad():
+    code = (WURZEL / "windows" / "install.ps1").read_text(encoding="utf-8-sig")
+    m = re.search(r"if \(\$NurDatenRechte\) \{(.*?)\n\}", code, re.S)
+    assert m and "Set-RelayDataAcl -Pfad (Join-Path $InstallDir \"data\")" in m.group(1) and "exit 0" in m.group(1)
+    assert code.index("if ($NurDatenRechte)") < code.index("# -- Python finden oder installieren")
+    assert ".PARAMETER NurDatenRechte" in code
+
+
+def test_neuer_wrapper_neustart_eingeplant_und_bestaetigt(anlage, schluessel, tmp_path, monkeypatch):
+    """(b) Den neuen windows\\service.py lud Windows erst beim nächsten Dienstneustart. Jetzt plant
+    der Tauscher den Neustart (einmalige Aufgabe), der neue Wrapper bestätigt ihn."""
+    import hashlib
+    aufrufe = _windows(monkeypatch)
+    _wrapper(anlage, b"# wrapper alt\n")
+    dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper neu\n"})
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    assert aufrufe["neustart"] == 1
+    daten = anlage["daten"]
+    neu = hashlib.sha256(b"# wrapper neu\n").hexdigest()[:12]
+    assert "Neustart des Windows-Dienstes eingeplant" in ut.json_lesen(ut.status_pfad(daten))["text"]
+    assert ut.json_lesen(daten / "update" / ut.WRAPPER_NEUSTART)["erwartet"] == neu
+    ut.beim_dienststart(anlage["wurzel"], daten, neu)                       # der neue Wrapper startet
+    assert f"Dienst-Wrapper neu gestartet (Fassung {neu})" in ut.json_lesen(ut.status_pfad(daten))["text"]
+    assert not (daten / "update" / ut.WRAPPER_NEUSTART).exists()
+
+
+def test_falscher_wrapper_nach_neustart_ist_warnung(anlage, monkeypatch):
+    daten = anlage["daten"]
+    ut.json_schreiben(daten / "update" / ut.WRAPPER_NEUSTART, {"erwartet": "aaaaaaaaaaaa"})
+    ut.status_setzen(daten, "ok", "0.2.41 läuft")
+    ut.wrapper_gestartet(daten, "bbbbbbbbbbbb")
+    assert "WARNUNG: Dienst-Wrapper läuft in Fassung bbbbbbbbbbbb" in ut.json_lesen(ut.status_pfad(daten))["text"]
+
+
+def test_gleicher_wrapper_kein_neustart(anlage, schluessel, tmp_path, monkeypatch):
+    aufrufe = _windows(monkeypatch)
+    _wrapper(anlage, b"# wrapper\n")
+    dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper\n"})
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    assert aufrufe["neustart"] == 0
+
+
+@pytest.mark.parametrize("laufend, neustarts", [(b"# wrapper alt\n", 0), (b"# wrapper neu\n", 1)])
+def test_ruecknahme_plant_neustart_wenn_der_laufende_wrapper_abweicht(anlage, schluessel, tmp_path, monkeypatch,
+                                                                     laufend, neustarts):
+    """Rücknahme: Liegt danach der alte Wrapper wieder da und läuft auch der alte → nichts; läuft
+    schon der neue (Neustart war erfolgt) → Neustart einplanen."""
+    import hashlib
+    aufrufe = _windows(monkeypatch)
+    (anlage["wurzel"] / "windows" / "service.py").write_bytes(b"# wrapper alt\n")
+    ut.json_schreiben(anlage["daten"] / "update" / "waechter.json",
+                      {"protokoll": ut.PROTOKOLL, "fassung": hashlib.sha256(laufend).hexdigest()[:12]})
+    dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper neu\n"})
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"], defekt={NEU_V})) == "zurueckgerollt"
+    assert (anlage["wurzel"] / "windows" / "service.py").read_bytes() == b"# wrapper alt\n"
+    assert aufrufe["neustart"] == neustarts
+
+
+def test_neustart_nicht_einplanbar_nennt_befehl(anlage, schluessel, tmp_path, monkeypatch):
+    _windows(monkeypatch)
+
+    def scheitert():
+        raise RuntimeError("schtasks /Create: Zugriff verweigert")
+    monkeypatch.setattr(ut, "_neustart_einplanen", scheitert)
+    _wrapper(anlage, b"# wrapper alt\n")
+    dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper neu\n"})
+    _auftrag_direkt(anlage, dist)
+    assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
+    text = ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
+    assert "Neustart NICHT eingeplant" in text and "Restart-Service ExoSmtpRelay" in text
+
+
+def test_wrapper_meldet_seine_fassung_beim_start():
+    code = (WURZEL / "windows" / "service.py").read_text(encoding="utf-8")
+    assert '"fassung": WRAPPER_FASSUNG' in code
+    assert "tausch.beim_dienststart(WURZEL, DATA, WRAPPER_FASSUNG)" in code
+    assert code.index("self._waechter_melden()\n        self._nachholen()") > 0

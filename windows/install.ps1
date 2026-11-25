@@ -36,6 +36,11 @@
 .PARAMETER SkipExoModule
     ExchangeOnlineManagement nicht installieren/pruefen.
 
+.PARAMETER NurDatenRechte
+    NUR die Rechte auf data\ erzwingen (Set-RelayDataAcl) und beenden - sonst nichts. So ruft der
+    Updater (app\update_tausch.py) nach einem Knopf-Update DIESELBE Logik auf wie die Installation;
+    wer nur per Knopf aktualisiert, bekommt die Rechte sonst nie (eingefuehrt 0.2.45).
+
 .NOTES
     Lieferkette: Python-Installer und ExchangeOnlineManagement kommen von fest eingetragenen
     Adressen mit fester SHA256 (siehe $RelayPythonInstaller / $RelayExoModul) und werden vor
@@ -54,7 +59,8 @@ param(
     [int]$WebPort = 8443,
     [switch]$SkipFirewall,
     [switch]$SkipExoModule,
-    [switch]$Unattended
+    [switch]$Unattended,
+    [switch]$NurDatenRechte
 )
 
 Set-StrictMode -Version Latest
@@ -842,6 +848,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $quelle = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not (Test-Path (Join-Path $quelle "app\main.py"))) {
     throw "app\main.py nicht gefunden unter $quelle - das Skript gehoert nach windows\ im Anwendungsbaum."
+}
+
+# -- Nur die Rechte auf data\ (Aufruf durch den Updater) ---------------------------
+if ($NurDatenRechte) {
+    Write-Step "Setze Rechte auf data\ (Updater)"
+    Set-RelayDataAcl -Pfad (Join-Path $InstallDir "data")
+    exit 0
 }
 
 # -- Offline-Paket? (exo-smtp-relay-<version>-windows-offline.zip) ------------------

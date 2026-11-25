@@ -238,6 +238,102 @@ def _weg(pfad: Path) -> None:
             pass
 
 
+# ── Windows: was sonst nur install.ps1 setzt ─────────────────────────────────
+WINDOWS = os.name == "nt"
+WRAPPER_NEUSTART = "wrapper_neustart.json"     # in data/update: erwartete Wrapper-Fassung
+NEUSTART_AUFGABE = "ExoSmtpRelay-Neustart"
+
+
+def _powershell(args: list[str]) -> tuple[int, str]:
+    umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", *args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                       env=umgebung, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def daten_rechte_setzen(wurzel: Path) -> str:
+    """Rechte auf data\\ wie bei der Installation erzwingen — über DIESELBE Funktion:
+    windows\\install.ps1 -NurDatenRechte (Set-RelayDataAcl). Wer nur per Knopf aktualisierte,
+    bekam die Rechte aus 0.2.45 sonst nie. Scheitern bricht nichts ab, steht aber im Status."""
+    if not WINDOWS:
+        return ""
+    skript = Path(wurzel) / "windows" / "install.ps1"
+    try:
+        rc, aus = _powershell(["-File", str(skript), "-NurDatenRechte", "-InstallDir", str(wurzel)])
+    except Exception as exc:                                  # noqa: BLE001
+        return f"WARNUNG: Rechte auf data\\ nicht geprüft ({exc})"
+    zeilen = [z.strip() for z in aus.splitlines() if z.strip()]
+    entfernt = [z[4:] for z in zeilen if z.startswith("OK: entfernt") or z.startswith("OK: Vererbung wieder an")]
+    warnungen = [z[9:] for z in zeilen if z.startswith("WARNUNG: ")]
+    if rc != 0:
+        return f"WARNUNG: Rechte auf data\\ nicht gesetzt (Exit {rc}): {' | '.join(zeilen[-3:])}"
+    teile = ["Rechte auf data\\: " + ("; ".join(entfernt) if entfernt else "unverändert")]
+    if warnungen:
+        teile.append("WARNUNG: " + " | ".join(warnungen))
+    return "; ".join(teile)
+
+
+def wrapper_fassung_datei(wurzel: Path) -> str:
+    import hashlib
+    f = Path(wurzel) / "windows" / "service.py"
+    return hashlib.sha256(f.read_bytes()).hexdigest()[:12] if f.is_file() else ""
+
+
+def _neustart_einplanen() -> None:
+    """Neustart des Windows-Dienstes NICHT aus dem Dienst heraus (er beendete sich mitten im Lauf),
+    sondern per einmaliger Aufgabe als SYSTEM, die sich danach selbst löscht."""
+    befehl = (f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep 15; '
+              f'Restart-Service ExoSmtpRelay -Force; schtasks /Delete /TN {NEUSTART_AUFGABE} /F"')
+    for args in (["schtasks", "/Create", "/TN", NEUSTART_AUFGABE, "/SC", "ONCE", "/ST", "00:00",
+                  "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", befehl, "/F"],
+                 ["schtasks", "/Run", "/TN", NEUSTART_AUFGABE]):
+        r = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=60,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            raise RuntimeError(f"{' '.join(args[:2])}: {(r.stderr or r.stdout).strip()[:200]}")
+
+
+def wrapper_abgleichen(wurzel: Path, daten: Path) -> str:
+    """Windows: Weicht windows\\service.py auf der Platte von der LAUFENDEN Wrapper-Fassung ab
+    (waechter.json, beim Start geschrieben), Neustart des Windows-Dienstes einplanen — nach einem
+    Tausch auf die neue, nach einer Rücknahme auf die alte Fassung. Der Wrapper bestätigt beim
+    Start (wrapper_gestartet)."""
+    if not WINDOWS:
+        return ""
+    laufend = str(json_lesen(bereich(daten) / "waechter.json").get("fassung") or "")
+    datei = wrapper_fassung_datei(wurzel)
+    if not datei or datei == laufend:
+        return ""
+    try:
+        json_schreiben(bereich(daten) / WRAPPER_NEUSTART, {"erwartet": datei, "vorher": laufend, "zeit": _jetzt()})
+        _neustart_einplanen()
+    except Exception as exc:                                  # noqa: BLE001
+        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} → {datei}, Neustart NICHT eingeplant ({exc}) — "
+                "von Hand: Restart-Service ExoSmtpRelay")
+    return f"Dienst-Wrapper {laufend or 'alt'} → {datei}: Neustart des Windows-Dienstes eingeplant"
+
+
+def wrapper_gestartet(daten: Path, fassung: str) -> None:
+    """Vom Wrapper beim Start (nach waechter.json): bestätigt einen eingeplanten Neustart im Status."""
+    pfad = bereich(daten) / WRAPPER_NEUSTART
+    erwartet = json_lesen(pfad)
+    if not erwartet:
+        return
+    try:
+        pfad.unlink()
+    except OSError:
+        pass
+    s = json_lesen(status_pfad(daten))
+    if fassung == erwartet.get("erwartet"):
+        zusatz = f"Dienst-Wrapper neu gestartet (Fassung {fassung})"
+    else:
+        zusatz = (f"WARNUNG: Dienst-Wrapper läuft in Fassung {fassung}, erwartet {erwartet.get('erwartet')} — "
+                  "Restart-Service ExoSmtpRelay")
+    status_setzen(daten, str(s.get("zustand") or "ok"), (str(s.get("text") or "") + "; " + zusatz).lstrip("; "),
+                  **{k: s[k] for k in ("von", "nach", "angefordert_von") if k in s})
+
+
 # ── systemd-Units mitziehen ──────────────────────────────────────────────────
 # Wer per Knopf aktualisiert, bekäme sonst nie eine neue Unit (0.2.55: ExecStartPre für das
 # Nachholen einer offenen Rücknahme). Der Tauscher läuft unter systemd als root.
@@ -621,6 +717,10 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
         ok, text = phase(name, lauf)
         if ok and name == "tauschen" and "Units" in text:
             hinweise.append(text.split("; ", 1)[1] if "; " in text else text)
+        if ok and name == "pip":
+            r = daten_rechte_setzen(wurzel)
+            if r:
+                hinweise.append(r)
         if not ok:
             return _zuruecknehmen(wurzel, daten, phase, lauf, starten, kopf,
                                   f"Phase {name} fehlgeschlagen: {text}")
@@ -639,6 +739,9 @@ def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
             except OSError:
                 pass
         bleibt = reste_aufraeumen(wurzel)
+        w = wrapper_abgleichen(wurzel, daten)
+        if w:
+            hinweise.append(w)
         status_setzen(daten, "ok", f"{version} läuft (vorher {von})"
                       + "".join(f"; {h}" for h in hinweise)
                       + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
@@ -668,6 +771,9 @@ def _zuruecknehmen(wurzel: Path, daten: Path, phase, lauf: str, starten, kopf: d
     ok, zurueck = phase("zurueck", lauf)
     if ok:
         starten()
+        w = wrapper_abgleichen(wurzel, daten)
+        if w:
+            zurueck += f"; {w}"
         try:
             ruecknahme_offen_pfad(daten).unlink()
         except OSError:
@@ -714,15 +820,21 @@ def ruecknahme_nachholen(wurzel: Path, daten: Path, phase=None) -> bool:
     except OSError:
         pass
     bleibt = reste_aufraeumen(wurzel)
+    w = wrapper_abgleichen(wurzel, daten)
+    if w:
+        text += f"; {w}"
     status_setzen(daten, "zurueckgerollt", f"Rücknahme nachgeholt: {text}; {aktuelle_version(wurzel)} läuft wieder"
                   + (f"; nicht löschbare Reste: {', '.join(bleibt)}" if bleibt else ""), **kopf)
     return True
 
 
-def beim_dienststart(wurzel: Path, daten: Path) -> bool | None:
+def beim_dienststart(wurzel: Path, daten: Path, wrapper_fassung: str = "") -> bool | None:
     """DER gemeinsame Pfad beim Dienststart, bevor die Anwendung startet — Windows
     (windows/service.py) und systemd (ExecStartPre=+… update_tausch.py nachholen). None, wenn
-    nichts offen war; sonst das Ergebnis von ruecknahme_nachholen."""
+    nichts offen war; sonst das Ergebnis von ruecknahme_nachholen. Windows übergibt die eigene
+    Wrapper-Fassung (bestätigt einen eingeplanten Neustart)."""
+    if wrapper_fassung:
+        wrapper_gestartet(daten, wrapper_fassung)
     if not ruecknahme_offen_pfad(daten).exists():
         return None
     return ruecknahme_nachholen(wurzel, daten)

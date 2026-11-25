@@ -43,6 +43,10 @@ UPDATE = DATA / "update"
 AUFTRAG = UPDATE / "auftrag.json"
 WAECHTER = UPDATE / "waechter.json"
 PROTOKOLL = 1                  # muss update_tausch.PROTOKOLL entsprechen
+# Fassung DIESES Wrappers, beim Laden festgehalten — nach einem Tausch liegt auf der Platte schon
+# die neue, geladen ist bis zum Neustart des Windows-Dienstes aber diese (update_tausch.wrapper_abgleichen).
+import hashlib as _hashlib                                     # noqa: E402
+WRAPPER_FASSUNG = _hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
 
 # pythonservice.exe bettet den Basis-Interpreter ein und ignoriert pyvenv.cfg:
 # die Pakete der venv (pywin32, servicemanager, ...) liegen sonst nicht im Suchpfad.
@@ -108,7 +112,7 @@ class RelayService(win32serviceutil.ServiceFramework):
         try:
             UPDATE.mkdir(parents=True, exist_ok=True)
             WAECHTER.write_text(json.dumps({"protokoll": PROTOKOLL, "art": "windows",
-                                            "pid": os.getpid()}), encoding="utf-8")
+                                            "pid": os.getpid(), "fassung": WRAPPER_FASSUNG}), encoding="utf-8")
         except OSError:
             pass
 
@@ -140,13 +144,13 @@ class RelayService(win32serviceutil.ServiceFramework):
     def _nachholen(self) -> None:
         """Eine offene Rücknahme (data\\update\\ruecknahme_offen.json, Sperre bei der letzten)
         erneut versuchen, BEVOR die Anwendung startet (Labtest 0.2.53 l4b)."""
-        if not (UPDATE / "ruecknahme_offen.json").exists():
+        if not (UPDATE / "ruecknahme_offen.json").exists() and not (UPDATE / "wrapper_neustart.json").exists():
             return
         try:
             spec = importlib.util.spec_from_file_location("_update_tausch", APP / "update_tausch.py")
             tausch = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(tausch)
-            ok = tausch.beim_dienststart(WURZEL, DATA)          # derselbe Pfad wie systemd
+            ok = tausch.beim_dienststart(WURZEL, DATA, WRAPPER_FASSUNG)   # derselbe Pfad wie systemd
             if ok is True:
                 servicemanager.LogInfoMsg("EXO SMTP Relay: offene Rücknahme nachgeholt")
             elif ok is False:
