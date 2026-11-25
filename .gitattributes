@@ -1,1 +1,4 @@
 *.sh text eol=lf
+# systemd-Units: immer LF (auch im Windows-Checkout) - der Updater vergleicht sie per SHA-256
+# mit linux/einheiten-bekannt.json.
+linux/* text eol=lf
