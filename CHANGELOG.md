@@ -10,11 +10,13 @@
   cryptography hat kein Windows-ARM64-Wheel (Windows auf ARM nutzt die x64-Emulation).
 - **Python-Pakete nur mit Prüfsummen**: `app/requirements.lock` trägt zu jeder
   Anforderung die SHA-256 ihrer Wheels für win_amd64 und manylinux x86_64/aarch64,
-  Python 3.11–3.13 (81 Prüfsummen, Quelle PyPI-JSON, `tools/lock_hashes.py`). Installiert
+  Python 3.11–3.13 (82 Prüfsummen für 34 Pakete, Quelle PyPI-JSON, `tools/lock_hashes.py`). Installiert
   wird überall mit `pip --require-hashes --only-binary :all:`: `install.ps1`, Updater
   (`update_tausch.phase_pip`), Dockerfile, systemd-Einrichtung, CI. Keine Quellpakete,
   keine pip-Selbstaktualisierung aus dem Netz mehr. `PyJWT[crypto]` steht mit Extra in der
-  Lock-Datei (msal fordert es; im Hash-Modus sonst Abbruch). CI prüft die Prüfsummen gegen
+  Lock-Datei (msal fordert es; im Hash-Modus sonst Abbruch). **`colorama` fehlte in der Lock-Datei**: click
+  fordert es unter Windows; pip lud es bisher ungepinnt nach — der Hash-Modus hat es in
+  der Windows-CI aufgedeckt, jetzt 0.4.6 mit Prüfsumme (nur Windows). CI prüft die Prüfsummen gegen
   PyPI und dass jede Zielplattform ein Wheel hat. Fassungen unverändert (Gateway-Stand).
 - **ExchangeOnlineManagement** kommt nicht mehr über `Install-Module` (unpinned, samt
   NuGet-Bootstrap), sondern als festgelegtes nupkg 3.10.1 von der PowerShell Gallery:

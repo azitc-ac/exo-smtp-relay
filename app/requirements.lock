@@ -128,6 +128,11 @@ charset-normalizer==3.4.9 \
     --hash=sha256:fe2c7201c642b7c308f1675355ad7ff7b66acfe3541625efe5a3ad38f29d6115
 urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+# colorama: click fordert es unter Windows (platform_system == "Windows"). Fehlte, weil die
+# Fassungen aus einem Linux-Container stammen — pip lud es bis 0.2.46 ungepinnt nach; der
+# Hash-Modus hat es aufgedeckt (CI 25.11.2026). Gateway: nur Linux, dort nicht nötig.
+colorama==0.4.6; sys_platform == "win32" \
+    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
 tzdata==2025.2; sys_platform == "win32" \
     --hash=sha256:1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8
 pywin32==311; sys_platform == "win32" \
