@@ -282,8 +282,8 @@ function Get-RelaySicherungsTeile([string]$Sicherung, [string[]]$Teile) {
 
 $RelayMerkerName = "zurueckholen.json"
 
-function Write-RelayMerker([string]$Sicherung, [string[]]$Teile, [string]$Fassung, [string]$Port) {
-    $inhalt = [ordered]@{ teile = @($Teile); fassung = $Fassung; port = $Port; zeit = (Get-Date).ToString("s") }
+function Write-RelayMerker([string]$Sicherung, [string[]]$Teile, [string]$Fassung, [string]$Port, [string]$Lauf = "") {
+    $inhalt = [ordered]@{ teile = @($Teile); fassung = $Fassung; port = $Port; lauf = $Lauf; zeit = (Get-Date).ToString("s") }
     Set-Content -LiteralPath (Join-Path $Sicherung $RelayMerkerName) -Value (ConvertTo-Json -Compress -InputObject $inhalt) -Encoding UTF8
 }
 
@@ -293,10 +293,24 @@ function Read-RelayMerker([string]$Sicherung) {
     try { return (Get-Content -LiteralPath $m -Raw | ConvertFrom-Json) } catch { return $null }
 }
 
+# .relay-fassung: Zeile 1 die Fassung, Zeile 2 "lauf=<ID>" - die Lauf-ID des install.ps1-Laufs, der
+# den Teil kopiert hat (Labtest 0.2.51, Z4: dieselbe Fassung noch einmal installiert - an der Fassung
+# allein ist Neu und Alt nicht zu unterscheiden).
 function Get-RelayTeilFassung([string]$Pfad) {
     $f = Join-Path $Pfad ".relay-fassung"
-    if (Test-Path -LiteralPath $f) { return (Get-Content -LiteralPath $f -Raw).Trim() }
+    if (Test-Path -LiteralPath $f) { return "$(@(Get-Content -LiteralPath $f)[0])".Trim() }
     return ""
+}
+
+function Get-RelayTeilLauf([string]$Pfad) {
+    $f = Join-Path $Pfad ".relay-fassung"
+    if (-not (Test-Path -LiteralPath $f)) { return "" }
+    foreach ($z in @(Get-Content -LiteralPath $f)) { if ("$z" -match '^lauf=(\w+)$') { return $Matches[1] } }
+    return ""
+}
+
+function Set-RelayTeilMarke([string]$Ordner, [string]$Fassung, [string]$Lauf) {
+    Set-Content -LiteralPath (Join-Path $Ordner ".relay-fassung") -Value @($Fassung, "lauf=$Lauf") -Encoding ASCII
 }
 
 # Der EINZIGE Weg, in install.ps1 einen Ordner oder Teil zu verschieben: atomar, nie auf ein
@@ -391,7 +405,7 @@ function Test-RelayVerschiebbar([string]$Pfad) {
     return $true
 }
 
-function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile, [string]$Fassung = "", [string]$Port = "") {
+function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile, [string]$Fassung = "", [string]$Port = "", [string]$Lauf = "") {
     Repair-RelayReste $Ziel $Teile
     if (Test-Path -LiteralPath $Sicherung) {
         $rest = @(Get-RelaySicherungsTeile $Sicherung $Teile)
@@ -431,7 +445,7 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
     }
     New-Item -ItemType Directory -Force -Path $Sicherung | Out-Null
     $vorhanden = @($Teile | Where-Object { Test-Path -LiteralPath (Join-Path $Ziel $_) })
-    Write-RelayMerker $Sicherung $vorhanden $Fassung $Port
+    Write-RelayMerker $Sicherung $vorhanden $Fassung $Port $Lauf
     foreach ($teil in $vorhanden) {
         Move-RelayPfad (Join-Path $Ziel $teil) (Join-Path $Sicherung $teil)
         $teil
@@ -445,6 +459,9 @@ function Backup-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile
 #     nie geloescht), Sicherung hinein; scheitert das, kommt die neue zurueck (Labtest 0.2.49 Z1).
 #   * am Platz ein Teil der ALTEN Fassung (gleiche Marke oder keine - neue tragen immer eine):
 #     fehlende Dateien aus der Sicherung ergaenzen (Labtest 0.2.50 Z1b, Teilverschiebung).
+#     NIE fuer den Lauf, der die Sicherung angelegt hat: Traegt der Teil am Platz dessen Lauf-ID
+#     (Merker "lauf"), ist er dessen NEUER Stand - immer tauschen (Labtest 0.2.51 Z4: gleiche
+#     Fassung neu installiert, "ergaenzt" statt zurueckgerollt).
 function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teile) {
     $offen = @()
     $merker = Read-RelayMerker $Sicherung
@@ -460,7 +477,11 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
         $istOrdner = Test-Path -LiteralPath $p -PathType Container
         $platzFassung = ""
         if ($istOrdner) { $platzFassung = Get-RelayTeilFassung $p }
-        if ($istOrdner -and -not ($platzFassung -and $platzFassung -ne $altFassung)) {
+        $merkerLauf = ""
+        if ($merker -and ($merker.PSObject.Properties.Name -contains "lauf")) { $merkerLauf = "$($merker.lauf)" }
+        $istNeu = (-not $istOrdner) -or ($platzFassung -and $platzFassung -ne $altFassung) -or
+                  ($merkerLauf -and $istOrdner -and (Get-RelayTeilLauf $p) -eq $merkerLauf)
+        if (-not $istNeu) {
             $e = Merge-RelayOrdner $s $p
             if ($e.Bewegt -gt 0) { Write-Warn "${teil}\: $($e.Bewegt) fehlende Datei(en) aus der Sicherung ergaenzt" }
             # Doppelte Dateien bleiben wie am Platz (gleiche Fassung); offen nur, was sich nicht bewegen liess.
@@ -484,8 +505,9 @@ function Restore-RelayFassung([string]$Ziel, [string]$Sicherung, [string[]]$Teil
         Remove-Item -LiteralPath $Sicherung -Recurse -Force -ErrorAction SilentlyContinue
     } else {
         $f = ""; $po = ""
-        if ($merker) { $f = "$($merker.fassung)"; $po = "$($merker.port)" }
-        Write-RelayMerker $Sicherung $offen $f $po
+        $la = ""
+        if ($merker) { $f = "$($merker.fassung)"; $po = "$($merker.port)"; if ($merker.PSObject.Properties.Name -contains "lauf") { $la = "$($merker.lauf)" } }
+        Write-RelayMerker $Sicherung $offen $f $po $la
     }
     $offen
 }
@@ -851,6 +873,8 @@ $sicherung = Join-Path $InstallDir ".install-alt"
 $altVersion = ""
 if (Test-Path (Join-Path $InstallDir "VERSION")) { $altVersion = (Get-Content (Join-Path $InstallDir "VERSION") -Raw).Trim() }
 $gesichert = @()
+# Lauf-ID: kennzeichnet, was DIESER Lauf kopiert (.relay-fassung) und gesichert hat (Merker).
+$RelayLauf = [guid]::NewGuid().ToString("N")
 $pipGelaufen = $false
 $umgebungGesetzt = $false
 $firewallGesetzt = $false
@@ -866,7 +890,7 @@ try {
     Write-Step "Kopiere Anwendung nach $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung $altVersion -Port $altPort)
+    $gesichert = @(Backup-RelayFassung -Ziel $InstallDir -Sicherung $sicherung -Teile $RelayTeile -Fassung $altVersion -Port $altPort -Lauf $RelayLauf)
     # Ordnerteile: erst Ordner und Fassungsmarke, DANN der Inhalt - ein abgebrochenes Kopieren
     # hinterlaesst nie einen neuen Teil ohne Marke (Ruecknahme unterscheidet neu/alt danach).
     $neuFassung = (Get-Content (Join-Path $quelle "VERSION") -Raw).Trim()
@@ -876,7 +900,7 @@ try {
         $d = Join-Path $InstallDir $teil
         if (Test-Path $q -PathType Container) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
-            Set-Content -LiteralPath (Join-Path $d ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII
+            Set-RelayTeilMarke $d $neuFassung $RelayLauf
             Copy-Item -Recurse -Force -Path (Join-Path $q "*") -Destination $d
         } else {
             Copy-Item -Force -LiteralPath $q -Destination $d
@@ -888,7 +912,7 @@ try {
     if ($RelayOffline) {
         $oz = Join-Path $InstallDir "offline"
         New-Item -ItemType Directory -Force -Path $oz | Out-Null
-        Set-Content -LiteralPath (Join-Path $oz ".relay-fassung") -Value $neuFassung -NoNewline -Encoding ASCII
+        Set-RelayTeilMarke $oz $neuFassung $RelayLauf
         Copy-Item -Force (Join-Path $quelle "offline\inhalt.json") (Join-Path $oz "inhalt.json")
         Copy-Item -Recurse -Force (Join-Path $quelle "offline\wheels") (Join-Path $oz "wheels")
     } elseif ($gesichert -contains "offline") {

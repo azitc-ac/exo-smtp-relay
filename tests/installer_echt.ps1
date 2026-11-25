@@ -42,6 +42,10 @@
          entsperrt Exit 0. Gegenprobe aa45770: Teilverschiebung sichtbar (*.relay-sperrtest bzw.
          unvollstaendiges windows\); danach heilt der aktuelle Installer das ohne Handarbeit.
 
+     13. Z4: DIESELBE Fassung noch einmal, main.py wirft -> Ruecknahme; app\ und windows\ PER HASH
+         wie vorher, keine "ergaenzt"-Meldung. Gegenprobe 3095166: Hash anders ("ergaenzt").
+
+    -Gegenprobe051 gibt den Pfad eines 3095166-Baums an (0.2.51, vom Labtest gestoppt).
     -Gegenprobe050 gibt den Pfad eines aa45770-Baums an (0.2.50, vom Labtest gestoppt).
     -Gegenprobe049 gibt den Pfad eines 97cc8bf-Baums an (0.2.49-beta).
     -Gegenprobe048 gibt den Pfad eines efbf608-Baums an (0.2.48-beta).
@@ -54,7 +58,8 @@ param(
     [string]$Gegenprobe046 = "",
     [string]$Gegenprobe048 = "",
     [string]$Gegenprobe049 = "",
-    [string]$Gegenprobe050 = ""
+    [string]$Gegenprobe050 = "",
+    [string]$Gegenprobe051 = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -485,6 +490,34 @@ if ($Gegenprobe050) {
     } finally { Stop-Sperre $s }
     $r = Install-Lauf (New-Baum "q1") "12h-alt-heilen"
     Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and @(Get-Reste).Count -eq 0) "Heilung nach aa45770: Exit 0, windows\ vollstaendig, keine Reste"
+}
+
+# 13 -- Z4: gleiche Fassung, kaputt ------------------------------------------------------
+function Get-Baumhash([string]$Ordner) {
+    $w = (Resolve-Path -LiteralPath $Ordner).Path.TrimEnd("\")
+    $zeilen = @(Get-ChildItem -LiteralPath $w -Recurse -File -Force | Where-Object { $_.FullName -notmatch '\\__pycache__\\' } |
+        ForEach-Object { "$($_.FullName.Substring($w.Length + 1))=$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" } | Sort-Object)
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($zeilen -join "`n"))
+    "$($zeilen.Count):" + [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace("-", "").Substring(0, 16)
+}
+function New-GleicherKaputterBaum([string]$Basis, [string]$Name) {
+    $b = New-StummerBaum $Basis $Name
+    Set-Content -Path (Join-Path $b "VERSION") -Value $version -NoNewline
+    return $b
+}
+$hApp = Get-Baumhash (Join-Path $ziel "app")
+$hWin = Get-Baumhash (Join-Path $ziel "windows")
+$r = Install-Lauf (New-GleicherKaputterBaum $Quelle "qz4") "13-z4"
+Pruefe ($r.Rc -ne 0 -and $r.Text -match "ABBRUCH im Schritt 'Lebenszeichen'") "Z4: gleiche Fassung $version, kaputt -> Abbruch am Lebenszeichen"
+Pruefe ($r.Text -notmatch "ergaenzt") "Z4: nichts nur 'ergaenzt'"
+Pruefe ((Get-Baumhash (Join-Path $ziel "app")) -eq $hApp) "Z4: app\ per Hash wie vorher ($hApp)"
+Pruefe ((Get-Baumhash (Join-Path $ziel "windows")) -eq $hWin) "Z4: windows\ per Hash wie vorher ($hWin)"
+Pruefe ((Test-Laeuft $version) -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "Z4: /health $version, keine Sicherung uebrig"
+if ($Gegenprobe051) {
+    $r = Install-Lauf (New-GleicherKaputterBaum $Gegenprobe051 "qz4g") "13g-z4-3095166"
+    Pruefe ($r.Text -match "ergaenzt" -and (Get-Baumhash (Join-Path $ziel "app")) -ne $hApp) "Gegenprobe Z4 3095166: 'ergaenzt', app\ per Hash anders ($(Get-Baumhash (Join-Path $ziel 'app')))"
+    $r = Install-Lauf (New-Baum "q1") "13g-wiederherstellen"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version)) "Wiederherstellen nach Z4-Gegenprobe"
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green

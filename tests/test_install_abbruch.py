@@ -53,6 +53,7 @@ def _lauf(tmp_path, rumpf: str, env: dict | None = None) -> dict:
         + _teile() + "\n$RelayMerkerName = \"zurueckholen.json\"\n"
         + "\n".join(_funktion(n) for n in ("Invoke-RelayNativ", "Get-RelaySicherungsTeile", "Test-RelayVerschiebbar",
                                              "Write-RelayMerker", "Read-RelayMerker", "Get-RelayTeilFassung",
+                                             "Get-RelayTeilLauf", "Set-RelayTeilMarke",
                                              "Move-RelayPfad", "Get-RelayFreierName", "Merge-RelayOrdner", "Repair-RelayReste",
                                              "Backup-RelayFassung", "Restore-RelayFassung", "Restore-RelayNachAbbruch"))
         + "\n" + rumpf, encoding="utf-8-sig")
@@ -610,3 +611,44 @@ ConvertTo-Json -Compress -InputObject ([ordered]@{{ Config = (Test-Path "{ziel}/
     Rest = (Test-Path "{ziel}/app.relay-sperrtest") }})
 ''')
     assert e == {"Config": True, "Rest": False}, e
+
+
+
+def _z4_lauf(tmp_path, lauf: str) -> dict:
+    """Gleiche Fassung (0.2.51) noch einmal, neues app\\ kaputt; Rücknahme des eigenen Laufs."""
+    ziel = tmp_path / "inst"
+    _installiert(ziel)
+    for n in ("a.py", "b.py", "c.py"):
+        (ziel / "app" / n).write_text("alt-" + n)
+    (ziel / "app" / ".relay-fassung").write_text("0.2.51\nlauf=aaaa\n")
+    e = _lauf(tmp_path, f"""
+$g = @(Backup-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile -Fassung "0.2.51" -Port "" -Lauf "{lauf}")
+New-Item -ItemType Directory "{ziel}/app" | Out-Null
+Set-RelayTeilMarke "{ziel}/app" "0.2.51" "bbbb"
+Set-Content "{ziel}/app/main.py" "kaputt"
+Set-Content "{ziel}/app/a.py" "neu"
+$offen = @(Restore-RelayFassung -Ziel "{ziel}" -Sicherung "{ziel}/.install-alt" -Teile $RelayTeile)
+ConvertTo-Json -Compress -InputObject ([ordered]@{{ Offen = $offen;
+    Dateien = @(Get-ChildItem "{ziel}/app" -File -Force | Sort-Object Name | ForEach-Object {{ "$($_.Name)=$((Get-Content $_.FullName -Raw).Trim())" }});
+    Meldungen = @($global:M) }})
+""")
+    return e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_gleiche_fassung_eigener_lauf_wird_getauscht_nicht_ergaenzt(tmp_path):
+    """Labtest 0.2.51 Z4: dieselbe Fassung neu installiert, die neue wirft. „41 fehlende Dateien
+    ergänzt“, app\\ hatte danach einen anderen Inhalt. Jetzt erkennt die Rücknahme an der Lauf-ID
+    den NEUEN Stand des eigenen Laufs und tauscht vollständig."""
+    e = _z4_lauf(tmp_path, "bbbb")
+    assert e["Dateien"] == [".relay-fassung=0.2.51\nlauf=aaaa", "a.py=alt-a.py", "b.py=alt-b.py",
+                            "c.py=alt-c.py", "main.py=alt"], e
+    assert not any("ergaenzt" in m for m in e["Meldungen"]), e
+
+
+@pytest.mark.skipif(not _ps(), reason="keine PowerShell vorhanden")
+def test_gleiche_fassung_gegenprobe_ohne_lauf_id(tmp_path):
+    """Trennscharf: ohne Lauf-ID (Stand 3095166) entscheidet nur die Fassung — gleiche Fassung gilt als
+    „alt“, es wird nur ergänzt, das kaputte main.py und a.py=neu bleiben."""
+    e = _z4_lauf(tmp_path, "")
+    assert "main.py=kaputt" in e["Dateien"] and "a.py=neu" in e["Dateien"], e

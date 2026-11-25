@@ -571,3 +571,28 @@ def test_zurueck_nur_fuer_die_marke_des_eigenen_tauschs(tmp_path):
     assert "zurückgesetzt" in ut.phase_zurueck(w, "0.2.50")
     assert (w / "app" / "main.py").read_text(encoding="utf-8") == "vorvorig"
     assert not [p for p in w.iterdir() if ".relay-verworfen" in p.name], "Beiseitegelegtes aufgeräumt"
+
+
+def test_tauscher_gleiche_fassung_kein_tausch_und_rueckfall_nie_ergaenzend(anlage, schluessel, tmp_path):
+    """Labtest 0.2.51 Z4 (install.ps1): gleiche Fassung, kaputt — „ergänzt“ statt zurückgerollt.
+    Der Updater kann diesen Pfad nicht nehmen: Er tauscht gleiche Fassungen gar nicht erst
+    (phase_pruefen), und seine Rücknahme (phase_zurueck) legt das Neue immer GANZ beiseite und
+    holt das Alte GANZ zurück — es gibt dort kein Ergänzen."""
+    dist = _release(tmp_path, schluessel, version=ALT_V)
+    _auftrag_direkt(anlage, dist, version=ALT_V)
+    dienst = _Dienst(anlage["wurzel"], anlage["daten"])
+    phase = ut.phasen_im_prozess(anlage["wurzel"], anlage["daten"], ALT_V, up.paket_name(ALT_V, "windows"))
+    assert _ablauf(anlage, dienst, phase) == "fehler"
+    assert "nicht neuer" in ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
+    assert dienst.stopps == 0
+    # Rücknahme mit gleicher Zielversion in der Marke: das Neue fliegt vollständig raus.
+    w = anlage["wurzel"]
+    alt = w / ut.ALT
+    (alt / "app").mkdir(parents=True)
+    (alt / "app" / "main.py").write_text("alt")
+    (alt / "app" / "nur_alt.py").write_text("alt")
+    (w / "app" / "nur_neu.py").write_text("neu")
+    ut.json_schreiben(alt / ut.MARKE, {"verschoben": ["app"], "neu": [], "fertig": True, "nach": ALT_V})
+    ut.phase_zurueck(w, ALT_V)
+    assert sorted(p.name for p in (w / "app").iterdir()) == ["main.py", "nur_alt.py"]
+    assert (w / "app" / "main.py").read_text() == "alt"

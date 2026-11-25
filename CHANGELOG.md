@@ -1,6 +1,29 @@
 # Changelog — EXO SMTP Relay
 
-## 0.2.51 — 2026-11-25 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.51, Lieferkette, Offline-Paket
+## 0.2.52-beta — 2026-11-25 — Rücknahme bei gleicher Fassung; Beta vor Stable
+
+**0.2.51 wurde nicht veröffentlicht** — der Labtest fand eine Regression (unten); ihr Inhalt
+(Abschnitt 0.2.51 mit der Zusammenfassung seit 0.2.42) geht hier auf. Beta, weil der Updater
+(`update_tausch.py`) seit 0.2.51 geändert ist und vor Stable einen echten Knopf-Test mit
+signierten Assets braucht.
+
+- **Dieselbe Fassung noch einmal installiert, die neue wirft (Labtest Z4):** 0.2.51 meldete
+  „app\: 41 fehlende Datei(en) aus der Sicherung ergaenzt“ und „Vorige Fassung zurueckgeholt“ —
+  tatsächlich blieb ein Gemisch (anderer Inhalt in `app\`, 6 statt 5 Dateien in `windows\`), die
+  Sicherung war weg, nichts lauschte. Ursache: Die Rücknahme hielt „Marke am Platz = Fassung im
+  Merker“ für die alte Fassung und ergänzte nur; bei gleicher Fassung trägt das Neue dieselbe
+  Marke. Jetzt tragen `.relay-fassung` UND der Merker eine **Lauf-ID** (GUID je
+  `install.ps1`-Lauf). Trägt der Teil am Platz die Lauf-ID aus dem Merker, ist er der NEUE Stand
+  dieses Laufs: immer beiseite und die Sicherung vollständig zurück. Ergänzt wird nur bei Resten
+  früherer Läufe bzw. Fassungen.
+- **Updater geprüft:** `update_tausch` kann diesen Pfad nicht nehmen — gleiche Fassungen tauscht
+  er gar nicht (`phase_pruefen`: „nicht neuer“), und seine Rücknahme legt das Neue immer ganz
+  beiseite und holt das Alte ganz zurück, ohne Ergänzen (Test).
+- Tests: pwsh mit eingebauter Gegenprobe ohne Lauf-ID; CI-Job „Installer echt“: gleiche Fassung,
+  kaputt — `app\` und `windows\` per Hash vorher = nachher; Gegenprobe gegen 3095166 („ergaenzt“,
+  Hash anders).
+
+## 0.2.51 — 2026-11-25 — (nicht veröffentlicht) Labtest-Korrekturen 0.2.43-beta bis 0.2.51, Lieferkette, Offline-Paket
 
 Erste stabile Fassung seit 0.2.42. Fasst 0.2.43-beta, 0.2.44-beta, 0.2.45, 0.2.46 und 0.2.50
 (alle drei nicht veröffentlicht), 0.2.47-beta, 0.2.48-beta und 0.2.49-beta zusammen — Einzelheiten in deren
