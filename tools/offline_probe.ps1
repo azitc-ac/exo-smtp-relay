@@ -42,7 +42,7 @@ foreach ($n in @("RelayPythonInstaller", "RelayExoModul")) {
     Pruefe $m.Success "Tabelle `$$n in install.ps1"
     $teile += $m.Value
 }
-foreach ($n in @("Test-RelaySignatur", "Test-RelayDatei", "Install-RelayExoModul")) {
+foreach ($n in @("Test-RelaySignatur", "Test-RelayDatei", "Move-RelayPfad", "Get-RelayFreierName", "Install-RelayExoModul")) {
     $m = [regex]::Match($text, "(?ms)^function $n\b.*?^\}")
     Pruefe $m.Success "Funktion $n in install.ps1"
     $teile += $m.Value

@@ -447,7 +447,7 @@ foreach ($fall in @(@{ Teil = "app"; Datei = "app\main.py" }, @{ Teil = "windows
         foreach ($lauf in 1, 2) {
             $r = Install-Lauf (New-Baum "q1") "12-$teil-$lauf"
             Pruefe ($r.Rc -ne 0 -and $r.Text -match "gesperrt .*$teil.* - nichts verschoben") "offen $teil Lauf ${lauf}: Sperre gemeldet, nichts verschoben"
-            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and (Get-Reste).Count -eq 0) "offen $teil Lauf ${lauf}: $vorher Dateien am Platz, keine Reste"
+            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and @(Get-Reste).Count -eq 0) "offen $teil Lauf ${lauf}: $vorher Dateien am Platz, keine Reste"
             Pruefe (Test-Laeuft $version) "offen $teil Lauf ${lauf}: Dienst laeuft, /health $version"
         }
         if ($Gegenprobe050) {
@@ -455,11 +455,11 @@ foreach ($fall in @(@{ Teil = "app"; Datei = "app\main.py" }, @{ Teil = "windows
             Pruefe ((Get-Reste) -contains "$teil.relay-sperrtest") "Gegenprobe offen $teil aa45770: Teilverschiebung sichtbar ($((Get-Reste) -join ', '); $(Get-Anzahl (Join-Path $ziel $teil)) von $vorher am Platz)"
             $r = Install-Lauf (New-Baum "q1") "12h-$teil-heilen"
             Pruefe ($r.Text -match "\.relay-sperrtest: \d+ Datei\(en\) nach $teil\\ zurueckgefuehrt") "Heilung offen ${teil}: Reste zurueckgefuehrt (unter Sperre)"
-            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and (Get-Reste).Count -eq 0) "Heilung offen ${teil}: wieder $vorher Dateien, keine Reste"
+            Pruefe ((Get-Anzahl (Join-Path $ziel $teil)) -eq $vorher -and @(Get-Reste).Count -eq 0) "Heilung offen ${teil}: wieder $vorher Dateien, keine Reste"
         }
     } finally { Stop-Sperre $s }
     $r = Install-Lauf (New-Baum "q1") "12-$teil-entsperrt"
-    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Reste).Count -eq 0) "offen ${teil}: entsperrt Exit 0, $version, keine Reste"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and @(Get-Reste).Count -eq 0) "offen ${teil}: entsperrt Exit 0, $version, keine Reste"
 }
 
 # offene Datei in .install-alt\windows waehrend des Lebenszeichens (kaputte neue Fassung)
@@ -476,7 +476,7 @@ try {
     Pruefe ((Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and (Test-Laeuft $version)) "offen .install-alt Folgelauf: windows\ vollstaendig, Dienst laeuft"
 } finally { Stop-Sperre $s }
 $r = Install-Lauf (New-Baum "q1") "12-alt-3"
-Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Reste).Count -eq 0 -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "offen .install-alt: entsperrt Exit 0, keine Reste"
+Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and @(Get-Reste).Count -eq 0 -and -not (Test-Path (Join-Path $ziel ".install-alt"))) "offen .install-alt: entsperrt Exit 0, keine Reste"
 if ($Gegenprobe050) {
     $s = Start-DateiSperre (Join-Path $ziel ".install-alt\windows\service.py") "9.9.8"
     try {
@@ -484,7 +484,7 @@ if ($Gegenprobe050) {
         Pruefe ((Get-Anzahl (Join-Path $ziel "windows")) -lt $sollWindows) "Gegenprobe offen .install-alt aa45770: windows\ am Platz unvollstaendig ($(Get-Anzahl (Join-Path $ziel 'windows')) von $sollWindows)"
     } finally { Stop-Sperre $s }
     $r = Install-Lauf (New-Baum "q1") "12h-alt-heilen"
-    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and (Get-Reste).Count -eq 0) "Heilung nach aa45770: Exit 0, windows\ vollstaendig, keine Reste"
+    Pruefe ($r.Rc -eq 0 -and (Test-Laeuft $version) -and (Get-Anzahl (Join-Path $ziel "windows")) -eq $sollWindows -and @(Get-Reste).Count -eq 0) "Heilung nach aa45770: Exit 0, windows\ vollstaendig, keine Reste"
 }
 
 Write-Host "`nAlle Pruefungen bestanden." -ForegroundColor Green
