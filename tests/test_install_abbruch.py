@@ -641,6 +641,7 @@ def test_gleiche_fassung_eigener_lauf_wird_getauscht_nicht_ergaenzt(tmp_path):
     ergänzt“, app\\ hatte danach einen anderen Inhalt. Jetzt erkennt die Rücknahme an der Lauf-ID
     den NEUEN Stand des eigenen Laufs und tauscht vollständig."""
     e = _z4_lauf(tmp_path, "bbbb")
+    e["Dateien"] = [d.replace("\r\n", "\n") for d in e["Dateien"]]          # Windows schreibt CRLF
     assert e["Dateien"] == [".relay-fassung=0.2.51\nlauf=aaaa", "a.py=alt-a.py", "b.py=alt-b.py",
                             "c.py=alt-c.py", "main.py=alt"], e
     assert not any("ergaenzt" in m for m in e["Meldungen"]), e
