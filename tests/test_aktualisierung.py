@@ -788,7 +788,7 @@ def test_dienststart_holt_nach_gemeinsamer_pfad(anlage, schluessel, tmp_path, mo
     assert ut.aktuelle_version(w) == ALT_V and not ut.ruecknahme_offen_pfad(daten).exists()
     assert ut.beim_dienststart(w, daten) is None                  # nichts mehr offen
     unit = (WURZEL / "linux" / "exo-smtp-relay.service").read_text(encoding="utf-8")
-    assert re.search(r"^ExecStartPre=\+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch\.py nachholen ",
+    assert re.search(r"^ExecStartPre=-\+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch\.py nachholen ",
                      unit, re.M)
     assert "tausch.beim_dienststart(WURZEL, DATA, WRAPPER_FASSUNG)" in (WURZEL / "windows" / "service.py").read_text(encoding="utf-8")
 
@@ -972,8 +972,15 @@ def _windows(monkeypatch, ausgabe="OK: data\\ nur fuer SYSTEM und Administratore
     def ps(args):
         aufrufe["ps"].append(args)
         return rc, ausgabe
+    def ps(args, cwd=None):
+        aufrufe["ps"].append(args)
+        aufrufe.setdefault("ps_cwd", []).append(cwd)
+        return rc, ausgabe
     monkeypatch.setattr(ut, "_powershell", ps)
-    monkeypatch.setattr(ut, "_neustart_einplanen", lambda: aufrufe.__setitem__("neustart", aufrufe["neustart"] + 1))
+    monkeypatch.setattr(ut, "_im_dienst", lambda: True)
+    monkeypatch.setattr(ut, "_wiederherstellung_setzen", lambda: aufrufe.__setitem__("scm", aufrufe.get("scm", 0) + 1))
+    monkeypatch.setattr(ut, "_prozess_beenden", lambda: aufrufe.__setitem__("neustart", aufrufe["neustart"] + 1))
+    monkeypatch.setattr(ut, "_NEUSTART_ANGEFORDERT", False)
     return aufrufe
 
 
@@ -1032,7 +1039,8 @@ def test_neuer_wrapper_neustart_eingeplant_und_bestaetigt(anlage, schluessel, tm
     assert aufrufe["neustart"] == 1
     daten = anlage["daten"]
     neu = hashlib.sha256(b"# wrapper neu\n").hexdigest()[:12]
-    assert "Neustart des Windows-Dienstes eingeplant" in ut.json_lesen(ut.status_pfad(daten))["text"]
+    assert "Neustart nach dem Ablauf (SCM-Wiederherstellung)" in ut.json_lesen(ut.status_pfad(daten))["text"]
+    assert aufrufe["scm"] == 1
     assert ut.json_lesen(daten / "update" / ut.WRAPPER_NEUSTART)["erwartet"] == neu
     ut.beim_dienststart(anlage["wurzel"], daten, neu)                       # der neue Wrapper startet
     assert f"Dienst-Wrapper neu gestartet (Fassung {neu})" in ut.json_lesen(ut.status_pfad(daten))["text"]
@@ -1077,14 +1085,14 @@ def test_neustart_nicht_einplanbar_nennt_befehl(anlage, schluessel, tmp_path, mo
     _windows(monkeypatch)
 
     def scheitert():
-        raise RuntimeError("schtasks /Create: Zugriff verweigert")
-    monkeypatch.setattr(ut, "_neustart_einplanen", scheitert)
+        raise RuntimeError("sc failure: Zugriff verweigert")
+    monkeypatch.setattr(ut, "_wiederherstellung_setzen", scheitert)
     _wrapper(anlage, b"# wrapper alt\n")
     dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper neu\n"})
     _auftrag_direkt(anlage, dist)
     assert _ablauf(anlage, _Dienst(anlage["wurzel"], anlage["daten"])) == "ok"
     text = ut.json_lesen(ut.status_pfad(anlage["daten"]))["text"]
-    assert "Neustart NICHT eingeplant" in text and "Restart-Service ExoSmtpRelay" in text
+    assert "Neustart NICHT möglich" in text and "Restart-Service ExoSmtpRelay" in text
 
 
 def test_wrapper_meldet_seine_fassung_beim_start():
@@ -1133,9 +1141,11 @@ def test_neue_fassung_bereitet_nach_wenn_ein_alter_updater_tauschte(anlage, schl
     assert ut.json_lesen(ut.auftrag_pfad(daten))["nachbereiten"] is True
     dienst = _Dienst(w, daten)
     assert ut.ablauf(w, daten, dienst.stoppen, dienst.starten, dienst.laeuft) == "ok"
-    assert dienst.stopps == 0, "die Anwendung läuft weiter"
+    # Die Nachbereitung selbst hält die Anwendung nicht an; einmal angehalten wird sie nur für den
+    # Neustart des Wrappers am Ende (der neue windows\\service.py).
+    assert dienst.stopps == 1 and aufrufe["neustart"] == 1
     assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStartPre=+nachholen\nExecStart=neu\n"
-    assert any("-NurDatenRechte" in a for a in aufrufe["ps"]) and aufrufe["neustart"] == 1
+    assert any("-NurDatenRechte" in a for a in aufrufe["ps"])
     s = ut.json_lesen(ut.status_pfad(daten))
     assert f"Nachbereitung {NEU_V}:" in s["text"] and "Units aktualisiert" in s["text"] and "Backup Operators" in s["text"], s
     assert ut.json_lesen(ut.nachbereitet_pfad(daten))["version"] == NEU_V
@@ -1187,3 +1197,138 @@ def test_app_fordert_verzoegert_an_und_alter_wrapper_laedt_neuen_code():
     assert 'spec_from_file_location("_update_tausch", APP / "update_tausch.py")' in alt.stdout
     assert "if AUFTRAG.exists():" in alt.stdout
     assert "app/update_tausch.py ablauf" in (WURZEL / "linux" / "exo-smtp-relay-update.service").read_text(encoding="utf-8")
+
+
+
+# ── 0.2.56: Labtest 0.2.55-beta ──────────────────────────────────────────────
+
+def test_pip_und_phasen_laufen_in_der_installationswurzel(tmp_path, monkeypatch):
+    """ROT 1: systemd startet ExecStartPre mit WorkingDirectory=app/. Die Rücknahme tauscht app/ weg,
+    pip scheiterte an os.getcwd(). Jetzt cwd = Installationswurzel."""
+    aufrufe = []
+
+    class _R:
+        returncode, stdout, stderr = 0, "", ""
+    monkeypatch.setattr(ut.subprocess, "run", lambda args, **kw: aufrufe.append(kw) or _R())
+    py = ut.venv_python(tmp_path)
+    py.parent.mkdir(parents=True)
+    py.write_text("")
+    ut.phase_pip(tmp_path)
+    assert aufrufe[-1]["cwd"] == str(tmp_path)
+    ut.phasen_als_prozess(py, tmp_path / "t.py", tmp_path, tmp_path, "1", "p")("pruefen", "L")
+    assert aufrufe[-1]["cwd"] == str(tmp_path)
+
+
+def test_main_verlaesst_das_arbeitsverzeichnis(anlage, tmp_path):
+    """ExecStartPre läuft in app/ — main() wechselt sofort in die Wurzel, auch wenn das bisherige
+    Arbeitsverzeichnis schon verschwunden ist."""
+    weg = tmp_path / "app-alt"
+    weg.mkdir()
+    vorher = os.getcwd()
+    os.chdir(weg)
+    try:
+        if os.name != "nt":
+            weg.rmdir()
+        assert ut.main(["nachholen", "--wurzel", str(anlage["wurzel"]), "--daten", str(anlage["daten"])]) == 0
+        assert Path(os.getcwd()).resolve() == anlage["wurzel"].resolve()
+    finally:
+        os.chdir(vorher)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="systemd-Units nur unter Linux")
+def test_teilweise_ruecknahme_laesst_die_neue_unit_stehen(anlage, schluessel, tmp_path, monkeypatch):
+    """ROT 2: Scheiterte die Rücknahme teilweise, war die ALTE Unit (ohne ExecStartPre) schon zurück —
+    ein Neustart holte nichts mehr nach. Jetzt kommen die alten Units erst nach VOLLSTÄNDIGER
+    Rücknahme; bis dahin bleibt die neue Unit stehen."""
+    etc, neu_laden, dist = _units_anlage(tmp_path, monkeypatch, schluessel)
+    w, daten = anlage["wurzel"], anlage["daten"]
+    _auftrag_direkt(anlage, dist)
+    gesperrt = _sperre(monkeypatch, w / "windows")
+    gesperrt["an"] = False
+    echt = ut.phase_zurueck
+
+    def zurueck_gesperrt(wurzel, lauf="", alt_entfernen=True):
+        gesperrt["an"] = True
+        try:
+            return echt(wurzel, lauf, alt_entfernen)
+        finally:
+            gesperrt["an"] = False
+    monkeypatch.setattr(ut, "phase_zurueck", zurueck_gesperrt)
+    assert _ablauf(anlage, _Dienst(w, daten, defekt={NEU_V})) == "fehler"
+    assert b"ExecStartPre=+nachholen" in (etc / "exo-smtp-relay.service").read_bytes(), "neue Unit bleibt"
+    monkeypatch.setattr(ut, "phase_zurueck", echt)                         # Sperre gelöst, Neustart
+    assert ut.beim_dienststart(w, daten) is True
+    assert (etc / "exo-smtp-relay.service").read_bytes() == b"[Service]\nExecStart=alt\n"
+    assert ut.aktuelle_version(w) == ALT_V
+
+
+def test_unit_ignoriert_fehlschlag_des_nachholens():
+    unit = (WURZEL / "linux" / "exo-smtp-relay.service").read_text(encoding="utf-8")
+    assert "ExecStartPre=-+/opt/exo-smtp-relay/venv/bin/python" in unit
+
+
+def test_neustart_wrapper_beendet_sich_nach_dem_ablauf(anlage, schluessel, tmp_path, monkeypatch):
+    """ROT 3: Die geplante Aufgabe blieb „Queued“. Jetzt beendet sich der Wrapper nach dem Ablauf
+    selbst (nach Anhalten der Anwendung), die SCM-Wiederherstellung startet ihn neu."""
+    aufrufe = _windows(monkeypatch)
+    _wrapper(anlage, b"# wrapper alt\n")
+    dist = _release_mit(tmp_path, schluessel, {"windows/service.py": b"# wrapper neu\n"})
+    _auftrag_direkt(anlage, dist)
+    reihenfolge = []
+    dienst = _Dienst(anlage["wurzel"], anlage["daten"])
+    stoppen = dienst.stoppen
+    dienst.stoppen = lambda: (reihenfolge.append("stopp"), stoppen())
+    monkeypatch.setattr(ut, "_prozess_beenden", lambda: reihenfolge.append("beenden"))
+    assert _ablauf(anlage, dienst) == "ok"
+    assert reihenfolge[-2:] == ["stopp", "beenden"], reihenfolge
+    assert aufrufe["scm"] == 1
+    assert "schtasks" not in (WURZEL / "app" / "update_tausch.py").read_text(encoding="utf-8")
+
+
+def test_neustart_ausserhalb_des_dienstes_ist_warnung(anlage, monkeypatch):
+    _windows(monkeypatch)
+    monkeypatch.setattr(ut, "_im_dienst", lambda: False)
+    _wrapper(anlage, b"# laufend\n")
+    (anlage["wurzel"] / "windows" / "service.py").write_bytes(b"# anders\n")
+    text = ut.wrapper_abgleichen(anlage["wurzel"], anlage["daten"])
+    assert text.startswith("WARNUNG") and "Restart-Service ExoSmtpRelay" in text
+    assert ut._NEUSTART_ANGEFORDERT is False
+
+
+def test_unbestaetigter_neustart_wird_nach_frist_warnung(anlage):
+    import aktualisierung
+    daten = anlage["daten"]
+    ut.status_setzen(daten, "ok", "0.2.41 läuft")
+    ut.json_schreiben(daten / "update" / ut.WRAPPER_NEUSTART, {"erwartet": "x", "zeit": "2026-01-01T00:00:00Z"})
+    assert "WARNUNG: Neustart des Dienst-Wrappers seit" in aktualisierung.status()["text"]
+    ut.json_schreiben(daten / "update" / ut.WRAPPER_NEUSTART, {"erwartet": "x", "zeit": ut._jetzt()})
+    assert "WARNUNG" not in aktualisierung.status()["text"]
+
+
+def test_gesperrter_end_status_wird_nachgetragen(anlage, schluessel, tmp_path, monkeypatch):
+    """GELB 1: Blieb status.json länger gesperrt, hing der Status dauerhaft auf „startet“."""
+    import aktualisierung
+    w, daten = anlage["wurzel"], anlage["daten"]
+    dist = _release(tmp_path, schluessel)
+    _auftrag_direkt(anlage, dist)
+    ut.status_setzen(daten, "laeuft", f"{NEU_V} startet")
+    _status_gesperrt(monkeypatch, daten, None)
+    assert _ablauf(anlage, _Dienst(w, daten)) == "ok"
+    assert ut.json_lesen(ut.status_pfad(daten))["zustand"] == "laeuft"          # noch gesperrt
+    assert aktualisierung.status()["zustand"] == "ok"                          # Anzeige stimmt schon
+    monkeypatch.undo()                                                         # Sperre weg
+    monkeypatch.setattr(aktualisierung.config, "DATA_DIR", str(daten))
+    assert aktualisierung.status()["zustand"] == "ok"
+    assert ut.json_lesen(ut.status_pfad(daten))["zustand"] == "ok"            # nachgetragen
+    assert not ut.status_ausstehend_pfad(daten).exists()
+
+
+def test_bootstrap_ab_0254_loest_nachbereitung_aus(anlage, monkeypatch):
+    """GELB 2: Knopf von ≤0.2.54 auf 0.2.56 — der alte Tauscher schreibt kein nachbereitet.json,
+    also fordert die neue Fassung beim ersten Start die Nachbereitung an."""
+    import aktualisierung
+    import config
+    assert not ut.nachbereitet_pfad(anlage["daten"]).exists()
+    monkeypatch.setattr(config, "VERSION", "0.2.56-beta")
+    monkeypatch.setattr(aktualisierung, "tauscher_bereit", lambda art=None: (True, ""))
+    assert aktualisierung.nachbereitung_anfordern() is True

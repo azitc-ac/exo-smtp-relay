@@ -151,11 +151,37 @@ def status_setzen(daten: Path, zustand: str, text: str, **mehr) -> None:
     """zustand: wartet | laeuft | ok | fehler | zurueckgerollt. Bricht NIE ab: Der Status ist
     Anzeige — scheitert er endgültig, steht es auf stderr (Dienstprotokoll), der Ablauf geht
     weiter (Labtest 0.2.54: eine gesperrte status.json beendete ablauf())."""
+    inhalt = {"zustand": zustand, "text": text, "zeit": _jetzt(), **mehr}
     try:
-        json_schreiben(status_pfad(daten), {"zustand": zustand, "text": text,
-                                            "zeit": _jetzt(), **mehr})
+        json_schreiben(status_pfad(daten), inhalt)
+        try:
+            status_ausstehend_pfad(daten).unlink()
+        except OSError:
+            pass
     except OSError as exc:
+        # Labtest 0.2.55 (gelb): blieb status.json gesperrt, log der Status dauerhaft („startet“).
+        # Der End-Status wartet daneben und wird nachgetragen (status_nachtragen).
         print(f"update_tausch: Status nicht geschrieben ({zustand}: {text[:120]}): {exc}", file=sys.stderr)
+        try:
+            json_schreiben(status_ausstehend_pfad(daten), inhalt)
+        except OSError:
+            pass
+
+
+def status_ausstehend_pfad(daten: Path) -> Path:
+    return bereich(daten) / "status.ausstehend.json"
+
+
+def status_nachtragen(daten: Path) -> None:
+    """Einen nicht geschriebenen Status nachtragen — vor jedem Ablauf, beim Dienststart und bei
+    jeder Abfrage der Oberfläche (aktualisierung.status)."""
+    aus = status_ausstehend_pfad(daten)
+    if not aus.exists():
+        return
+    try:
+        os.replace(aus, status_pfad(daten))
+    except OSError:
+        pass
 
 
 def lebenszeichen_schreiben(daten: Path, version: str) -> None:
@@ -250,14 +276,14 @@ def _weg(pfad: Path) -> None:
 # ── Windows: was sonst nur install.ps1 setzt ─────────────────────────────────
 WINDOWS = os.name == "nt"
 WRAPPER_NEUSTART = "wrapper_neustart.json"     # in data/update: erwartete Wrapper-Fassung
-NEUSTART_AUFGABE = "ExoSmtpRelay-Neustart"
 
 
-def _powershell(args: list[str]) -> tuple[int, str]:
+def _powershell(args: list[str], cwd: Path | None = None) -> tuple[int, str]:
     umgebung = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
     r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", *args],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
-                       env=umgebung, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       env=umgebung, cwd=str(cwd) if cwd else None,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
@@ -269,7 +295,7 @@ def daten_rechte_setzen(wurzel: Path) -> str:
         return ""
     skript = Path(wurzel) / "windows" / "install.ps1"
     try:
-        rc, aus = _powershell(["-File", str(skript), "-NurDatenRechte", "-InstallDir", str(wurzel)])
+        rc, aus = _powershell(["-File", str(skript), "-NurDatenRechte", "-InstallDir", str(wurzel)], cwd=wurzel)
     except Exception as exc:                                  # noqa: BLE001
         return f"WARNUNG: Rechte auf data\\ nicht geprüft ({exc})"
     zeilen = [z.strip() for z in aus.splitlines() if z.strip()]
@@ -289,38 +315,68 @@ def wrapper_fassung_datei(wurzel: Path) -> str:
     return hashlib.sha256(f.read_bytes()).hexdigest()[:12] if f.is_file() else ""
 
 
-def _neustart_einplanen() -> None:
-    """Neustart des Windows-Dienstes NICHT aus dem Dienst heraus (er beendete sich mitten im Lauf),
-    sondern per einmaliger Aufgabe als SYSTEM, die sich danach selbst löscht."""
-    befehl = (f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep 15; '
-              f'Restart-Service ExoSmtpRelay -Force; schtasks /Delete /TN {NEUSTART_AUFGABE} /F"')
-    for args in (["schtasks", "/Create", "/TN", NEUSTART_AUFGABE, "/SC", "ONCE", "/ST", "00:00",
-                  "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", befehl, "/F"],
-                 ["schtasks", "/Run", "/TN", NEUSTART_AUFGABE]):
-        r = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=60,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        if r.returncode != 0:
-            raise RuntimeError(f"{' '.join(args[:2])}: {(r.stderr or r.stdout).strip()[:200]}")
+_NEUSTART_ANGEFORDERT = False
+
+
+def _im_dienst() -> bool:
+    """Läuft dieser Code im Windows-Dienst-Wrapper (pythonservice.exe)?"""
+    return WINDOWS and Path(sys.executable).name.lower().startswith("pythonservice")
+
+
+def _wiederherstellung_setzen() -> None:
+    """SCM-Wiederherstellung des Dienstes: nach einem Prozessende ohne SERVICE_STOPPED neu starten.
+    Setzt auch install.ps1; hier für Knopf-aktualisierte Installationen (idempotent)."""
+    r = subprocess.run(["sc.exe", "failure", "ExoSmtpRelay", "reset=", "86400",
+                        "actions=", "restart/5000/restart/5000/restart/60000"],
+                       capture_output=True, text=True, errors="replace", timeout=60,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if r.returncode != 0:
+        raise RuntimeError(f"sc failure: {(r.stderr or r.stdout).strip()[:200]}")
+
+
+def _prozess_beenden() -> None:
+    """Den Wrapper-Prozess beenden, OHNE SERVICE_STOPPED zu melden — der SCM wertet das als
+    Ausfall und startet ihn nach der Wiederherstellung neu (mit der neuen windows\\service.py)."""
+    os._exit(3)
 
 
 def wrapper_abgleichen(wurzel: Path, daten: Path) -> str:
     """Windows: Weicht windows\\service.py auf der Platte von der LAUFENDEN Wrapper-Fassung ab
-    (waechter.json, beim Start geschrieben), Neustart des Windows-Dienstes einplanen — nach einem
-    Tausch auf die neue, nach einer Rücknahme auf die alte Fassung. Der Wrapper bestätigt beim
-    Start (wrapper_gestartet)."""
+    (waechter.json, beim Start geschrieben) — nach einem Tausch oder einer Rücknahme —, wird der
+    Wrapper neu gestartet: Er beendet sich nach dem Ablauf selbst (nach Anhalten der Anwendung),
+    der SCM startet ihn über die Wiederherstellung neu (Labtest 0.2.55, ROT 3: eine geplante
+    Aufgabe blieb dauerhaft „Queued“). Der neue Wrapper bestätigt beim Start (wrapper_gestartet);
+    bleibt das aus, meldet der Status nach 5 min eine WARNUNG (aktualisierung.status)."""
+    global _NEUSTART_ANGEFORDERT
     if not WINDOWS:
         return ""
     laufend = str(json_lesen(bereich(daten) / "waechter.json").get("fassung") or "")
     datei = wrapper_fassung_datei(wurzel)
     if not datei or datei == laufend:
         return ""
+    if not _im_dienst():
+        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} -> {datei}: nicht im Dienst gestartet, "
+                "kein Neustart — von Hand: Restart-Service ExoSmtpRelay")
     try:
+        _wiederherstellung_setzen()
         json_schreiben(bereich(daten) / WRAPPER_NEUSTART, {"erwartet": datei, "vorher": laufend, "zeit": _jetzt()})
-        _neustart_einplanen()
     except Exception as exc:                                  # noqa: BLE001
-        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} -> {datei}, Neustart NICHT eingeplant ({exc}) — "
+        return (f"WARNUNG: Dienst-Wrapper {laufend or 'alt'} -> {datei}, Neustart NICHT möglich ({exc}) — "
                 "von Hand: Restart-Service ExoSmtpRelay")
-    return f"Dienst-Wrapper {laufend or 'alt'} -> {datei}: Neustart des Windows-Dienstes eingeplant"
+    _NEUSTART_ANGEFORDERT = True
+    return f"Dienst-Wrapper {laufend or 'alt'} -> {datei}: Neustart nach dem Ablauf (SCM-Wiederherstellung)"
+
+
+def _neustart_wenn_angefordert(stoppen) -> None:
+    """Am Ende eines Ablaufs im Wrapper: angeforderten Neustart ausführen."""
+    global _NEUSTART_ANGEFORDERT
+    if not _NEUSTART_ANGEFORDERT:
+        return
+    _NEUSTART_ANGEFORDERT = False
+    try:
+        stoppen()
+    finally:
+        _prozess_beenden()
 
 
 def wrapper_gestartet(daten: Path, fassung: str) -> None:
@@ -484,7 +540,6 @@ def phase_zurueck(wurzel: Path, lauf: str = "", alt_entfernen: bool = True) -> s
     if not marke_gehoert_zu(wurzel, lauf):
         return (f"Rückfallstand gehört nicht zu diesem Tausch (Lauf {marke.get('lauf') or 'ohne Kennung'})"
                 " — nichts zurückgenommen, nichts verändert")
-    einheiten_zurueck(alt, marke)
     muell = []
     for teil in marke.get("neu", []):
         p = wurzel / teil
@@ -506,6 +561,9 @@ def phase_zurueck(wurzel: Path, lauf: str = "", alt_entfernen: bool = True) -> s
             if not p.exists() and muell and muell[-1].name.startswith(p.name + ".relay-verworfen"):
                 os.replace(muell.pop(), p)          # lieber die neue Fassung als keine
             raise
+    # Die alten Units ERST, wenn alle Teile zurück sind (Labtest 0.2.55, ROT 2): Solange die
+    # Rücknahme offen ist, bleibt die Unit mit ExecStartPre stehen — ein Neustart holt sie nach.
+    einheiten_zurueck(alt, marke)
     for w in muell:
         _weg(w)
     if alt_entfernen:
@@ -575,8 +633,10 @@ def phase_pip(wurzel: Path, lock: Path | None = None) -> str:
     if not python.is_file():
         return "keine venv — übersprungen"
     lock = lock or Path(wurzel) / "app" / "requirements.lock"
+    # cwd = Installationswurzel (Labtest 0.2.55, ROT 1): systemd startet ExecStartPre mit
+    # WorkingDirectory=app/ — die Rücknahme tauscht app/ weg, pip scheiterte an os.getcwd().
     r = subprocess.run([str(python), *pip_argumente(wurzel, lock)],
-                       capture_output=True, text=True, timeout=900)
+                       capture_output=True, text=True, timeout=900, cwd=str(wurzel))
     if r.returncode != 0:
         raise RuntimeError("pip: " + (r.stderr or r.stdout).strip()[-600:])
     if offline_wheels(wurzel) is not None:
@@ -636,7 +696,7 @@ def phasen_als_prozess(python: Path, skript: Path, wurzel: Path, daten: Path,
         r = subprocess.run(
             [str(python), str(skript), "phase", name, "--wurzel", str(wurzel),
              "--daten", str(daten), "--version", version, "--paket", paket, "--lauf", lauf],
-            capture_output=True, text=True, timeout=1200,
+            capture_output=True, text=True, timeout=1200, cwd=str(wurzel),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         ausgabe = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 \
             else (r.stderr or r.stdout).strip()[-600:]
@@ -672,6 +732,17 @@ def gesund_abwarten(daten: Path, version: str, laeuft, warte_s: float = WARTE_S,
 def ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
            warte_s: float = WARTE_S, stabil_s: float = STABIL_S, schlafen=time.sleep,
            uhr=time.monotonic) -> str:
+    """Ein Auftrag von Anfang bis Ende, danach ein angeforderter Wrapper-Neustart (Windows)."""
+    status_nachtragen(daten)
+    try:
+        return _ablauf(wurzel, daten, stoppen, starten, laeuft, phase, warte_s, stabil_s, schlafen, uhr)
+    finally:
+        _neustart_wenn_angefordert(stoppen)
+
+
+def _ablauf(wurzel: Path, daten: Path, stoppen, starten, laeuft, phase=None,
+            warte_s: float = WARTE_S, stabil_s: float = STABIL_S, schlafen=time.sleep,
+            uhr=time.monotonic) -> str:
     """Ein Auftrag von Anfang bis Ende. Rückgabe: Endzustand (wie status.json).
 
     `phase` None = Phasen als eigene Prozesse aus der Arbeitskopie (Betrieb);
@@ -892,17 +963,21 @@ def beim_dienststart(wurzel: Path, daten: Path, wrapper_fassung: str = "") -> bo
     (windows/service.py) und systemd (ExecStartPre=+… update_tausch.py nachholen). None, wenn
     nichts offen war; sonst das Ergebnis von ruecknahme_nachholen. Windows übergibt die eigene
     Wrapper-Fassung (bestätigt einen eingeplanten Neustart)."""
+    status_nachtragen(daten)
     if wrapper_fassung:
         wrapper_gestartet(daten, wrapper_fassung)
     if not ruecknahme_offen_pfad(daten).exists():
         return None
-    return ruecknahme_nachholen(wurzel, daten)
+    try:
+        return ruecknahme_nachholen(wurzel, daten)
+    finally:
+        _neustart_wenn_angefordert(lambda: None)        # beim Start läuft noch keine Anwendung
 
 
 # ── systemd ──────────────────────────────────────────────────────────────────
 
 def _systemctl(*args: str) -> int:
-    return subprocess.run(["systemctl", *args], capture_output=True, timeout=120).returncode
+    return subprocess.run(["systemctl", *args], capture_output=True, timeout=120, cwd="/").returncode
 
 
 def main(argv: list[str]) -> int:
@@ -918,6 +993,10 @@ def main(argv: list[str]) -> int:
     p.add_argument("--dienst", default="exo-smtp-relay")
     a = p.parse_args(argv)
     wurzel = Path(a.wurzel)
+    try:
+        os.chdir(wurzel)           # nie im Verzeichnis bleiben, das gleich getauscht wird (ROT 1)
+    except OSError:
+        pass
     daten = Path(a.daten) if a.daten else wurzel / "data"
     if a.befehl == "nachholen":
         # systemd ExecStartPre (als root, vor dem Start der Anwendung). Nie den Start blockieren:

@@ -36,8 +36,9 @@ Environment=DATA_DIR=/opt/exo-smtp-relay/data
 Environment=RELAY_BETRIEBSART=systemd
 # Offene Rücknahme des Updaters (data/update/ruecknahme_offen.json) VOR dem Start nachholen —
 # derselbe Pfad wie der Windows-Dienst-Wrapper. „+“: als root und ohne ProtectSystem, denn die
-# Rücknahme tauscht app/. Blockiert den Start nie (Exit 0).
-ExecStartPre=+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch.py nachholen --wurzel /opt/exo-smtp-relay --daten /opt/exo-smtp-relay/data
+# Rücknahme tauscht app/. Blockiert den Start nie: Exit 0, und „-“ ignoriert auch einen Fehlschlag
+# (etwa eine ältere Fassung ohne diesen Befehl nach einer Rücknahme).
+ExecStartPre=-+/opt/exo-smtp-relay/venv/bin/python /opt/exo-smtp-relay/app/update_tausch.py nachholen --wurzel /opt/exo-smtp-relay --daten /opt/exo-smtp-relay/data
 ExecStart=/opt/exo-smtp-relay/venv/bin/python main.py
 Restart=on-failure
 RestartSec=5

@@ -46,9 +46,9 @@
          wie vorher, keine "ergaenzt"-Meldung. Gegenprobe 3095166: Hash anders ("ergaenzt").
 
      14. Knopf-Weg unter Windows: (a) update_tausch.daten_rechte_setzen entfernt eine fremde
-         Berechtigung auf data\ ueber install.ps1 -NurDatenRechte; (b) wrapper_abgleichen plant bei
-         abweichender Wrapper-Fassung einen Neustart per einmaliger Aufgabe, der neue Wrapper
-         bestaetigt ihn im Status, die Aufgabe ist danach weg.
+         Berechtigung auf data\ ueber install.ps1 -NurDatenRechte; (b) Auftrag im laufenden Wrapper
+         mit abweichender Wrapper-Fassung: der Wrapper beendet sich nach dem Ablauf, die SCM-
+         Wiederherstellung startet ihn neu, der neue Wrapper bestaetigt im Status.
 
      15. Bootstrap: 0.2.54 installiert (ALTER Wrapper laeuft), danach liegen app\ und windows\ der
          aktuellen Fassung auf der Platte - der Endzustand eines Tauschs durch den 0.2.54-Tauscher.
@@ -553,12 +553,16 @@ $waechter = Join-Path $ziel "data\update\waechter.json"
 $w = Get-Content $waechter -Raw | ConvertFrom-Json
 $echt = "$($w.fassung)"
 Pruefe ($echt -match '^[0-9a-f]{12}$') "(b) laufender Wrapper meldet seine Fassung ($echt)"
+$sc = (& sc.exe qfailure ExoSmtpRelay | Out-String)
+Pruefe ($sc -match "RESTART") "(b) SCM-Wiederherstellung gesetzt (install.ps1)"
+# Wrapper-Neustart ueber den echten Weg: Auftrag im laufenden Wrapper, Fassung weicht ab -> der
+# Wrapper beendet sich nach dem Ablauf, der SCM startet ihn neu (Labtest 0.2.55 ROT 3: die frueher
+# genutzte geplante Aufgabe blieb "Queued").
 $w.fassung = "000000000000"
 [System.IO.File]::WriteAllText($waechter, ($w | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+Remove-Item (Join-Path $ziel "data\update\nachbereitet.json") -ErrorAction SilentlyContinue
 $pidVorher = (Get-CimInstance Win32_Service -Filter "Name='ExoSmtpRelay'").ProcessId
-$r = Invoke-Tausch "u.wrapper_abgleichen(W, D)"
-Write-Host "  $r"
-Pruefe ($r -match "Neustart des Windows-Dienstes eingeplant") "(b) Neustart per einmaliger Aufgabe eingeplant"
+[System.IO.File]::WriteAllText((Join-Path $ziel "data\update\auftrag.json"), '{"nachbereiten": true, "protokoll": 1}', (New-Object System.Text.UTF8Encoding($false)))
 $neu = $null
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 3
@@ -566,11 +570,11 @@ for ($i = 0; $i -lt 60; $i++) {
     $w2 = Get-Content $waechter -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
     if ($pid2 -and $pid2 -ne $pidVorher -and $w2 -and "$($w2.fassung)" -eq $echt -and (Get-DienstStatus) -eq "Running") { $neu = $w2; break }
 }
-Pruefe ($null -ne $neu) "(b) Windows-Dienst neu gestartet, Wrapper meldet wieder $echt"
+Pruefe ($null -ne $neu) "(b) Wrapper beendet, SCM hat ihn neu gestartet (neue PID), Fassung $echt"
 $st = Get-Content (Join-Path $ziel "data\update\status.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-Pruefe ("$($st.text)" -match "Dienst-Wrapper neu gestartet \(Fassung $echt\)") "(b) Neustart im Status bestaetigt"
-$ErrorActionPreference = "Continue"; & schtasks.exe /Query /TN ExoSmtpRelay-Neustart 2>&1 | Out-Null; $rcAufgabe = $LASTEXITCODE; $ErrorActionPreference = "Stop"
-Pruefe ($rcAufgabe -ne 0) "(b) einmalige Aufgabe hat sich geloescht"
+Write-Host "  Status: $($st.text)"
+Pruefe ("$($st.text)" -match "Neustart nach dem Ablauf \(SCM-Wiederherstellung\)" -and "$($st.text)" -match "Dienst-Wrapper neu gestartet \(Fassung $echt\)") "(b) Neustart angefordert und bestaetigt"
+Pruefe (-not (Test-Path (Join-Path $ziel "data\update\wrapper_neustart.json"))) "(b) wrapper_neustart.json abgeraeumt"
 Pruefe (Test-Laeuft $version) "(b) /health $version"
 
 # 15 -- Bootstrap: Tausch durch den 0.2.54-Tauscher, Nachbereitung mit neuem Code --------------

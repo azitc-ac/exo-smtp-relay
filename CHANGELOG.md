@@ -15,6 +15,31 @@
   `daten_rechte_setzen`, `wrapper_abgleichen`), ist idempotent, läuft einmal je Fassung, stoppt
   den Dienst nicht und meldet ihr Ergebnis im Status; Fehler sind WARNUNGEN. Der neue Tauscher und
   `install.ps1` vermerken die Nachbereitung selbst, dann gibt es keinen zweiten Auftrag.
+- **Aus dem Labtest von 0.2.55-beta:**
+  - **systemd, pip in der Rücknahme beim Start (ROT 1):** `ExecStartPre` läuft mit
+    `WorkingDirectory=app/`; die Rücknahme tauscht `app/` weg, pip scheiterte an `os.getcwd()`.
+    Jetzt wechselt `update_tausch.py` sofort in die Installationswurzel, und pip, die Phasen,
+    PowerShell und `systemctl` laufen mit festem `cwd`.
+  - **systemd, alte Unit zu früh (ROT 2):** Scheiterte die Rücknahme teilweise, war die ALTE Unit
+    (ohne `ExecStartPre`) schon zurück — ein Neustart holte nichts mehr nach; die 0.2.56-
+    Nachbereitung deckt das nicht ab (am Platz liegt dann die alte Fassung). Jetzt kommen die
+    alten Units erst, wenn die Rücknahme VOLLSTÄNDIG gelungen ist; solange sie offen ist, bleibt
+    die Unit mit `ExecStartPre` stehen. Gewählt statt eines Nachhol-Pfads außerhalb der Unit,
+    weil es denselben Weg nutzt, den Start ohnehin geht. `ExecStartPre=-+…`: ein Fehlschlag (etwa
+    eine zurückgeholte ältere Fassung ohne den Befehl) blockiert den Start nie.
+  - **Windows, Wrapper-Neustart blieb aus (ROT 3):** Die geplante Aufgabe blieb im Lab dauerhaft
+    „Queued“ (im CI lief sie). Die Ursache ist von hier aus nicht belegbar — Kandidaten sind die
+    Vorgaben, mit denen `schtasks /Create` Aufgaben anlegt (u. a. Start nur mit Netzstrom). Statt
+    darauf zu bauen: Der Wrapper beendet sich nach dem Ablauf selbst (nach Anhalten der
+    Anwendung, ohne SERVICE_STOPPED), die **SCM-Wiederherstellung** (`sc failure … restart`, setzt
+    `install.ps1` und der Tauscher) startet ihn neu — ohne Aufgabenplanung. Bestätigt der neue
+    Wrapper den Neustart nicht binnen 5 min, zeigt der Status eine WARNUNG mit
+    `Restart-Service ExoSmtpRelay`.
+  - **Status blieb auf „startet“ (gelb):** Ein nicht geschriebener Status wartet in
+    `status.ausstehend.json` und wird vor jedem Ablauf, beim Dienststart und bei jeder Abfrage der
+    Oberfläche nachgetragen; die Anzeige nimmt ihn sofort.
+  - **Bootstrap (gelb):** bestätigt — Knopf von ≤0.2.54 auf 0.2.56 löst die Nachbereitung aus
+    (kein `nachbereitet.json` vom alten Tauscher; Test).
 - Bleibt bestehen und ist so gewollt: Nimmt ein ALTER Updater zurück, stellt er die alte Unit
   ohne `ExecStartPre` wieder her — das ist die alte Fassung; die nächste neue bereitet wieder nach.
 - Tests: Tausch durch einen simulierten alten Tauscher, danach erster Start der neuen Fassung →

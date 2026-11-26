@@ -241,11 +241,35 @@ def planmaessig_pruefen() -> bool:
 # ── Einspielen ───────────────────────────────────────────────────────────────
 
 def status() -> dict:
-    # Unlesbar ist nicht „ruhe“ (Suchlauf 0.2.55: {} galt bisher als „nichts los“).
+    # Ein nicht geschriebener End-Status (status.json gesperrt) wird hier nachgetragen bzw. gilt
+    # vorrangig (Labtest 0.2.55, gelb). Unlesbar ist nicht „ruhe“ (Suchlauf 0.2.55).
+    update_tausch.status_nachtragen(_daten())
     try:
-        return update_tausch.json_lesen_streng(update_tausch.status_pfad(_daten())) or {"zustand": "ruhe"}
+        s = (update_tausch.json_lesen_streng(update_tausch.status_ausstehend_pfad(_daten()))
+             or update_tausch.json_lesen_streng(update_tausch.status_pfad(_daten())) or {"zustand": "ruhe"})
     except update_tausch.JsonUnlesbar as exc:
         return {"zustand": "fehler", "text": f"Status der Aktualisierung unlesbar: {exc}"}
+    return _neustart_unbestaetigt(s)
+
+
+NEUSTART_FRIST_S = 300
+
+
+def _neustart_unbestaetigt(s: dict) -> dict:
+    """Ein angeforderter Wrapper-Neustart, den der neue Wrapper nach NEUSTART_FRIST_S nicht
+    bestätigt hat, ist eine WARNUNG mit Befehl — nicht dauerhaft „Neustart …“ (Labtest 0.2.55, ROT 3)."""
+    n = update_tausch.json_lesen(_bereich() / update_tausch.WRAPPER_NEUSTART)
+    if not n:
+        return s
+    try:
+        alter = (datetime.now(timezone.utc) - datetime.strptime(n.get("zeit", ""), "%Y-%m-%dT%H:%M:%SZ")
+                 .replace(tzinfo=timezone.utc)).total_seconds()
+    except ValueError:
+        alter = NEUSTART_FRIST_S + 1
+    if alter <= NEUSTART_FRIST_S:
+        return s
+    return {**s, "text": f"{s.get('text', '')}; WARNUNG: Neustart des Dienst-Wrappers seit {int(alter // 60)} min "
+                         "unbestätigt — von Hand: Restart-Service ExoSmtpRelay".lstrip("; ")}
 
 
 DOCKER_BEFEHL = "docker compose pull && docker compose up -d"

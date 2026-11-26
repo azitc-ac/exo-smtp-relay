@@ -1084,6 +1084,11 @@ try {
     } else {
         Invoke-RelayNativ "service.py install" { & $venvPython $service --startup auto install } | Out-Null
     }
+    # SCM-Wiederherstellung: beendet sich der Wrapper ohne SERVICE_STOPPED (so startet ihn der
+    # Updater nach einem Tausch neu, Labtest 0.2.55 ROT 3), startet der SCM ihn neu.
+    try {
+        Invoke-RelayNativ "sc failure" { & sc.exe failure ExoSmtpRelay reset= 86400 actions= restart/5000/restart/5000/restart/60000 } | Out-Null
+    } catch { Write-Warn "Wiederherstellung des Dienstes nicht gesetzt: $($_.Exception.Message)" }
     $pyBasis = @(Invoke-RelayNativ "Python-Basis ermitteln" { & $venvPython -c "import sys; print(sys.base_prefix)" })[-1].Trim()
     Sync-RelayDienstDlls -Venv $venv -Basis $pyBasis -MaschinenPfad ([Environment]::GetEnvironmentVariable("Path", "Machine"))
     # Umgebung des Dienstes (Registry). pythonservice.exe bettet den Basis-Interpreter ein und
