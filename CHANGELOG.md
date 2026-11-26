@@ -1,5 +1,58 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.56 — 2026-11-26 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.56-beta, Lieferkette, Offline-Paket, robuster Installer und Updater
+
+Erste stabile Fassung seit **0.2.42**. Fasst 0.2.43-beta bis 0.2.56-beta zusammen — Einzelheiten in
+deren Abschnitten unten. Nicht veröffentlicht wurden 0.2.45, 0.2.46, 0.2.50 und 0.2.51 (Labtest-
+Stopps); **0.2.52-beta gibt es nur als Abbild und ist nicht zu verwenden** (siehe 0.2.53-beta).
+
+**Upgrade-Hinweise**
+
+- **Windows ohne nachgeladene Wurzelzertifikate** (frischer Server, auf dem nie ein Browser GitHub
+  aufgerufen hat): Die alte Fassung scheitert bei „Aktualisierung prüfen“ mit
+  `CERTIFICATE_VERIFY_FAILED`. Dann **einmal `windows\install.ps1`** aus dem neuen Paket als
+  Administrator ausführen; danach geht das Update per Knopf. Das Upgrade per `install.ps1` behält
+  Kennwort, Port, Dienst-Umgebung und Firewall-Einschränkungen.
+- **Docker:** Das Abbild startet über `docker-entrypoint.sh` als root, macht `/app/data` für
+  `appuser` (uid 1000) beschreibbar und wechselt dann auf `appuser`; der Dienst läuft nie als root.
+  `docker compose pull && docker compose up -d`. Einen eigenen `entrypoint:` in
+  `docker-compose.yml` herausnehmen; mit `user:` muss `./data` diesem Nutzer gehören.
+- **Rechte auf `data\`** (Windows) werden erzwungen — durch `install.ps1` UND jetzt auch beim
+  Knopf-Update (dieselbe Funktion). Fremde Einträge werden entfernt und im Status gemeldet.
+- **Offline-Server:** `exo-smtp-relay-0.2.56-windows-offline.zip` (README → Offline-Installation);
+  eine damit installierte Instanz aktualisiert ohne PyPI.
+- **systemd-Units und der Dienst-Wrapper werden mitgezogen.** Hat ein älterer Updater getauscht
+  (Knopf ab 0.2.42), holt die neue Fassung das beim ersten Start nach (**Nachbereitung, nach ca.
+  90 s**): Units nach `/etc/systemd/system` (angepasste bleiben und werden gemeldet), `data\`-Rechte,
+  Neustart des Windows-Dienst-Wrappers. Das Ergebnis steht unter *Aktualisierung*.
+- **Windows:** Die Wiederherstellung des Dienstes (`sc failure … restart`) wird gesetzt — von
+  `install.ps1` und vom Updater, sobald ein Wrapper-Neustart ansteht.
+
+**Das Wichtigste**
+
+- **Lieferkette:** Python-Pakete nur mit Prüfsummen (`pip --require-hashes`); Python-Installer und
+  ExchangeOnlineManagement von festen Adressen mit fester SHA256 und geprüfter Authenticode-
+  Signatur; kein ungeprüfter Download.
+- **Windows-Offline-Paket**, vor jeder Veröffentlichung auf Windows ohne Netz geprüft; ohne grünen
+  Offline-Test wird nichts veröffentlicht, auch kein Abbild.
+- **`install.ps1`:** nur atomares Verschieben, Selbstheilung von Resten, Sperrtest, Rücknahme mit
+  Merker und Lauf-ID, Lebenszeichen vor „Aktualisiert“, Rücknahme von Abhängigkeiten, Port und
+  Firewall; Python 3.11–3.13; Dienst auch ohne Python im PATH; Dienststart mit Wiederholung.
+- **Updater:** Rücknahme nur des eigenen Tauschs (Lauf-ID), ehrlich gemeldet und wiederholbar;
+  offene Rücknahme wird beim Dienststart (Windows-Wrapper, systemd `ExecStartPre`) oder per Knopf
+  nachgeholt; robustes Schreiben, Status wird nachgetragen; Units und Dienst-Wrapper mitgezogen.
+- **TLS:** selbstsigniertes Zertifikat für FQDN und Rechnernamen, auch über 64 Zeichen.
+
+**Im Labtest geprüft:** Windows Server 2025, Linux systemd, Docker, Offline-VM; Knopf-Update direkt
+ab 0.2.42.
+
+**Nicht geprüft:** Dateivergleich unter Windows nach Knopf ab 0.2.54 bzw. 0.2.42 (geprüft nur
+`/health` und SMTP); l4c mit `windows\` als Arbeitsverzeichnis; l1/l5 nur in 0.2.55; Docker ab
+0.2.42; gesperrte `status.json` unter systemd mit echtem Leser.
+
+**Bekannt:** Nach einem Knopf-Update ab 0.2.55 bleibt `sc qfailure ExoSmtpRelay` leer, bis ein
+Wrapper-Neustart ansteht oder `install.ps1` läuft — funktional ohne Folgen.
+
 ## 0.2.56-beta — 2026-11-25 — Nachbereitung durch die neue Fassung (Bootstrap)
 
 - **Bootstrap-Lücke geschlossen** (am Code verifiziert): Der Knopf-Tausch läuft aus dem
