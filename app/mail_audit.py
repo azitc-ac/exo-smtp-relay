@@ -9,6 +9,7 @@ dieselbe `log_event()`-Signatur, ohne Graph-Zähler und Stundenstatistik.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -26,11 +27,28 @@ _lock = threading.Lock()
 _initialised = False
 
 
-def _conn() -> sqlite3.Connection:
+def _oeffnen() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     secure_io.harden_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextlib.contextmanager
+def _conn():
+    """Verbindung für EINEN Block: commit bzw. rollback wie bisher, danach GESCHLOSSEN.
+
+    ⚠️ `with sqlite3.connect(...) as c:` schließt die Verbindung NICHT — der
+    Kontextmanager von sqlite3 macht nur commit/rollback. Jede Abfrage ließ so
+    eine offene Datei zurück, bis die Speicherbereinigung sie fand; die
+    Testreihe scheiterte bei `ulimit -n 1024` (Debian-Vorgabe) mit
+    „Too many open files“ (gemessen 27.11.2026, ~1000 ResourceWarnings)."""
+    c = _oeffnen()
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def init_db() -> None:
