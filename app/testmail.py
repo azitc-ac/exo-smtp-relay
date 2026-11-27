@@ -27,6 +27,7 @@ import email.utils
 import logging
 import secrets
 import smtplib
+import ssl
 import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
