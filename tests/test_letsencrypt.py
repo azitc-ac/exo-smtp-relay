@@ -434,7 +434,7 @@ def test_jede_le_einstellung_hat_einen_oberflaechenpunkt():
     html = (WURZEL / "app" / "webui" / "templates" / "einstellungen.html").read_text("utf-8")
     schluessel = [k for k in settings_store.DEFAULTS
                   if k.startswith(("LE_", "ACME_")) and k != "LE_LAUF"]
-    assert len(schluessel) == 5
+    assert len(schluessel) == 6                  # seit 0.2.57-beta mit LE_METHODE
     for k in schluessel:
         assert f'id="{k}"' in html, k
         assert f"'{k}'" in html, f"{k} wird nicht gespeichert"

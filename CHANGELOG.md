@@ -1,5 +1,37 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.57-beta — 2026-11-27 — Let's Encrypt DNS-01 über die DNS-API (IONOS; Azure DNS vorbereitet)
+
+- **DNS-01 automatisch:** Mit einem DNS-Provider legt das Relay den TXT-Record
+  `_acme-challenge.<name>` selbst an, wartet, bis er auf **jedem autoritativen Nameserver** steht
+  (Zeitlimit `DNS01_WARTEN_S`, Vorgabe 300 s), löst die Prüfung aus und entfernt **immer** nur
+  seinen eigenen Wert wieder, auch wenn etwas scheitert. Fremde TXT-Records unter demselben Namen
+  (SPF, Nachweise, ein zweiter ACME-Wert) bleiben stehen. Mehrere Namen (Komma) und **Wildcards**
+  (`*.example.com`) gehen nur auf diesem Weg.
+- **Methodenschalter `LE_METHODE`** (`http01` | `dns01`) für Ausstellen UND Erneuern. Der Zeitplaner
+  erneuert DNS-01-Zertifikate über die DNS-API, ohne certbot zu fragen. Ein importiertes bzw.
+  fremdes Zertifikat überschreibt er nicht. Vorgabe unter Windows `dns01` (dort gibt es kein
+  certbot), sonst `http01`. Wer über HTTP-01 bzw. DNS-01 ausstellt, setzt den Schalter mit.
+- **Provider-Katalog `app/dns_provider/`** (Apache 2.0, Herkunft Relay, für den späteren Port ins
+  Gateway): Basisklasse, `ionos.py`, `azure.py`, schlanke DNS-Abfrage (`dnsabfrage.py`, nur
+  Standardbibliothek). `KATALOG_VERSION` 1.0.0 mit SHA-256 je Datei; ein Test gleicht Manifest und
+  Inhalt ab und prüft, dass der Katalog keine Relay-Module importiert.
+- **IONOS** (`api.hosting.ionos.com/dns/v1`, `X-API-Key: <Präfix>.<Geheimnis>`), gegen die offizielle
+  OpenAPI-Beschreibung geprüft. **Azure DNS** (ARM, App-Registrierung oder verwaltete Identität) ist
+  vorbereitet, aber nicht gegen ein echtes Azure erprobt.
+- **Oberfläche:** Einstellungen → TLS-Zertifikat → Let's Encrypt: Methode, Provider, Felder je
+  Provider (aus dem Katalog), „Verbindung testen“ (liest nur die Zonen), „Zertifikat über DNS-01
+  ausstellen“ (mit Testumgebung). DNS-01 von Hand bleibt für „kein Provider“.
+- **Geheimnisse** (`DNS01_IONOS_SECRET`, `DNS01_AZURE_CLIENT_SECRET`) liegen in `data/settings.json`
+  wie die übrigen Zugangsdaten. Die Oberfläche zeigt sie nur maskiert. Protokoll, Status und
+  API-Antworten enthalten sie nie, auch wenn die API den Schlüssel in ihrer Fehlermeldung
+  wiederholt. Ein Test prüft das.
+- **Keine neue Abhängigkeit:** Die DNS-Abfrage ist eine eigene Umsetzung (UDP, TCP bei TC, Verweise
+  ab den Wurzelservern), dnspython ist nicht nötig. Lock-Datei und Offline-Paket bleiben unverändert.
+- **Grenzen:** Die Sichtbarkeitsprüfung braucht UDP/TCP 53 nach außen. Ist das gesperrt, wartet das
+  Relay das Zeitlimit ab und versucht es trotzdem. Ein CNAME auf `_acme-challenge` wird nicht
+  verfolgt. HTTP-01 und DNS-01 von Hand nehmen weiter genau einen Namen ohne Wildcard.
+
 ## 0.2.56 — 2026-11-26 — Stable: Labtest-Korrekturen 0.2.43-beta bis 0.2.56-beta, Lieferkette, Offline-Paket, robuster Installer und Updater
 
 Erste stabile Fassung seit **0.2.42**. Fasst 0.2.43-beta bis 0.2.56-beta zusammen — Einzelheiten in

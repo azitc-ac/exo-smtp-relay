@@ -1,0 +1,9 @@
+# DNS-Provider-Katalog — Fassung und SHA-256 je Datei (LF-normalisiert).
+# Neu schreiben: cd app && python -m dns_provider schreiben <fassung>
+version 1.0.0
+d933d4db5741834fffbbe2ae4069932175230be8d6d64917251cd59c3e3f0f17  __init__.py
+c21902fd9c243e0cd565791fc17822ba0a1367b508085fe37914b58120bfc2f9  __main__.py
+4f5aeef6dc3ee9130c086cfe35e2d439c83476047591ff20d5a39b432c418b96  azure.py
+9407d688ae02803039f98704d80b31db490e8e73e705399ef398d2c29cabc4f7  basis.py
+e02722c515d92d3cfbd2469a32d3d4f179e126576c49096690e3ee9125812103  dnsabfrage.py
+8ad24da07c2cfbae4c26b2899d05f76c6721b4311fccdb5fa9ed3fd293d20be5  ionos.py

@@ -27,6 +27,8 @@ zurück, und `certbot renew` bricht an „expected … to be a symlink“ ab. Da
 Zertifikat selbst ist über certs/ enthalten. Nach einer Wiederherstellung
 stellt der Zeitplaner bei fälligem Ablauf mit den gespeicherten Angaben
 (LE_DOMAIN, LE_EMAIL, LE_LAUF.weg = http01) neu aus (scheduler._tls_pruefen).
+DNS-01 über die DNS-API braucht nichts außer settings.json (LE_METHODE,
+DNS01_PROVIDER und die Zugangsdaten des Providers) — das ist enthalten.
 
 TLS-ZERTIFIKAT: Es liegt dort, wo `config.SMTP_TLS_CERT` / `SMTP_TLS_KEY`
 hinzeigen — ohne Angabe unter DATA_DIR/certs/, per Umgebung auch woanders. Im

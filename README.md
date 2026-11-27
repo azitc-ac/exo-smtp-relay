@@ -64,9 +64,10 @@ Der Relay kann die angenommene Post auf zwei Wegen an Exchange Online übergeben
 
 **smarthost (Vorgabe)** — Port 25 + TLS-Zertifikat
   - Der Inbound-Connector erkennt dein Relay am TLS-Zertifikat
-  - Zertifikat: öffentliche CA — kostenlos über **Let's Encrypt** (Einstellungen → TLS:
-    HTTP-01 mit certbot und automatischer Erneuerung, Linux/Docker; oder DNS-01 von Hand,
-    auch unter Windows) bzw. als PFX importiert — **oder** IP-basiert mit selbstsigniertem
+  - Zertifikat: öffentliche CA — kostenlos über **Let's Encrypt** (Einstellungen → TLS, siehe
+    [Let's Encrypt](#lets-encrypt-http-01-und-dns-01): HTTP-01 mit certbot, Linux/Docker; DNS-01
+    über die DNS-API von IONOS mit automatischer Erneuerung oder von Hand, auch unter Windows)
+    bzw. als PFX importiert — **oder** IP-basiert mit selbstsigniertem
     (feste Adresse nötig). Ein neues Zertifikat nutzt der Listener ohne Neustart.
   - Braucht ausgehenden **Port 25** (blockiert in vielen Netzen)
   - Dreier: `app/scripts/setup_relay_connector.ps1` richtet den Connector automatisch ein
@@ -272,6 +273,56 @@ sichtbarem Zustand:
 Alles, was der Assistent setzt, änderst du später unter *Einstellungen*. Ohne
 Entra-Login geht es auch: App-ID, Tenant und Zertifikat von Hand, oder ganz ohne
 App-Registrierung mit Adressen von Hand.
+
+---
+
+## Let's Encrypt (HTTP-01 und DNS-01)
+
+*Einstellungen → TLS-Zertifikat → Let's Encrypt.* Die **Methode** (`LE_METHODE`) gilt für
+Ausstellen UND automatische Erneuerung (`LE_AUTO_RENEW`, `LE_RENEW_DAYS` Tage vor Ablauf):
+
+- **HTTP-01** (`http01`, Vorgabe unter Linux): certbot, Port 80 nur während des Laufs offen.
+  Nur ein Name, keine Wildcards. Unter Windows gibt es certbot nicht.
+- **DNS-01** (`dns01`, Vorgabe unter Windows): Let's Encrypt prüft einen TXT-Record
+  `_acme-challenge.<name>`. Kein offener Port nötig.
+  - **Mit DNS-Provider** (`DNS01_PROVIDER`): Das Relay legt den TXT-Record über die API an,
+    wartet, bis er auf **jedem autoritativen Nameserver** steht (höchstens `DNS01_WARTEN_S`
+    Sekunden, Vorgabe 300), löst die Prüfung aus und entfernt **nur seinen eigenen Wert**
+    wieder, auch wenn etwas scheitert. Andere TXT-Records unter demselben Namen (SPF,
+    Domänen-Nachweise) bleiben. Erneuert wird genauso, ohne dein Zutun. Mehrere Namen
+    (Komma) und Wildcards (`*.example.com`) gehen nur hier.
+  - **Ohne Provider** (von Hand): Das Relay zeigt den TXT-Record, du setzt ihn, dann
+    „Record ist gesetzt“. Die Erneuerung musst du wiederholen; ein Band erinnert.
+
+**IONOS** (`ionos`, erprobt):
+
+1. Im IONOS Developer Portal (`developer.hosting.ionos.de`) anmelden, *API Keys* →
+   *Create New Key*, eine Bezeichnung vergeben.
+2. **Öffentliches Präfix** und **Geheimnis** kopieren. IONOS zeigt das Geheimnis nur einmal.
+3. Im Relay: Methode *DNS-01*, Provider *IONOS*, Präfix in `DNS01_IONOS_PREFIX`, Geheimnis in
+   `DNS01_IONOS_SECRET`. *Speichern* → *Verbindung testen* (liest nur die Zonen) →
+   *Zertifikat über DNS-01 ausstellen*. Mit *Testumgebung* zuerst gegen Let's Encrypt
+   Staging üben (zählt nicht für den Connector).
+
+Der Schlüssel gilt für alle Zonen des IONOS-Kontos. IONOS erlaubt 1200 API-Anfragen je
+Stunde und Schlüssel.
+
+**Azure DNS** (`azure`, *vorbereitet, noch nicht gegen ein echtes Azure erprobt*):
+`DNS01_AZURE_SUBSCRIPTION`, optional `DNS01_AZURE_RESOURCE_GROUP` und `DNS01_AZURE_ZONE`,
+Anmeldung `DNS01_AZURE_AUTH` = `app` (`DNS01_AZURE_TENANT`, `DNS01_AZURE_CLIENT_ID`,
+`DNS01_AZURE_CLIENT_SECRET`) oder `managed` (verwaltete Identität einer Azure-VM). Die
+Identität braucht die Rolle *DNS Zone Contributor*.
+
+**Geheimnisse** (`DNS01_IONOS_SECRET`, `DNS01_AZURE_CLIENT_SECRET`) liegen wie alle
+Zugangsdaten in `data/settings.json` (600, unter Windows nur SYSTEM und Administratoren).
+Die Oberfläche zeigt sie nur maskiert. In Protokoll, Status und Antworten erscheinen sie nie.
+
+**Grenzen:** Die Sichtbarkeitsprüfung fragt die Nameserver direkt (UDP/TCP 53 nach außen).
+Ist das gesperrt, wartet das Relay das Zeitlimit ab und versucht es trotzdem. Ein CNAME auf
+`_acme-challenge` (Delegation an einen anderen DNS-Dienst) wird nicht verfolgt.
+
+Den Provider-Katalog (`app/dns_provider/`, Apache 2.0) teilt sich das Relay mit dem Gateway.
+`KATALOG_VERSION` trägt Fassung und SHA-256 jeder Datei; ein Test gleicht beides ab.
 
 ---
 

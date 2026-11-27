@@ -73,7 +73,10 @@ def _tls_pruefen() -> str:
     Konfiguration, obwohl zuletzt über HTTP-01 ausgestellt wurde — so nach einer
     Wiederherstellung aus dem Backup, das `le-config/` nicht enthält
     (backup_manager) —, wird mit den gespeicherten Angaben neu ausgestellt.
-    Ein DNS-01- oder PFX-Zertifikat erneuert niemand selbst; dafür steht das
+    Methodenschalter `LE_METHODE` (seit 0.2.57-beta): bei ``dns01`` erneuert
+    `_dns01_erneuern` über die DNS-API (DIESELBE Funktion wie die Ausstellung,
+    `tls_acme_dns.automatisch`) — certbot wird dann gar nicht gefragt. DNS-01
+    von Hand (kein Provider) und PFX erneuert niemand selbst; dafür steht das
     Band „TLS-Zertifikat läuft ab“ auf jeder Seite (webui/deps.py).
     Einen Neustart braucht es nicht: der Listener lädt das neue Zertifikat bei
     der nächsten Verbindung."""
@@ -95,6 +98,9 @@ def _tls_pruefen() -> str:
     if _le_versuch_tag == heute:
         return "heute-schon"
     _le_versuch_tag = heute
+
+    if (settings_store.get("LE_METHODE") or "http01") == "dns01":
+        return _dns01_erneuern(st, tage)
 
     log.info("TLS-Zertifikat läuft in %d Tagen ab — Erneuerung über certbot", tage)
     status, info = le_certbot.erneuern()
@@ -118,6 +124,40 @@ def _tls_pruefen() -> str:
     else:
         log.warning("certbot hat nichts erneuert (%s) — Ablauf in %d Tagen", status, tage)
     return status
+
+
+def _dns01_erneuern(st: dict, tage: int) -> str:
+    """DNS-01 über die DNS-API erneuern. Nur, wenn das ausgelieferte Zertifikat
+    von Let's Encrypt ist und alle Namen aus LE_DOMAIN trägt — ein bewusst
+    importiertes Zertifikat wird nicht überschrieben (wie le_certbot.verwaltet)."""
+    import asyncio
+    import le_certbot
+    import settings_store
+    import tls_acme_dns
+    provider = (settings_store.get("DNS01_PROVIDER") or "").strip()
+    try:
+        namen = tls_acme_dns.namen_aus(settings_store.get("LE_DOMAIN") or settings_store.get("PUBLIC_HOSTNAME") or "")
+    except ValueError as exc:
+        log.error("TLS-Zertifikat: %s", exc)
+        return "manuell"
+    vorhanden = {h.lower() for h in (st.get("hostnames") or [])}
+    if not provider or not namen or not st.get("lets_encrypt") or not set(namen) <= vorhanden:
+        log.warning("TLS-Zertifikat läuft in %d Tagen ab und wird nicht automatisch erneuert "
+                    "(DNS-01 ohne DNS-Provider bzw. kein passendes Let's-Encrypt-Zertifikat) — "
+                    "bitte selbst erneuern", tage)
+        return "manuell"
+    log.info("TLS-Zertifikat läuft in %d Tagen ab — Erneuerung über DNS-01 (%s)", tage, provider)
+    try:
+        info = asyncio.run(tls_acme_dns.automatisch(
+            namen, (settings_store.get("LE_EMAIL") or "").strip(), staging=bool(st.get("staging"))))
+    except Exception as exc:                                  # noqa: BLE001
+        log.error("Erneuerung des TLS-Zertifikats über DNS-01 fehlgeschlagen: %s", exc)
+        le_certbot.lauf_vermerken(False, f"DNS-01 ({provider}): Erneuerung fehlgeschlagen: {exc}", "dns01")
+        return "error"
+    bis = (info.get("not_after") or "?")[:10]
+    log.info("TLS-Zertifikat über DNS-01 erneuert, gültig bis %s — ab der nächsten Verbindung genutzt", bis)
+    le_certbot.lauf_vermerken(True, f"DNS-01 ({provider}): erneuert, gültig bis {bis}", "dns01")
+    return "renewed"
 
 
 def _taeglich() -> None:

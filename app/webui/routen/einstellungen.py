@@ -56,6 +56,12 @@ async def api_einstellungen(request: Request, user: str = Depends(_require_admin
     if "UPDATE_PRUEF_STUNDEN" in uebernommen and \
             str(uebernommen["UPDATE_PRUEF_STUNDEN"]) not in {str(h) for h in aktualisierung.INTERVALLE_H}:
         return JSONResponse({"ok": False, "error": "Unzulässiges Prüfintervall."}, status_code=400)
+    if "LE_METHODE" in uebernommen and uebernommen["LE_METHODE"] not in ("http01", "dns01"):
+        return JSONResponse({"ok": False, "error": "Methode muss http01 oder dns01 sein."}, status_code=400)
+    if "DNS01_PROVIDER" in uebernommen:
+        import dns_provider
+        if (uebernommen["DNS01_PROVIDER"] or "") not in ("", *dns_provider.PROVIDER):
+            return JSONResponse({"ok": False, "error": "Unbekannter DNS-Provider."}, status_code=400)
     settings_store.update(uebernommen)
     if "ADRESSEN_ZUSAETZLICH" in uebernommen:
         exo_mailboxes.invalidate()
@@ -173,10 +179,25 @@ async def api_tls_import(user: str = Depends(_require_admin), datei: UploadFile 
 # schreiben über tls_cert._schreiben; der Listener lädt das Zertifikat bei der
 # nächsten Verbindung, der Rückweg zu Exchange beim nächsten Versand.
 
+def _katalog() -> list[dict]:
+    """Provider-Katalog für die Oberfläche: je Provider die Felder mit ihrem
+    Einstellungsnamen (dieselbe Bildung wie settings_store und tls_acme_dns)."""
+    import dns_provider
+    return [{"name": n, "titel": cls.TITEL, "vorbereitet": cls.VORBEREITET,
+             "felder": [{"id": tls_acme_dns.feld_schluessel(n, f.schluessel), "titel": f.titel,
+                         "geheim": f.geheim, "pflicht": f.pflicht, "hinweis": f.hinweis,
+                         "auswahl": list(f.auswahl)} for f in cls.FELDER]}
+            for n, cls in dns_provider.PROVIDER.items()]
+
+
 def _le_zustand() -> dict:
+    import dns_provider
     p = tls_acme_dns.pending() or {}
     return {"certbot": le_certbot.verfuegbar(), "verwaltet": le_certbot.verwaltet(),
             "windows": sys.platform == "win32",
+            "methode": settings_store.get("LE_METHODE") or "http01",
+            "provider": settings_store.get("DNS01_PROVIDER") or "",
+            "katalog": _katalog(), "katalog_version": dns_provider.__version__,
             "lauf": settings_store.get("LE_LAUF") or {},
             "dns01": {k: p.get(k) for k in ("domain", "record_name", "record_value", "staging")}
             if p else None}
@@ -196,7 +217,14 @@ async def api_letsencrypt(request: Request, user: str = Depends(_require_admin))
     if not domain or not email:
         return JSONResponse({"ok": False, "error": "Domain und E-Mail sind erforderlich."},
                             status_code=400)
-    settings_store.update({"LE_DOMAIN": domain, "LE_EMAIL": email})
+    try:
+        namen = tls_acme_dns.namen_aus(domain)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    if any(n.startswith("*.") for n in namen) or len(namen) != 1:
+        return JSONResponse({"ok": False, "error": "HTTP-01 nur für genau einen Namen ohne Wildcard — "
+                                                   "für *.… oder mehrere Namen DNS-01 nehmen."}, status_code=400)
+    settings_store.update({"LE_DOMAIN": domain, "LE_EMAIL": email, "LE_METHODE": "http01"})
     ok, info = await asyncio.to_thread(le_certbot.ausstellen, domain, email)
     le_certbot.lauf_vermerken(ok, f"Ausgestellt, gültig bis {info}" if ok else info, "http01")
     if not ok:
@@ -212,7 +240,15 @@ async def api_dns01_start(request: Request, user: str = Depends(_require_admin))
     domain, email = _le_angaben(daten)
     if not domain:
         return JSONResponse({"ok": False, "error": "Domain fehlt."}, status_code=400)
-    settings_store.update({"LE_DOMAIN": domain, "LE_EMAIL": email})
+    try:
+        namen = tls_acme_dns.namen_aus(domain)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    if len(namen) != 1 or namen[0].startswith("*."):
+        return JSONResponse({"ok": False, "error": "DNS-01 von Hand nur für genau einen Namen ohne Wildcard — "
+                                                   "für *.… oder mehrere Namen einen DNS-Provider wählen."},
+                            status_code=400)
+    settings_store.update({"LE_DOMAIN": domain, "LE_EMAIL": email, "LE_METHODE": "dns01"})
     try:
         rec = await tls_acme_dns.start(domain, email, bool(daten.get("staging")))
     except Exception as exc:                                  # noqa: BLE001
@@ -243,3 +279,53 @@ async def api_dns01_verwerfen(user: str = Depends(_require_admin)):
     tls_acme_dns.verwerfen()
     log.info("Offene DNS-01-Bestellung durch %s verworfen", user)
     return JSONResponse({"ok": True})
+
+
+# ── DNS-01 über eine DNS-API (seit 0.2.57-beta) ──────────────────────────────
+# Ausstellen hier und Erneuern im Zeitplaner gehen durch tls_acme_dns.automatisch
+# — mit den GESPEICHERTEN Einstellungen (die Oberfläche speichert vorher).
+
+@router.post("/api/tls/dns01/test")
+async def api_dns01_test(request: Request, user: str = Depends(_require_admin)):
+    """Nur lesend: Zonen auflisten. Nimmt die Formularwerte (ungespeichert);
+    ein maskiertes Geheimnis steht für das gespeicherte. Antwort ohne Geheimnis."""
+    import dns_provider
+    daten = await request.json()
+    name = (daten.get("provider") or "").strip().lower()
+    try:
+        p = tls_acme_dns.provider_aus_einstellungen(name, daten.get("werte") or {})
+        zonen = await asyncio.to_thread(p.zonen)
+    except dns_provider.DnsProviderFehler as exc:
+        log.warning("DNS-Provider-Test (%s) durch %s: %s", name or "-", user, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    log.info("DNS-Provider-Test (%s) durch %s: %d Zone(n)", name, user, len(zonen))
+    return JSONResponse({"ok": True, "provider": name, "zonen": zonen})
+
+
+@router.post("/api/tls/dns01/auto")
+async def api_dns01_auto(request: Request, user: str = Depends(_require_admin)):
+    daten = await request.json()
+    domain, email = _le_angaben(daten)
+    try:
+        namen = tls_acme_dns.namen_aus(domain)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    if not namen:
+        return JSONResponse({"ok": False, "error": "Domain fehlt."}, status_code=400)
+    provider = settings_store.get("DNS01_PROVIDER") or ""
+    if not provider:
+        return JSONResponse({"ok": False, "error": "Kein DNS-Provider gewählt und gespeichert."}, status_code=400)
+    settings_store.update({"LE_DOMAIN": domain, "LE_EMAIL": email, "LE_METHODE": "dns01"})
+    staging = bool(daten.get("staging"))
+    try:
+        info = await tls_acme_dns.automatisch(namen, email, staging)
+    except Exception as exc:                                  # noqa: BLE001
+        le_certbot.lauf_vermerken(False, f"DNS-01 ({provider}): {exc}", "dns01")
+        log.error("DNS-01 (%s) für %s fehlgeschlagen: %s", provider, ", ".join(namen), exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    le_certbot.lauf_vermerken(True, f"DNS-01 ({provider}): ausgestellt, gültig bis "
+                              + (info.get("not_after") or "?")[:10]
+                              + (" (Testumgebung)" if staging else ""), "dns01")
+    log.info("Let's-Encrypt-Zertifikat (DNS-01, %s) für %s durch %s übernommen",
+             provider, ", ".join(namen), user)
+    return JSONResponse({"ok": True, "neustart_webui": True, **tls_cert.info()})

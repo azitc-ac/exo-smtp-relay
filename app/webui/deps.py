@@ -107,7 +107,7 @@ def _tls_ablauf_tage() -> int | None:
     """Resttage des TLS-Zertifikats, wenn es binnen `LE_RENEW_DAYS` abläuft
     (sonst None). Die Erinnerung für alles, was niemand selbst erneuert —
     DNS-01 von Hand, PFX — und der sichtbare Hinweis, wenn die automatische
-    Erneuerung über certbot scheiterte (scheduler._tls_pruefen).
+    Erneuerung (certbot oder DNS-API, scheduler._tls_pruefen) scheiterte.
     Anders als die Bänder oben auch vor abgeschlossener Einrichtung: Ein
     ablaufendes Zertifikat ist nie der Normalzustand."""
     try:

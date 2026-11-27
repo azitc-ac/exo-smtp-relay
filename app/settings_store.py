@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 from threading import RLock
 
@@ -82,13 +83,21 @@ DEFAULTS: dict = {
 
     # ── TLS-Zertifikat über Let's Encrypt (seit 0.2.38, wie Gateway) ─────────
     # Oberfläche: Einstellungen → TLS-Zertifikat. Ablauf siehe le_certbot.py
-    # (HTTP-01) und tls_acme_dns.py (DNS-01, manuell).
+    # (HTTP-01) und tls_acme_dns.py (DNS-01 von Hand oder über die DNS-API).
     "LE_DOMAIN": "",                # Name im Zertifikat (leer = PUBLIC_HOSTNAME)
     "LE_EMAIL": "",                 # Kontakt bei Let's Encrypt (Ablaufwarnungen)
-    "LE_AUTO_RENEW": True,          # HTTP-01: Zeitplaner erneuert über certbot
+    # Methodenschalter (seit 0.2.57-beta): http01 = certbot/Port 80, dns01 = TXT-Record
+    # (von Hand oder über DNS01_PROVIDER). Gilt für Ausstellen UND Erneuern
+    # (scheduler._tls_pruefen). Windows hat kein certbot → dort dns01 vorgegeben.
+    "LE_METHODE": "dns01" if sys.platform == "win32" else "http01",
+    "LE_AUTO_RENEW": True,          # Zeitplaner erneuert (HTTP-01 über certbot, DNS-01 über die DNS-API)
     "LE_RENEW_DAYS": 14,            # so viele Tage vor Ablauf erneuern bzw. warnen (Band)
     "ACME_HTTP_PROXY": "",          # Proxy für Let's Encrypt (acme_client und certbot)
     "LE_LAUF": {},                  # letzter Vorgang {zeit, ok, text, weg: http01|dns01}
+    # DNS-01 über eine DNS-API (Katalog app/dns_provider). "" = von Hand.
+    # Die Felder je Provider (DNS01_<PROVIDER>_<FELD>) kommen unten aus dem Katalog.
+    "DNS01_PROVIDER": "",
+    "DNS01_WARTEN_S": 300,          # so lange auf den TXT-Record bei allen autoritativen NS warten
 
     # ── Aktualisierung aus fertigen Releases (seit 0.2.40) ───────────────────
     # Oberfläche: /aktualisierung. Ablauf siehe aktualisierung.py.
@@ -102,12 +111,30 @@ DEFAULTS: dict = {
     "SMTP_RELAY_EXTERN_VORGABE": False,
 }
 
+def _dns01_felder() -> tuple[dict, set]:
+    """Einstellungen je Provider-Feld aus dem Katalog — EINE Quelle für
+    Vorgaben, Geheimnisliste und Oberfläche (einstellungen.html rendert dieselbe
+    Liste). Namensbildung wie tls_acme_dns.feld_schluessel."""
+    import dns_provider
+    vorgaben, geheim = {}, set()
+    for name, cls in dns_provider.PROVIDER.items():
+        for f in cls.FELDER:
+            k = f"DNS01_{name.upper()}_{f.schluessel.upper()}"
+            vorgaben[k] = f.auswahl[0] if f.auswahl else ""
+            if f.geheim:
+                geheim.add(k)
+    return vorgaben, geheim
+
+
+_DNS01_VORGABEN, _DNS01_GEHEIM = _dns01_felder()
+DEFAULTS.update(_DNS01_VORGABEN)
+
 SECRET_KEYS = frozenset({
     "ADMIN_PASSWORD_HASH",
     "SESSION_SECRET",
     "SUBMIT_PASSWORD",
     "SUBMIT_CLIENT_SECRET",
-})
+} | _DNS01_GEHEIM)
 
 # Schlüssel, die nie über die Oberfläche geändert werden dürfen.
 FIXED_KEYS = frozenset({"REINJECT_MODE"})

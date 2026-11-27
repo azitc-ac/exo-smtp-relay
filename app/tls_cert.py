@@ -15,7 +15,7 @@ connector). Mit selbstsigniertem Zertifikat bleibt die Adressvariante
 (`SenderIPAddresses`, feste öffentliche IP); `exo_setup.connector_einrichten`
 lässt die Zertifikatsvariante dann nicht zu.
 Wer ein Zertifikat einer CA hat, importiert es als PFX — oder holt eines von
-Let's Encrypt (`le_certbot.py` HTTP-01, `tls_acme_dns.py` DNS-01). Ein
+Let's Encrypt (`le_certbot.py` HTTP-01, `tls_acme_dns.py` DNS-01 von Hand/API). Ein
 Zertifikat aus der TESTUMGEBUNG von Let's Encrypt („(STAGING)“ im Aussteller)
 stammt von einer nicht vertrauenswürdigen CA und zählt hier NICHT als
 CA-signiert (`info()["ca_signiert"]`).
