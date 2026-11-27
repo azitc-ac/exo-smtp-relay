@@ -478,6 +478,73 @@ def test_echtes_paket_enthaelt_lizenz_notice_und_installer(tmp_path):
     assert zip2.read_bytes() == zip_p.read_bytes() and tar2.read_bytes() == tar_p.read_bytes()
 
 
+
+# Zeitstempel der Einträge (0.2.59-beta): Commit-Datum bzw. SOURCE_DATE_EPOCH statt 01.01.2020.
+
+def _offline_stufe(ziel: Path) -> Path:
+    for teil, datei in (("wheels", "x-1-py3-none-any.whl"), ("python", "py.exe"), ("module", "m.nupkg")):
+        (ziel / teil).mkdir(parents=True)
+        (ziel / teil / datei).write_bytes(b"x")
+    (ziel / "inhalt.json").write_text('{"format": 1}')
+    return ziel
+
+
+def _zeiten(pakete) -> set:
+    """Alle Zeitstempel aller Einträge, je Paket: ZIP als date_time, tar als mtime."""
+    zeiten = set()
+    for p in pakete:
+        if p.suffix == ".zip":
+            zeiten |= {("zip", i.date_time) for i in zipfile.ZipFile(p).infolist()}
+        else:
+            zeiten |= {("tar", m.mtime) for m in tarfile.open(p).getmembers()}
+    return zeiten
+
+
+def test_paket_traegt_source_date_epoch_und_bleibt_bytegleich(tmp_path, monkeypatch):
+    # 2026-11-27 10:15:31 UTC — ungerade Sekunde: ZIP kann nur gerade, also abgerundet (…:30).
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1795774531")
+    quelle, stufe = _baum(tmp_path / "q", NEU_V), _offline_stufe(tmp_path / "stufe")
+    a = up.bauen(quelle, tmp_path / "a", NEU_V, stufe)
+    b = up.bauen(quelle, tmp_path / "b", NEU_V, stufe)
+    assert len(a) == 3 and [p.read_bytes() for p in a] == [p.read_bytes() for p in b]
+    assert _zeiten(a) == {("zip", (2026, 11, 27, 10, 15, 30)), ("tar", 1795774530)}
+    assert up.zeitstempel(quelle) == (1795774530, "SOURCE_DATE_EPOCH")
+
+
+def test_paket_traegt_commit_datum_ohne_source_date_epoch(tmp_path, monkeypatch):
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    quelle = _baum(tmp_path / "q", NEU_V)
+    umg = {**os.environ, "GIT_AUTHOR_DATE": "2026-11-20T08:00:00+05:00",
+           "GIT_COMMITTER_DATE": "2026-11-20T08:00:00+05:00",       # = 03:00:00 UTC
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+    for befehl in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+        subprocess.run(["git", "-C", str(quelle), *befehl], check=True, env=umg)
+    assert up.zeitstempel(quelle) == (1795143600, "git")
+    a = up.bauen(quelle, tmp_path / "a", NEU_V)
+    assert _zeiten(a) == {("zip", (2026, 11, 20, 3, 0, 0)), ("tar", 1795143600)}
+    # Ein Baum OHNE eigenes .git (z. B. Testbaum) fällt auf den Ersatz — release.py lehnt den ab.
+    assert up.zeitstempel(_baum(tmp_path / "ohne", NEU_V)) == (up.ZEIT_ERSATZ, "ersatz")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "5")                    # vor 1980: ZIP-Untergrenze
+    assert up.zeitstempel(quelle) == (up.ZEIT_MIN, "SOURCE_DATE_EPOCH")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "gestern")
+    with pytest.raises(up.PaketFehler):
+        up.zeitstempel(quelle)
+
+
+def test_release_bauen_lehnt_ersatz_zeitstempel_ab(tmp_path, monkeypatch, capsys):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("release_werkzeug", WURZEL / "tools" / "release.py")
+    rel = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rel)
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    monkeypatch.setattr(rel, "WURZEL", _baum(tmp_path / "q", NEU_V))
+    assert rel.bauen(str(tmp_path / "dist")) == 1
+    assert "Kein Zeitstempel" in capsys.readouterr().err and not (tmp_path / "dist").exists()
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1795774530")
+    assert rel.bauen(str(tmp_path / "dist")) == 0
+    assert "(SOURCE_DATE_EPOCH)" in capsys.readouterr().out
+
 def test_installer_kopiert_lizenz_und_notice():
     ps = (WURZEL / "windows" / "install.ps1").read_text(encoding="utf-8-sig")
     assert '"LICENSE.md", "NOTICE"' in ps

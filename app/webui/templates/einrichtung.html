@@ -1,4 +1,11 @@
 {% extends "base.html" %}
+{#- EINE Fassung der Anleitung für die localhost-Fehlerseite (0.2.59-beta), an jeder Stelle, an der
+    der Browser beim Login auf localhost landet: erster Login (#paste) und Rechte (#paste-rechte).
+    Als Warnkasten, weil der Satz im Fließtext übersehen wurde. Keine Farbe inline (Dark-Mode-Regel 2):
+    .alert.warn hat in dark-mode.css eine eigene Fassung. -#}
+{% macro adressleiste_hinweis() -%}
+<div class="alert warn adressleiste-hinweis" role="note" style="margin:6px 0;line-height:1.5"><strong>Die Fehlerseite ist normal.</strong> Kopiere die <strong>komplette Adresse aus der Adressleiste</strong> dieses Fensters und füge sie unten ins Feld ein.</div>
+{%- endmacro %}
 {% block content %}
 <h1>Einrichtung</h1>
 <p class="hint" style="max-width:720px;margin:0 0 18px">
@@ -135,7 +142,9 @@
       {% endif %}
       <ol style="margin:0 0 10px 16px;line-height:1.9;font-size:13px">
         <li><strong>Jetzt anmelden</strong> öffnet den Microsoft-Login in einem neuen Fenster (MFA wird unterstützt).</li>
-        <li>Beim allerersten Mal landet der Browser auf <code>localhost</code> mit einer Fehlerseite — <em>das ist normal</em>: die komplette Adresse aus der Adressleiste unten einfügen. Ab dem zweiten Mal schliesst sich das Fenster von selbst.</li>
+        <li>Beim allerersten Mal landet der Browser auf <code>localhost</code> mit einer Fehlerseite.
+          {{ adressleiste_hinweis() }}
+          Ab dem zweiten Mal schliesst sich das Fenster von selbst.</li>
       </ol>
       <div class="actions"><button class="btn primary" onclick="anmelden(this, 'paste')">Jetzt anmelden →</button>
         <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block').querySelector('button'), 'paste', true);return false;">per Localhost (Copy-Paste)</a></div>
@@ -221,6 +230,8 @@
         <span id="rechte-result" style="font-size:12px"></span>
       </div>
       <div id="paste-rechte" style="display:none;margin-top:10px">
+        <p class="hint" style="margin:0 0 4px">Landet das Login-Fenster auf <code>localhost</code> mit einer Fehlerseite:</p>
+        {{ adressleiste_hinweis() }}
         <label for="paste-rechte-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
         <input type="text" id="paste-rechte-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
         <div id="paste-rechte-result" style="display:none;margin-top:8px"></div>

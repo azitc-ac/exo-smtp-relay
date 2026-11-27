@@ -220,8 +220,8 @@ async def api_setup_auth_paste(request: Request, user: str = Depends(_require_ad
                                  f"{params.get('error_description', [''])[0]}")
     code, state = params.get("code", [""])[0], params.get("state", [""])[0]
     if not code or not state:
-        raise HTTPException(400, "Die Adresse enthält keinen Code. Bitte die vollständige Adresse aus "
-                                 f"der Adressleiste kopieren (beginnt mit {setup_wizard.aktuelle_localhost_uri()}?code=…).")
+        raise HTTPException(400, "Die Adresse enthält keinen Code. Bitte die komplette Adresse aus "
+                                 f"der Adressleiste des Login-Fensters kopieren (beginnt mit {setup_wizard.aktuelle_localhost_uri()}?code=…).")
     try:
         ergebnis = await _nach_login(code, state)
     except _SitzungAbgelaufen as exc:

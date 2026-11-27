@@ -94,7 +94,7 @@ _MESSUNG = """() => ({
 })"""
 
 
-def _messen(pfad: str, breite: int, warte_js: str):
+def _messen(pfad: str, breite: int, warte_js: str, messung: str = _MESSUNG, thema: str | None = None):
     sync_api = pytest.importorskip("playwright.sync_api")
     from fastapi.testclient import TestClient
     from webui.app import app
@@ -116,7 +116,9 @@ def _messen(pfad: str, breite: int, warte_js: str):
             seite.route("https://testserver/**", weiter)
             seite.goto("https://testserver" + pfad)
             seite.wait_for_function(warte_js)
-            m = seite.evaluate(_MESSUNG)
+            if thema:
+                seite.evaluate(f"document.documentElement.setAttribute('data-theme', '{thema}')")
+            m = seite.evaluate(messung)
             b.close()
             return m
     finally:
@@ -148,3 +150,32 @@ def test_schmal_kein_seitenueberlauf_und_kein_umbruch_in_der_zahl(anlage, pfad):
     for wid, text, hoehe, zeile in m["werte"]:
         assert hoehe < 1.5 * zeile, f"Kachel {wid} „{text}“ bricht um"
     assert m["seite"][0] <= m["seite"][1], f"Seite läuft waagerecht über: {m['seite']}"
+
+
+# 0.2.59-beta: Warnkasten „komplette Adresse aus der Adressleiste“ — 393 px, hell und dunkel.
+_HINWEIS_MESSUNG = """() => {
+  const k = document.querySelector('#login-block .adressleiste-hinweis');
+  if (!k) return null;
+  const s = k.querySelector('strong'), r = k.getBoundingClientRect();
+  return {rechts: r.right, links: r.left, innen: innerWidth,
+          seite: document.documentElement.scrollWidth,
+          farbe: getComputedStyle(s).color, grund: getComputedStyle(k).backgroundColor,
+          gewicht: parseInt(getComputedStyle(s).fontWeight)};
+}"""
+
+
+def _leucht(rgb: str) -> float:
+    werte = [int(x) / 255 for x in re.findall(r"\d+", rgb)[:3]]
+    lin = [w / 12.92 if w <= 0.03928 else ((w + 0.055) / 1.055) ** 2.4 for w in werte]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+@pytest.mark.parametrize("thema", ["light", "dark"])
+def test_adressleiste_hinweis_bei_393_lesbar_und_ohne_seitlichen_ueberlauf(anlage, thema):
+    m = _messen("/einrichtung", 393, "!!document.getElementById('login-block')", _HINWEIS_MESSUNG, thema)
+    assert m, "Warnkasten im Login-Block fehlt"
+    assert m["seite"] <= m["innen"] and 0 <= m["links"] and m["rechts"] <= m["innen"], m
+    hell, dunkel = sorted((_leucht(m["farbe"]), _leucht(m["grund"])), reverse=True)
+    kontrast = (hell + 0.05) / (dunkel + 0.05)
+    assert kontrast >= 4.5 and m["gewicht"] >= 600, (thema, kontrast, m)
+

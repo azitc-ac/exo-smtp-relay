@@ -32,8 +32,11 @@ import base64
 import binascii
 import hashlib
 import io
+import os
 import re
+import subprocess
 import tarfile
+import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -259,10 +262,57 @@ def _dateien(quelle: Path):
                     yield f, f.relative_to(quelle).as_posix()
 
 
-def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None) -> list[Path]:
+# ── Zeitstempel der Paketeinträge ────────────────────────────────────────────
+# Jeder Eintrag trägt DENSELBEN Zeitpunkt: das Commit-Datum des gebauten Stands, damit der
+# Explorer keine „veralteten“ Dateien zeigt und zweimal Bauen trotzdem dieselben Bytes ergibt.
+# Quelle in dieser Reihenfolge (zeitstempel()):
+#   1. SOURCE_DATE_EPOCH (Standard reproduzierbarer Builds, https://reproducible-builds.org),
+#   2. `git log -1 --format=%ct` im Baum, wenn `quelle` selbst ein Git-Arbeitsbaum ist
+#      (geht auch im flachen Checkout der CI, fetch-depth 1: der Commit selbst ist da),
+#   3. sonst ZEIT_ERSATZ (01.01.2020) — nur für Testbäume ohne Git; tools/release.py
+#      lässt den Ersatz für echte Releases NICHT zu.
+# ZIP speichert Ortszeit ohne Zone, 2-Sekunden-Raster, ab 1980: also UTC, auf gerade
+# Sekunden abgerundet, frühestens ZEIT_MIN. Das Linux-Archiv bekommt denselben Wert.
+ZEIT_ERSATZ = 1577836800                         # 2020-01-01 00:00:00 UTC
+ZEIT_MIN = 315532800                             # 1980-01-01 00:00:00 UTC (ZIP-Untergrenze)
+
+
+def zeitstempel(quelle: Path) -> tuple[int, str]:
+    """(Sekunden seit 1970, Herkunft) für alle Einträge eines Pakets aus `quelle`.
+    Herkunft: "SOURCE_DATE_EPOCH", "git" oder "ersatz"."""
+    roh = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if roh:
+        if not roh.isdigit():
+            raise PaketFehler(f"SOURCE_DATE_EPOCH ist keine ganze Zahl: {roh!r}")
+        wert, herkunft = int(roh), "SOURCE_DATE_EPOCH"
+    else:
+        wert, herkunft = ZEIT_ERSATZ, "ersatz"
+        if (Path(quelle) / ".git").exists():
+            try:
+                aus = subprocess.run(["git", "-C", str(quelle), "log", "-1", "--format=%ct"],
+                                     capture_output=True, text=True, timeout=30, check=True)
+                if aus.stdout.strip().isdigit():
+                    wert, herkunft = int(aus.stdout.strip()), "git"
+            except (OSError, subprocess.SubprocessError):
+                pass
+    wert = max(wert, ZEIT_MIN)
+    return wert - wert % 2, herkunft
+
+
+def _zip_zeit(epoch: int) -> tuple[int, int, int, int, int, int]:
+    return tuple(time.gmtime(epoch)[:6])  # type: ignore[return-value]
+
+
+def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None,
+          zeit: int | None = None) -> list[Path]:
     """Windows-ZIP und Linux-Archiv aus dem Baum `quelle` bauen (gleicher
-    Inhalt, Kopfordner exo-smtp-relay-<version>/). Feste Zeitstempel, damit
-    zweimal Bauen dieselben Bytes ergibt."""
+    Inhalt, Kopfordner exo-smtp-relay-<version>/). Alle Einträge tragen EINEN
+    Zeitstempel (`zeit`, sonst zeitstempel(quelle)), damit zweimal Bauen dieselben
+    Bytes ergibt."""
+    if zeit is None:
+        zeit = zeitstempel(quelle)[0]
+    zeit = max(int(zeit), ZEIT_MIN)
+    zeit -= zeit % 2
     for pflicht in PFLICHT:
         if not (quelle / pflicht).is_file():
             raise PaketFehler(f"Pflichtdatei fehlt im Baum: {pflicht}")
@@ -275,14 +325,14 @@ def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None) -
     zip_pfad = ziel / paket_name(version, "windows")
     with zipfile.ZipFile(zip_pfad, "w", zipfile.ZIP_DEFLATED) as z:
         for f, rel in dateien:
-            info = zipfile.ZipInfo(f"{kopf}/{rel}", date_time=(2020, 1, 1, 0, 0, 0))
+            info = zipfile.ZipInfo(f"{kopf}/{rel}", date_time=_zip_zeit(zeit))
             info.external_attr = 0o644 << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, f.read_bytes())
 
     pakete = [zip_pfad]
     if offline is not None:
-        pakete.append(_offline_zip(ziel, version, kopf, dateien, Path(offline)))
+        pakete.append(_offline_zip(ziel, version, kopf, dateien, Path(offline), zeit))
 
     tar_pfad = ziel / paket_name(version, "linux")
     puffer = io.BytesIO()
@@ -290,7 +340,7 @@ def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None) -
         for f, rel in dateien:
             daten = f.read_bytes()
             info = tarfile.TarInfo(f"{kopf}/{rel}")
-            info.size, info.mtime, info.uid, info.gid = len(daten), 1577836800, 0, 0
+            info.size, info.mtime, info.uid, info.gid = len(daten), zeit, 0, 0
             info.mode = 0o755 if f.suffix in (".sh",) else 0o644
             t.addfile(info, io.BytesIO(daten))
     import gzip
@@ -303,7 +353,8 @@ def bauen(quelle: Path, ziel: Path, version: str, offline: Path | None = None) -
 OFFLINE_PFLICHT = ("inhalt.json", "wheels", "python", "module")
 
 
-def _offline_zip(ziel: Path, version: str, kopf: str, dateien, stufe: Path) -> Path:
+def _offline_zip(ziel: Path, version: str, kopf: str, dateien, stufe: Path,
+                 zeit: int) -> Path:
     """Windows-ZIP plus offline/ aus `stufe` (tools/offline_paket.py vorbereiten). Wheels,
     Installer und Modul speichert ZIP nur (schon komprimiert)."""
     for teil in OFFLINE_PFLICHT:
@@ -314,7 +365,7 @@ def _offline_zip(ziel: Path, version: str, kopf: str, dateien, stufe: Path) -> P
         eintraege = list(dateien) + [(f, f"{OFFLINE}/{f.relative_to(stufe).as_posix()}")
                                      for f in sorted(stufe.rglob("*")) if f.is_file()]
         for f, rel in eintraege:
-            info = zipfile.ZipInfo(f"{kopf}/{rel}", date_time=(2020, 1, 1, 0, 0, 0))
+            info = zipfile.ZipInfo(f"{kopf}/{rel}", date_time=_zip_zeit(zeit))
             info.external_attr = 0o644 << 16
             info.compress_type = zipfile.ZIP_STORED if f.suffix in (".whl", ".exe", ".nupkg") \
                 else zipfile.ZIP_DEFLATED

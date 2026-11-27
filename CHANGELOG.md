@@ -1,5 +1,23 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.59-beta — 2026-11-27 — Pakete tragen das Commit-Datum statt 01.01.2020, Hinweis zur localhost-Fehlerseite
+
+- **Zeitstempel der Dateien in den Release-Paketen:** Alle Einträge im Windows-ZIP, im
+  Windows-Offline-ZIP und im Linux-Archiv tragen jetzt das **Commit-Datum der gebauten Fassung**
+  statt des festen 01.01.2020. Der Windows-Explorer zeigt damit keine scheinbar veralteten
+  Dateien mehr. Die Pakete bleiben reproduzierbar: zweimal gebaut ergibt dieselben Bytes.
+- **Eine Quelle für den Zeitpunkt** (`update_paket.zeitstempel`): zuerst `SOURCE_DATE_EPOCH`,
+  sonst `git log -1 --format=%ct` des gebauten Stands (klappt auch im flachen Checkout der CI).
+  Den Ersatzwert 01.01.2020 gibt es nur noch für Testbäume ohne Git; `tools/release.py bauen`
+  bricht ab, statt ihn für ein echtes Release zu nehmen. ZIP speichert Ortszeit ohne Zone im
+  2-Sekunden-Raster ab 1980: der Wert wird in UTC geschrieben, auf gerade Sekunden abgerundet und
+  frühestens auf 1980 gesetzt.
+- **Einrichtung, erster Login:** Die Anleitung für die `localhost`-Fehlerseite steht jetzt in einem
+  Warnkasten statt im Fließtext: „**Die Fehlerseite ist normal.** Kopiere die **komplette Adresse
+  aus der Adressleiste** dieses Fensters und füge sie unten ins Feld ein.“ Derselbe Kasten (eine
+  Vorlage) erscheint auch beim Login für Rechte hoch- oder herabstufen. Im Dark Mode lesbar, bei
+  393 px ohne seitliches Scrollen (Browser-Test misst Kontrast und Breite in hell und dunkel).
+
 ## 0.2.58-beta — 2026-11-27 — „Über“-Fußzeile, Gleichlauf-Prüfung für den DNS-Provider-Katalog
 
 - **Fußzeile auf jeder Seite** der Oberfläche (auch Anmeldung und Rückmeldeseite der Einrichtung):

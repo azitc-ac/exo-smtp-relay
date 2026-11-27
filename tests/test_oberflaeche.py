@@ -313,3 +313,32 @@ def test_einrichtung_zeigt_ob_das_herabstufen_in_exchange_wirkt(client):
     seite = client.get("/einrichtung").text
     assert "noch nicht übernommen" not in seite
     assert "290 Minuten nach dem Herabstufen" in seite
+
+
+_HINWEIS = re.compile(r'<div class="alert warn adressleiste-hinweis"[^>]*>(.*?)</div>', re.S)
+
+
+def test_localhost_fehlerseite_anleitung_steht_hervorgehoben_im_warnkasten(client):
+    """0.2.59-beta: „komplette Adresse aus der Adressleiste … einfügen“ ging im Fließtext unter.
+    Jetzt EIN Warnkasten (.alert.warn, im Dark Mode eigene Farben), an jeder Paste-Stelle."""
+    import settings_store
+    _anmelden(client)
+    seite = client.get("/einrichtung").text
+    login = seite.split('id="login-block"', 1)[1].split('id="paste"', 1)[0]
+    kasten = _HINWEIS.findall(login)
+    assert len(kasten) == 1, "Anleitung beim ersten Login nicht im Warnkasten"
+    assert "<strong>komplette Adresse aus der Adressleiste</strong>" in kasten[0]
+    assert "<strong>Die Fehlerseite ist normal.</strong>" in kasten[0]
+    assert "<em>das ist normal</em>" not in seite, "alte, unauffällige Fassung steht noch da"
+    # Dieselbe Fassung dort, wo das Rechte-Login auf localhost landet.
+    settings_store.update({"SETUP_COMPLETE": True, "AZURE_APP_CREATED": True, "APP_EIGEN": True,
+                           "CLIENT_ID": "c", "APP_SP_ID": "s"})
+    seite = client.get("/einrichtung").text
+    rechte = seite.split('id="paste-rechte"', 1)[1].split('id="paste-rechte-url"', 1)[0]
+    assert _HINWEIS.findall(rechte) == kasten, "Rechte-Login ohne dieselbe Anleitung"
+    # Dark Mode: .alert.warn hat eine eigene dunkle Fassung, der Kasten setzt keine Farbe inline.
+    dunkel = (WURZEL / "app" / "webui" / "static" / "dark-mode.css").read_text(encoding="utf-8")
+    assert re.search(r'\[data-theme="dark"\] \.alert\.warn\s*\{[^}]*color:', dunkel)
+    stil = re.search(r'adressleiste-hinweis"[^>]*style="([^"]*)"', seite).group(1)
+    assert "color" not in stil and "#" not in stil and "width" not in stil, stil
+

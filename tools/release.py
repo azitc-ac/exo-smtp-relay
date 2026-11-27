@@ -54,7 +54,15 @@ def kanal(tag: str) -> int:
 
 def bauen(ziel: str, stufe: str | None = None) -> int:
     version = (WURZEL / "VERSION").read_text(encoding="utf-8").strip()
-    pakete = up.bauen(WURZEL, Path(ziel), version, Path(stufe) if stufe else None)
+    try:
+        zeit, herkunft = up.zeitstempel(WURZEL)
+    except up.PaketFehler as exc:
+        return _fehler(str(exc))
+    if herkunft == "ersatz":
+        return _fehler("Kein Zeitstempel für die Pakete: weder SOURCE_DATE_EPOCH gesetzt noch "
+                       "`git log -1 --format=%ct` lesbar (Git-Checkout?)")
+    print(f"Zeitstempel {zeit} ({herkunft})")
+    pakete = up.bauen(WURZEL, Path(ziel), version, Path(stufe) if stufe else None, zeit)
     (Path(ziel) / up.SUMMEN).write_text(up.summen_schreiben(pakete), encoding="utf-8")
     for p in pakete:
         print(f"{p.name}  {p.stat().st_size} Byte")
