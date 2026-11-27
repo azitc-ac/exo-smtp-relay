@@ -417,3 +417,12 @@ def test_jeder_anmeldeknopf_hat_den_notweg_zum_einfuegen(client, monkeypatch):  
             rest = seite[m.end():m.end() + 900]
             assert f"pasteZeigen('{m.group(1)}')" in rest, f"{name}: Anmeldeknopf für {m.group(1)} ohne Notweg"
             assert f'id="{m.group(1)}"' in seite
+
+
+def test_platzhalter_sind_blasser_als_werte():
+    """Zur „z. B.“-Regel gehört die Darstellung: ein eigener, gedämpfter Ton für Platzhalter
+    (style.css, gespiegelt mit dem Gateway — dort gilt dieselbe Regel)."""
+    from pathlib import Path
+    css = (Path(__file__).resolve().parent.parent / "app/webui/static/style.css").read_text(encoding="utf-8")
+    regel = re.search(r"input::placeholder,\s*textarea::placeholder\s*\{([^}]*)\}", css)
+    assert regel and "#94a3b8" in regel.group(1) and "opacity: 1" in regel.group(1)

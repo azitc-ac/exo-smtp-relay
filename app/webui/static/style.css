@@ -598,6 +598,10 @@ input[type="email"], input[type="text"], input[type="url"] {
     max-width: 100%;
 }
 input:focus { outline: none; border-color: #0078d4; }
+/* Platzhalter sichtbar blasser als ein eingetragener Wert: „z. B. 203.0.113.10“ las sich
+   sonst wie ausgefüllt. #94a3b8 (gedämpft) trägt hell wie dunkel — im Dunkelmodus steht der
+   Feldtext auf #e2e8f0. opacity:1, weil Firefox Platzhalter sonst zusätzlich abschwächt. */
+input::placeholder, textarea::placeholder { color: #94a3b8; opacity: 1; }
 
 .preview-form { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
 .preview-form label { margin: 0; white-space: nowrap; }
