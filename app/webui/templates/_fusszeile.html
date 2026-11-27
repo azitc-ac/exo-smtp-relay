@@ -1,0 +1,31 @@
+{# „Über“-Fußzeile — EIN Pfad für jede Seite: base.html bindet sie ein, die
+   Callback-Seite der Einrichtung (ohne base.html) rendert sie über
+   deps.fusszeile(). Vorlage: Fußzeile von exogateway.zarenko.net, ohne
+   Support-Mail. Das Logo kommt aus /static (das Relay läuft auch offline,
+   die CSP erlaubt img-src nur 'self'). Geprüft von tests/test_fusszeile.py.
+   Eigener <style>-Block statt style.css: style.css ist mit dem Gateway
+   gespiegelt (tools/driftcheck.py). #}
+<style>
+  #fusszeile { max-width: 960px; margin: 40px auto 0; padding: 16px 24px 28px; border-top: 1px solid #e2e8f0;
+               color: #64748b; font-size: 12px; line-height: 1.6;
+               display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between; align-items: center; }
+  #fusszeile a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  #fusszeile a:hover { color: #1d4ed8; }
+  #fusszeile .herausgeber { display: inline-flex; align-items: center; gap: 10px; }
+  #fusszeile .herausgeber img { width: 28px; height: 28px; flex-shrink: 0; }
+  [data-theme="dark"] #fusszeile { border-top-color: #334155; color: #94a3b8; }
+  [data-theme="dark"] #fusszeile a:hover { color: #93c5fd; }
+  @media (max-width: 600px) { #fusszeile { padding: 14px 10px 22px; } }
+</style>
+<footer id="fusszeile">
+  <span class="herausgeber"><img src="/static/azitc-logo.svg?v={{ version }}" alt="" width="28" height="28">
+    <span>Alexander Zarenko – IT Consulting · <span class="produkt">EXO SMTP Relay <span class="fusszeile-version">v{{ version }}</span></span></span></span>
+  <span class="links">
+    <a href="https://exogateway.zarenko.net/smtp-relay/" target="_blank" rel="noopener">Produktseite</a> ·
+    <a href="https://github.com/azitc-ac/exo-smtp-relay" target="_blank" rel="noopener">GitHub</a> ·
+    <a href="https://blog.zarenko.net" target="_blank" rel="noopener">Blog</a> ·
+    <a href="https://github.com/azitc-ac/exo-smtp-relay/blob/main/LICENSE.md" target="_blank" rel="noopener">Lizenz: Apache-2.0</a> ·
+    <a href="https://exogateway.zarenko.net/impressum.html" target="_blank" rel="noopener">Impressum</a> ·
+    <a href="https://exogateway.zarenko.net/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a>
+  </span>
+</footer>

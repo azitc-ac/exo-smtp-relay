@@ -1,5 +1,22 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.58-beta — 2026-11-27 — „Über“-Fußzeile, Gleichlauf-Prüfung für den DNS-Provider-Katalog
+
+- **Fußzeile auf jeder Seite** der Oberfläche (auch Anmeldung und Rückmeldeseite der Einrichtung):
+  Logo, „Alexander Zarenko – IT Consulting“, Produkt und laufende Version, Links zu Produktseite,
+  GitHub, Blog, Lizenz (Apache-2.0), Impressum und Datenschutz. Eine Vorlage
+  (`templates/_fusszeile.html`), eingebunden über `base.html`; die Rückmeldeseite nutzt dieselbe
+  Vorlage. Das Logo liegt unter `/static/azitc-logo.svg` und wird lokal ausgeliefert, das Relay
+  lädt nichts von außen nach (auch offline vollständig). `style.css` bleibt unverändert, sie ist
+  mit dem Gateway gespiegelt. Ein Test prüft Version, Links und Logo und geht dabei jede HTML-Route
+  durch.
+- **DNS-Provider-Katalog, Gleichlauf mit dem Gateway:** neues Register `app/dns_provider/FASSUNGEN`
+  (Fassung plus Fingerabdruck des Manifests, Zeilen werden nur angehängt) und `LIESMICH.md` mit dem
+  Ablauf für Änderungen. Neue Tests werden rot, wenn das Manifest ohne Versionssprung neu
+  geschrieben wird, wenn eine Fassung zurückgeht oder wenn eine früher committete Fassung
+  nachträglich einen anderen Inhalt bekommt (Abgleich mit der Git-Historie). Der Katalog selbst
+  bleibt bei **1.0.0**, keine Datei des Katalogs wurde geändert.
+
 ## 0.2.57-beta — 2026-11-27 — Let's Encrypt DNS-01 über die DNS-API (IONOS; Azure DNS vorbereitet)
 
 - **DNS-01 automatisch:** Mit einem DNS-Provider legt das Relay den TXT-Record

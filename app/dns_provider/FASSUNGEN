@@ -1,0 +1,6 @@
+# DNS-Provider-Katalog — Register der veröffentlichten Fassungen (nur anhängen).
+# Je Zeile: <fassung>  <fingerabdruck>. Fingerabdruck = SHA-256 über die
+# Manifestzeilen "<sha256>  <datei>\n", nach Dateiname sortiert.
+# Eine Zeile wird NIE geändert: neuer Inhalt = neue Fassung = neue Zeile.
+# Geprüft in beiden Repos (Relay: tests/test_dns01_provider.py). Ablauf: LIESMICH.md.
+1.0.0  5d9b759bced825b9e13b0a3ead27a9a7410b448c235bb7a9a34deab151ad8285

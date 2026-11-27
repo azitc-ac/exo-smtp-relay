@@ -35,6 +35,12 @@ templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 templates.env.globals["version"] = config.VERSION
 
 
+def fusszeile() -> str:
+    """Die „Über“-Fußzeile als HTML — für Seiten ohne base.html (Callback der
+    Einrichtung). base.html bindet dieselbe Vorlage per include ein."""
+    return templates.get_template("_fusszeile.html").render(version=config.VERSION)
+
+
 def _lernmodus_rest_min() -> int:
     """Restminuten des Lernmodus — als Jinja-Global, damit das Banner auf JEDER
     Seite steht und keine Route es vergessen kann."""

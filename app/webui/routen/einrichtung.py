@@ -32,7 +32,7 @@ import settings_store
 import setup_wizard
 import tls_cert
 
-from webui.deps import (templates, log, _gateway_name, _require_admin, _get_session_user,
+from webui.deps import (templates, fusszeile, log, _gateway_name, _require_admin, _get_session_user,
                         _password_change_required)
 
 router = APIRouter()
@@ -150,10 +150,11 @@ def _callback_page(ok: bool, msg: str = "") -> str:
     import json as _json
     post = _json.dumps({"type": "setup-auth-done" if ok else "setup-auth-fail", "msg": msg})
     return f"""<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>{heading}</title></head>
-<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc">
+<body style="font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc">
 <div style="text-align:center;padding:40px;max-width:460px"><div style="font-size:52px;margin-bottom:16px">{icon}</div>
 <h2 style="color:{color};margin:0 0 10px">{heading}</h2><p style="color:#64748b;margin:0">{body}</p>
 <p style="margin-top:18px"><a href="/einrichtung">Zur Einrichtung</a></p></div>
+{fusszeile()}
 <script>try{{window.opener&&window.opener.postMessage({post},window.opener.location.origin);}}catch(e){{}}
 {'setTimeout(function(){window.close();},1500);' if ok else ''}</script></body></html>"""
 

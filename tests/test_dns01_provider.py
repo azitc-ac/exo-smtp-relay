@@ -625,6 +625,82 @@ def test_manifest_passt_zum_inhalt():
         "KATALOG_VERSION veraltet — cd app && python -m dns_provider schreiben <neue Fassung>")
 
 
+# Gleichlauf Relay ↔ Gateway: Ablauf in app/dns_provider/LIESMICH.md. Das
+# Gateway trägt dieselben Prüfungen (Gegenstück), damit ein Inhalt nie unter
+# einer schon vergebenen Fassung auftaucht.
+
+def _fingerabdruck(summen: dict[str, str]) -> str:
+    import hashlib
+    return hashlib.sha256("".join(f"{s}  {d}\n" for d, s in sorted(summen.items())).encode()).hexdigest()
+
+
+def _fassung_tupel(fassung: str) -> tuple[int, int, int]:
+    teile = fassung.split(".")
+    assert len(teile) == 3 and all(t.isdigit() for t in teile), f"Fassung {fassung!r} ist kein X.Y.Z"
+    return tuple(int(t) for t in teile)
+
+
+def _register() -> list[tuple[str, str]]:
+    zeilen = [z.split() for z in (KATALOG / "FASSUNGEN").read_text("utf-8").splitlines()
+              if z.strip() and not z.lstrip().startswith("#")]
+    assert all(len(z) == 2 and len(z[1]) == 64 for z in zeilen), "FASSUNGEN: Zeile ist nicht »<fassung>  <sha256>«"
+    return [(z[0], z[1]) for z in zeilen]
+
+
+def test_katalog_fassung_im_register():
+    """Manifest geändert ohne Versionssprung → rot. Die laufende Fassung muss die
+    letzte im Register sein und genau diesen Inhalt tragen; Fassungen steigen."""
+    import dns_provider
+    fassung, soll = dns_provider.manifest_lesen()
+    register = _register()
+    fassungen = [f for f, _ in register]
+    assert len(set(fassungen)) == len(fassungen), "FASSUNGEN: eine Fassung doppelt"
+    tupel = [_fassung_tupel(f) for f in fassungen]
+    assert tupel == sorted(tupel), "FASSUNGEN: Fassungen nicht aufsteigend"
+    fp = _fingerabdruck(soll)
+    eintrag = dict(register).get(fassung)
+    assert eintrag is not None and fassungen[-1] == fassung, (
+        f"Fassung {fassung} fehlt am Ende von app/dns_provider/FASSUNGEN — "
+        f"neue Fassung? Anhängen: »{fassung}  {fp}« (Ablauf: app/dns_provider/LIESMICH.md)")
+    assert eintrag == fp, (
+        f"Inhalt geändert, Fassung {fassung} aber nicht angehoben — "
+        f"cd app && python -m dns_provider schreiben <neue Fassung>, dann Zeile in FASSUNGEN anhängen")
+
+
+def test_katalog_fassungen_wie_in_der_historie():
+    """Jede je committete Fassung (KATALOG_VERSION in der Git-Historie) steht mit
+    DEMSELBEN Fingerabdruck im Register — gegen das Umschreiben einer Registerzeile.
+    Ohne Git (Paket) übersprungen; im flachen CI-Checkout nur die vorhandenen Commits."""
+    import subprocess
+    if not (WURZEL / ".git").exists():
+        pytest.skip("keine Git-Historie")
+    rel = "app/dns_provider/KATALOG_VERSION"
+    try:
+        commits = subprocess.run(["git", "-C", str(WURZEL), "log", "--format=%H", "--", rel],
+                                 capture_output=True, text=True, check=True).stdout.split()
+    except FileNotFoundError:
+        pytest.skip("git nicht installiert")
+    register = dict(_register())
+    for c in commits:
+        inhalt = subprocess.run(["git", "-C", str(WURZEL), "show", f"{c}:{rel}"],
+                                capture_output=True, text=True)
+        if inhalt.returncode:
+            continue                                    # Commit, der die Datei löschte
+        fassung, summen = "", {}
+        for z in inhalt.stdout.splitlines():
+            z = z.strip()
+            if not z or z.startswith("#"):
+                continue
+            if z.startswith("version "):
+                fassung = z.split(None, 1)[1]
+            else:
+                s, d = z.split(None, 1)
+                summen[d.strip()] = s
+        assert register.get(fassung) == _fingerabdruck(summen), (
+            f"Commit {c[:7]}: Fassung {fassung} trug damals anderen Inhalt als FASSUNGEN heute sagt — "
+            f"eine vergebene Fassung wird nie umgeschrieben, sondern hochgezählt")
+
+
 def test_katalog_ohne_relay_interna():
     """Nur Standardbibliothek, httpx und relative Importe — sonst wandert er nicht ins Gateway."""
     erlaubt = set(sys.stdlib_module_names) | {"httpx"}
@@ -648,5 +724,5 @@ def test_katalog_im_paket():
     """Windows-, Offline- und Linux-Paket nehmen dieselbe Dateiliste (update_paket._dateien)."""
     import update_paket
     im_paket = {rel for _f, rel in update_paket._dateien(WURZEL)}
-    for datei in [p.name for p in KATALOG.glob("*.py")] + ["KATALOG_VERSION"]:
+    for datei in [p.name for p in KATALOG.glob("*.py")] + ["KATALOG_VERSION", "FASSUNGEN"]:
         assert f"app/dns_provider/{datei}" in im_paket, datei
