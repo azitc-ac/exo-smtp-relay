@@ -20,6 +20,7 @@ import json
 import logging
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import auth_cert
@@ -161,7 +162,11 @@ def connector_einrichten(hostname: str, sender_ips: list[str] | None = None) -> 
         args += ["-SenderIPAddresses", ",".join(ips)]
     r = _run(args)
     if r["ok"]:
-        settings_store.update({"EXO_CONNECTOR_CREATED": True})
+        # Zeitpunkt und Variante bleiben stehen: Schritt 4 zeigt sie dauerhaft an (0.2.61-beta),
+        # statt nur einer kurzen Meldung am Knopf.
+        settings_store.update({"EXO_CONNECTOR_CREATED": True, "EXO_CONNECTOR_LAUF": {
+            "zeit": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "hostname": hostname.strip(), "ips": list(ips or [])}})
         log.info("Inbound-Connector eingerichtet")
     else:
         log.error("Inbound-Connector fehlgeschlagen: %s", r.get("output", "")[-400:])

@@ -18,7 +18,7 @@
   </div>
   <div class="settings-row">
     <label for="PUBLIC_HOSTNAME">Hostname</label>
-    <input type="text" id="PUBLIC_HOSTNAME" value="{{ s.PUBLIC_HOSTNAME }}" placeholder="relay.firma.de" style="width:260px">
+    <input type="text" id="PUBLIC_HOSTNAME" value="{{ s.PUBLIC_HOSTNAME }}" placeholder="z. B. relay.firma.de" style="width:260px">
     <span class="hint">Name, unter dem Exchange Online diesen Dienst kennt — steht im TLS-Zertifikat und im Connector.</span>
   </div>
   <div class="actions">
@@ -46,7 +46,7 @@
   <div id="teil-smarthost">
     <div class="settings-row">
       <label for="EXO_SMARTHOST">Smarthost</label>
-      <input type="text" id="EXO_SMARTHOST" value="{{ s.EXO_SMARTHOST }}" placeholder="firma-de.mail.protection.outlook.com" style="width:320px">
+      <input type="text" id="EXO_SMARTHOST" value="{{ s.EXO_SMARTHOST }}" placeholder="z. B. firma-de.mail.protection.outlook.com" style="width:320px">
       <span class="hint">Der MX des Tenants: <code>&lt;domäne-mit-bindestrichen&gt;.mail.protection.outlook.com</code>.</span>
     </div>
     <div class="settings-row">
@@ -62,7 +62,7 @@
     </div>
     <div class="settings-row">
       <label for="SUBMIT_USER">Konto</label>
-      <input type="text" id="SUBMIT_USER" value="{{ s.SUBMIT_USER }}" placeholder="relay@firma.de" style="width:260px" autocomplete="off">
+      <input type="text" id="SUBMIT_USER" value="{{ s.SUBMIT_USER }}" placeholder="z. B. relay@firma.de" style="width:260px" autocomplete="off">
     </div>
     <div class="settings-row">
       <label for="SUBMIT_PASSWORD">Passwort</label>
@@ -91,11 +91,11 @@
   </p>
   <div class="settings-row">
     <label for="TENANT_DOMAIN">Tenant-Domäne</label>
-    <input type="text" id="TENANT_DOMAIN" value="{{ s.TENANT_DOMAIN }}" placeholder="firma.onmicrosoft.com" style="width:260px">
+    <input type="text" id="TENANT_DOMAIN" value="{{ s.TENANT_DOMAIN }}" placeholder="z. B. firma.onmicrosoft.com" style="width:260px">
   </div>
   <div class="settings-row">
     <label for="CLIENT_ID">App-ID (Client-ID)</label>
-    <input type="text" id="CLIENT_ID" value="{{ s.CLIENT_ID }}" placeholder="00000000-0000-0000-0000-000000000000" style="width:320px">
+    <input type="text" id="CLIENT_ID" value="{{ s.CLIENT_ID }}" placeholder="z. B. 00000000-0000-0000-0000-000000000000" style="width:320px">
   </div>
   <div class="actions">
     <button class="btn primary" id="tenant-btn" data-wache="TENANT_DOMAIN,CLIENT_ID"
@@ -154,7 +154,7 @@
   </div>
   <div class="settings-row">
     <label for="ADRESSEN_ZUSAETZLICH">Adressen von Hand</label>
-    <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="buchhaltung@firma.de, scanner@firma.de, @firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
+    <textarea id="ADRESSEN_ZUSAETZLICH" rows="4" style="width:100%;max-width:520px" placeholder="z. B. buchhaltung@firma.de, scanner@firma.de, @firma.de">{{ (s.ADRESSEN_ZUSAETZLICH or [])|join(', ') }}</textarea>
     <span class="hint">Durch Komma oder Zeile getrennt. Für Verteiler, Kontakte — oder als einzige Quelle, wenn du keine App-Registrierung willst. Ihre Domänen gelten als deine eigenen. Ein Eintrag <code>@firma.de</code> lässt die ganze Domäne als internes Ziel gelten — eine Zeile statt jeder einzelnen Adresse, dafür etwas gröber: auch Adressen, die es nicht gibt, gelten dann als intern (Exchange weist sie selbst ab).</span>
   </div>
   <div class="actions">
@@ -175,7 +175,7 @@
   </p>
   <div class="settings-row">
     <label for="conn-ips">Öffentliche IP(s)</label>
-    <input type="text" id="conn-ips" placeholder="203.0.113.10" style="width:320px">
+    <input type="text" id="conn-ips" placeholder="z. B. 203.0.113.10" style="width:320px">
     <span class="hint">Leer lassen für die Zertifikatsvariante mit dem Hostnamen oben.</span>
   </div>
   <div class="actions" style="flex-wrap:wrap;gap:8px">
@@ -207,7 +207,7 @@
   <div id="tls-result" style="display:none;margin-top:10px"></div>
 
   <h3 style="margin:18px 0 6px;font-size:14px" id="letsencrypt">Let's Encrypt</h3>
-  <p class="hint" style="margin-top:0">Kostenloses Zertifikat einer öffentlichen CA — nötig, wenn Exchange Online das Relay am Zertifikat erkennen soll (Connector ohne feste IP). Der Name muss öffentlich im DNS auflösbar sein und zu einer akzeptierten Domäne gehören.</p>
+  <p class="hint" style="margin-top:0">Kostenloses Zertifikat einer öffentlichen CA — nötig, wenn Exchange Online das Relay am Zertifikat erkennen soll (Connector ohne feste IP). Über HTTP-01 muss der Name von aussen erreichbar sein, über DNS-01 nicht. Microsoft verlangt für das Weiterleiten ins Internet, dass der Zertifikatsname zu einer akzeptierten Domäne passt <em>oder</em> alle Absenderdomänen akzeptierte Domänen sind.</p>
   {% include "_letsencrypt.html" %}
   <p class="hint">Ein neues Zertifikat nutzt der SMTP-Listener ab der nächsten Verbindung, ebenso der Rückweg zu Exchange (dort dient es als Client-Zertifikat). Die Weboberfläche zeigt es erst nach einem Neustart des Dienstes.</p>
 </div>

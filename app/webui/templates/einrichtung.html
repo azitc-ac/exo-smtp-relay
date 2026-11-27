@@ -6,6 +6,15 @@
 {% macro adressleiste_hinweis() -%}
 <div class="alert warn adressleiste-hinweis" role="note" style="margin:6px 0;line-height:1.5"><strong>Die Fehlerseite ist normal.</strong> Kopiere die <strong>komplette Adresse aus der Adressleiste</strong> dieses Fensters und füge sie unten ins Feld ein.</div>
 {%- endmacro %}
+{#- Vor JEDEM Anmeldeknopf (einrichtung, herabstufen, hochstufen): Microsoft fragt nach einer
+    Zustimmung. Die eigene reicht — der Haken für die Organisation gäbe die Rechte der Login-App
+    allen Benutzern des Tenants. Erzwungen von tests/test_einrichtung_aufbau.py. -#}
+{% macro zustimmung_hinweis() -%}
+<p class="hint zustimmung-hinweis" style="margin:0 0 8px">Microsoft fragt dabei nach einer Zustimmung
+  („Permissions requested“). Klicke <strong>Accept</strong>, und setze den Haken
+  <strong>„Consent on behalf of your organization“ nicht</strong>: Deine eigene Zustimmung reicht —
+  mit dem Haken erteilst du sie für alle Benutzer des Tenants.</p>
+{%- endmacro %}
 {% block content %}
 <h1>Einrichtung</h1>
 <p class="hint" style="max-width:720px;margin:0 0 18px">
@@ -54,17 +63,18 @@
   <div class="step-body">
     <p class="hint" style="margin:0 0 10px">
       Der Name, unter dem Exchange Online diesen Dienst kennt — er steht im
-      TLS-Zertifikat und im Inbound-Connector. Für den Rückweg muss er von aussen
-      auflösbar sein (z. B. <code>relay.firma.de</code>). Ein selbstsigniertes
+      TLS-Zertifikat und im Inbound-Connector (z. B. <code>relay.firma.de</code>). Die Verbindung
+      zu Exchange baut das Relay selbst auf; einen Eintrag im öffentlichen DNS verlangt Microsoft dafür nicht.
+      Nur Let's Encrypt über HTTP-01 braucht ihn von aussen erreichbar, DNS-01 nicht. Ein selbstsigniertes
       Zertifikat wird automatisch darauf ausgestellt; <strong>empfohlen</strong> ist ein
       Zertifikat von Let's Encrypt — gleich hier unten.
     </p>
     <div class="settings-row">
       <label for="hostname">Hostname</label>
-      <input type="text" id="hostname" value="{{ e.hostname }}" placeholder="relay.firma.de" style="width:280px" autocapitalize="off" spellcheck="false">
+      <input type="text" id="hostname" value="{{ e.hostname }}" placeholder="z. B. relay.firma.de" style="width:280px" autocapitalize="off" spellcheck="false">
     </div>
     <div class="actions">
-      <button class="btn primary" id="hostname-btn" data-wache="hostname" onclick="hostnameSpeichern()">Speichern</button>
+      <button class="btn {{ 'secondary' if e.hostname else 'primary' }}" id="hostname-btn" data-wache="hostname" onclick="hostnameSpeichern()">Speichern</button>
     </div>
     {% if e.tls.vorhanden %}
     <p class="hint" style="margin-top:8px">TLS-Zertifikat: <code>{{ e.tls.hostnames|join(', ') }}</code> · {% if e.tls.selbstsigniert %}selbstsigniert{% else %}{{ e.tls.aussteller }}{% endif %} · bis {{ e.tls.not_after[:10] }}</p>
@@ -87,7 +97,7 @@
         Clients sehen keine Zertifikatswarnung. Methode HTTP-01 (Port 80) oder DNS-01 über deinen
         DNS-Provider, dann „ausstellen“.</p>
       {% endif %}
-      <details id="le-details" {% if not le_ok %}open{% endif %}>
+      <details id="le-details" data-baustein {% if not le_ok %}open{% endif %}>
         <summary style="cursor:pointer;font-size:13px">{% if le_ok %}Einstellungen und neu ausstellen{% else %}Let's Encrypt einrichten{% endif %}</summary>
         {% include "_letsencrypt.html" %}
       </details>
@@ -118,9 +128,10 @@
     <details style="margin-top:12px">
       <summary style="cursor:pointer;font-size:13px;color:#64748b">↩ Erneut anmelden (erneuert das Auth-Zertifikat)</summary>
       <div style="margin-top:12px" id="login-block-retry">
+        {{ zustimmung_hinweis() }}
         <div class="actions"><button class="btn secondary" onclick="anmelden(this, 'paste-retry')">Jetzt anmelden →</button>
-          <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block-retry').querySelector('button'), 'paste-retry', true);return false;">per Localhost (Copy-Paste)</a></div>
-        <div id="paste-retry" style="display:none;margin-top:10px">
+          <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block-retry').querySelector('button'), 'paste-retry', true);return false;">per Localhost (Copy-Paste)</a> <a href="#" class="paste-notweg" style="font-size:12px;margin-left:10px" onclick="pasteZeigen('paste-retry');return false;">Fenster zeigt eine Fehlerseite? Adresse hier einfügen</a></div>
+        <div id="paste-retry" data-fortsetzung style="display:none;margin-top:10px">
           <input type="text" id="paste-retry-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px" autocapitalize="off" spellcheck="false">
           <div id="paste-retry-result" style="display:none;margin-top:8px"></div>
           <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste-retry')">Einrichtung fortsetzen</button></div>
@@ -158,7 +169,7 @@
         <label for="bootstrap-client-id">Client-ID der Login-App</label>
         <input type="text" id="bootstrap-client-id" value="{{ e.bootstrap_client_id }}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:320px;font-family:monospace" autocapitalize="off" spellcheck="false">
       </div>
-      <div class="actions"><button class="btn primary" id="bootstrap-btn" data-wache="bootstrap-client-id" onclick="bootstrapSpeichern()">Client-ID speichern</button></div>
+      <div class="actions"><button class="btn secondary" id="bootstrap-btn" data-wache="bootstrap-client-id" onclick="bootstrapSpeichern()">Client-ID speichern</button></div>
     </div>
     </details>
 
@@ -173,9 +184,10 @@
           {{ adressleiste_hinweis() }}
           Ab dem zweiten Mal schliesst sich das Fenster von selbst.</li>
       </ol>
+      {{ zustimmung_hinweis() }}
       <div class="actions"><button class="btn primary" onclick="anmelden(this, 'paste')">Jetzt anmelden →</button>
-        <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block').querySelector('button'), 'paste', true);return false;">per Localhost (Copy-Paste)</a></div>
-      <div id="paste" style="display:none;margin-top:10px">
+        <a href="#" style="font-size:12px;margin-left:10px" onclick="anmelden(document.getElementById('login-block').querySelector('button'), 'paste', true);return false;">per Localhost (Copy-Paste)</a> <a href="#" class="paste-notweg" style="font-size:12px;margin-left:10px" onclick="pasteZeigen('paste');return false;">Fenster zeigt eine Fehlerseite? Adresse hier einfügen</a></div>
+      <div id="paste" data-fortsetzung style="display:none;margin-top:10px">
         <label for="paste-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
         <input type="text" id="paste-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
         <div id="paste-result" style="display:none;margin-top:8px"></div>
@@ -202,6 +214,42 @@
       selbstsigniertem Zertifikat der einzige Weg).
       Läuft per PowerShell mit dem Modul ExchangeOnlineManagement ({{ e.pwsh }}).
     </p>
+    {% if not e.azure_app_created %}
+    <div class="alert warn" style="margin-bottom:0">Erst Schritt 3 abschliessen.</div>
+    {% else %}
+    {#- Aufbau (0.2.61-beta): oben was vorliegt, in der Mitte Pflege und Details (eingeklappt),
+        am Ende genau EIN Primärknopf — die nächste NÖTIGE Aktion. Ist der Connector angelegt
+        und die App noch Exchange-Administrator, ist das das Herabstufen (sonst behielte die
+        App dauerhaft Schreibrechte); „Connector nachziehen“ ist dann Pflege.
+        Erzwungen von tests/test_einrichtung_aufbau.py. -#}
+    {% set r = e.rechte %}
+    {% set herab_offen = e.connector_created and r.eigene_app and not r.herabgestuft %}
+    {% set rechte_unten = herab_offen %}
+    {% macro connector_felder(primaer) -%}
+    <div class="settings-row">
+      <label for="conn-ips">Öffentliche IP(s)</label>
+      <input type="text" id="conn-ips" placeholder="z. B. 203.0.113.10" style="width:300px">
+      <span class="hint">Leer lassen für die Zertifikatsvariante mit <code>{{ e.hostname }}</code>.</span>
+    </div>
+    <div class="actions" style="flex-wrap:wrap;gap:8px">
+      <button class="btn {{ 'primary' if primaer else 'secondary' }}" onclick="connectorEinrichten(this)">{% if e.connector_created %}Connector nachziehen{% else %}Connector anlegen{% endif %}</button>
+      <span id="conn-result" style="font-size:12px"></span>
+    </div>
+    <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:240px;overflow:auto;font-size:11px"></pre>
+    {%- endmacro %}
+    {% macro rechte_login() -%}
+      <div id="paste-rechte" data-fortsetzung style="display:none;margin-top:10px">
+        <p class="hint" style="margin:0 0 4px">Landet das Login-Fenster auf einer Fehlerseite (<code>localhost</code> oder ein Name, den dein Browser nicht erreicht):</p>
+        {{ adressleiste_hinweis() }}
+        <label for="paste-rechte-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
+        <input type="text" id="paste-rechte-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
+        <div id="paste-rechte-result" style="display:none;margin-top:8px"></div>
+        <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste-rechte')">Fortsetzen</button></div>
+      </div>
+    {%- endmacro %}
+
+    {% if not e.connector_created %}
+    <h3 style="margin:0 0 6px">Voraussetzungen</h3>
     {% if e.tls.lets_encrypt and not e.tls.staging %}
     <div class="alert success" id="conn-variante" style="margin-bottom:10px">Zertifikat von Let's Encrypt vorhanden —
       Feld „Öffentliche IP(s)“ leer lassen, dann erkennt Exchange das Relay an <code>{{ e.hostname }}</code>.</div>
@@ -210,86 +258,142 @@
       nur die IP-Variante. Empfohlen: erst in <a href="#le-block">Schritt 2</a> ausstellen, dann den Connector
       ohne IP anlegen.</div>
     {% endif %}
-    {% if not e.azure_app_created %}
-    <div class="alert warn" style="margin-bottom:0">Erst Schritt 3 abschliessen.</div>
-    {% else %}
-    <div class="settings-row">
-      <label for="conn-ips">Öffentliche IP(s)</label>
-      <input type="text" id="conn-ips" placeholder="203.0.113.10" style="width:300px">
-      <span class="hint">Leer lassen für die Zertifikatsvariante mit <code>{{ e.hostname }}</code>.</span>
-    </div>
-    <div class="actions" style="flex-wrap:wrap;gap:8px">
+    {% if r.eigene_app and r.lauf.text %}
+    <div class="alert {{ 'success' if r.lauf.ok else 'warn' }}" style="margin-bottom:10px">{{ r.lauf.text }}
+      <span style="font-size:11px;opacity:.8">({{ r.lauf.zeit }})</span></div>
+    {% endif %}
+    <div class="actions" style="flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <button class="btn secondary" onclick="exoPruefen(this)">Modul und Anmeldung prüfen</button>
-      <button class="btn primary" onclick="connectorEinrichten(this)">{% if e.connector_created %}Connector nachziehen{% else %}Connector anlegen{% endif %}</button>
-      <span id="conn-result" style="font-size:12px"></span>
+      <span id="exo-result" style="font-size:12px"></span>
     </div>
-    <pre id="conn-output" class="log-pre" style="display:none;margin-top:10px;max-height:240px;overflow:auto;font-size:11px"></pre>
-    <p class="hint" style="margin-top:8px">Postfachliste: {{ e.exo.postfaecher }} Postfächer{% if e.exo.letzter_erfolg %} (Stand {{ e.exo.letzter_erfolg }}){% endif %}{% if e.exo.letzter_fehler %} — <span data-state="err">{{ e.exo.letzter_fehler }}</span>{% endif %}. Der Dienst holt sie stündlich; <a href="#" onclick="abfragen(this);return false;">jetzt abrufen</a>.</p>
+    {% else %}
+    {#- Bleibende Ergebnisanzeige (0.2.61-beta): aus dem gespeicherten Zustand, nicht nur die
+        kurze Meldung am Knopf. Vor 0.2.61 angelegte Connectoren haben keinen Zeitpunkt. -#}
+    {% set c = e.connector_lauf %}
+    <div class="alert success" id="conn-ergebnis" style="margin-bottom:8px">✓ Connector angelegt{% if c.zeit %} am {{ c.zeit[:16]|replace('T', ' ') }} UTC{% endif %}.
+      {% if c.ips %}Exchange erkennt das Relay an der IP <code>{{ c.ips|join(', ') }}</code>.
+      {% elif c.zeit %}Exchange erkennt das Relay am Zertifikat für <code>{{ c.hostname or e.hostname }}</code>.{% endif %}</div>
+    {% if r.eigene_app and r.lauf.text and not r.lauf.ok and not herab_offen %}
+    <div class="alert warn" style="margin-bottom:8px">{{ r.lauf.text }}
+      <span style="font-size:11px;opacity:.8">({{ r.lauf.zeit }})</span></div>
+    {% endif %}
+    {% endif %}
 
-    <!-- Rechte der App: Admin nur für den Connector, danach Lesen (rechte.py) -->
-    <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="rechte-block">
-      <h3 style="font-size:13px;margin:0 0 6px">Rechte der App</h3>
-      {% set r = e.rechte %}
-      {% if not r.eigene_app %}
-      <p class="hint" style="margin:0">{{ r.hinweis }}</p>
-      {% else %}
-      <p class="hint" style="margin:0 0 8px">
-        Exchange-Administrator braucht die App nur zum Anlegen des Connectors. Danach liest sie
-        nur noch die Postfachliste — über die Rollengruppe <code>{{ r.lesegruppe or (s.GATEWAY_NAME ~ ' - nur lesen') }}</code>
-        (<em>View-Only Recipients</em> + <em>View-Only Configuration</em>). Sobald Exchange das
-        übernommen hat, kann ein kopierter Schlüssel nichts mehr ändern.
-      </p>
-      {% if r.lauf.text %}
-      <div class="alert {{ 'success' if r.lauf.ok else 'warn' }}" style="margin-bottom:8px">{{ r.lauf.text }}
+    {% if r.herabgestuft %}
+    <div class="alert success" id="rechte-ergebnis" style="margin-bottom:8px">✓ Rechte herabgestuft am {{ r.herabgestuft[:16]|replace('T', ' ') }} UTC —
+      Rolle Exchange-Administrator entfernt, die App darf nur noch lesen.{% if not e.geraete %} Weiter mit <a href="#step-5">Schritt 5</a>.{% endif %}</div>
+    {% if r.wirksam.zeit %}
+    <div class="alert success" style="margin-bottom:8px">In Exchange wirksam: keine Schreibrechte mehr
+      {% if r.wirksam.minuten is not none %}— {{ r.wirksam.minuten }} Minuten nach dem Herabstufen{% endif %}
+      <span style="font-size:11px;opacity:.8">({{ r.wirksam.zeit }})</span></div>
+    {% else %}
+    <div class="alert warn" style="margin-bottom:8px">Exchange hat das Herabstufen noch nicht übernommen
+      {% if r.messung.zeit %}— letzte Messung: {{ r.messung.text }}
+      <span style="font-size:11px;opacity:.8">({{ r.messung.zeit }})</span>{% else %}— noch nicht gemessen{% endif %}.
+      Der Dienst misst stündlich nach.</div>
+    {% endif %}
+    {% endif %}
+    <details id="conn-pflege" style="margin:4px 0 10px">
+      <summary style="cursor:pointer;font-size:13px;color:#64748b">{% if e.connector_created %}Connector, Postfachliste, Rechte und Schlüssel der App{% else %}Postfachliste, Rechte und Schlüssel der App{% endif %}</summary>
+      <p class="hint" style="margin-top:8px">Postfachliste: {{ e.exo.postfaecher }} Postfächer{% if e.exo.letzter_erfolg %} (Stand {{ e.exo.letzter_erfolg }}){% endif %}{% if e.exo.letzter_fehler %} — <span data-state="err">{{ e.exo.letzter_fehler }}</span>{% endif %}. Der Dienst holt sie stündlich; <a href="#" onclick="abfragen(this);return false;">jetzt abrufen</a>.</p>
+
+      {% if e.connector_created %}
+      <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="conn-nachziehen">
+        <h3 style="margin:0 0 6px">Connector</h3>
+    {% if e.tls.lets_encrypt and not e.tls.staging %}
+        <div class="alert success" id="conn-variante" style="margin-bottom:10px">Zertifikat von Let's Encrypt vorhanden —
+          Feld „Öffentliche IP(s)“ leer lassen, dann erkennt Exchange das Relay an <code>{{ e.hostname }}</code>.</div>
+    {% else %}
+        <div class="alert warn" id="conn-variante" style="margin-bottom:10px">Noch kein Zertifikat von Let's Encrypt — so geht
+          nur die IP-Variante. Empfohlen: erst in <a href="#le-block">Schritt 2</a> ausstellen, dann den Connector
+          ohne IP anlegen.</div>
+    {% endif %}
+        <div class="actions" style="flex-wrap:wrap;gap:8px;margin-bottom:10px">
+          <button class="btn secondary" onclick="exoPruefen(this)">Modul und Anmeldung prüfen</button>
+          <span id="exo-result" style="font-size:12px"></span>
+        </div>
+        {{ connector_felder(false) }}
+      </div>
+      {% endif %}
+
+      <!-- Rechte der App: Admin nur für den Connector, danach Lesen (rechte.py) -->
+      <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="rechte-block">
+        <h3 style="margin:0 0 6px">Rechte der App</h3>
+        {% if not r.eigene_app %}
+        <p class="hint" style="margin:0">{{ r.hinweis }}</p>
+        {% else %}
+        <p class="hint" style="margin:0 0 8px">
+          Exchange-Administrator braucht die App nur zum Anlegen des Connectors. Danach liest sie
+          nur noch die Postfachliste — über die Rollengruppe <code>{{ r.lesegruppe or (s.GATEWAY_NAME ~ ' - nur lesen') }}</code>
+          (<em>View-Only Recipients</em> + <em>View-Only Configuration</em>). Sobald Exchange das
+          übernommen hat, kann ein kopierter Schlüssel nichts mehr ändern.
+        </p>
+        {% if r.messung.zeit %}
+        <p class="hint" id="messung-ergebnis" style="margin:0 0 8px">Letzte Messung: {{ r.messung.text }}
+          <span style="font-size:11px;opacity:.8">({{ r.messung.zeit }})</span></p>
+        {% endif %}
+        {% if r.herabgestuft or (not e.connector_created and not r.admin_token) %}{{ zustimmung_hinweis() }}{% endif %}
+        <div class="actions" style="flex-wrap:wrap;gap:8px">
+          <button class="btn secondary" onclick="rechteMessen(this)">Rechte jetzt messen</button>
+          {% if not e.connector_created and not r.herabgestuft %}
+          {#- Vor dem Connector ist Herabstufen nicht der Ablauf — wer gar keinen anlegt, findet es hier. -#}
+          {% if r.admin_token %}
+          <button class="btn secondary" onclick="herabstufen(this)">Jetzt auf Lesen herabstufen</button>
+          {% else %}
+          <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'herabstufen')">Anmelden und herabstufen</button> <a href="#" class="paste-notweg" style="font-size:12px;margin-left:10px" onclick="pasteZeigen('paste-rechte');return false;">Fenster zeigt eine Fehlerseite? Adresse hier einfügen</a>
+          {% endif %}
+          {% endif %}
+          {% if r.herabgestuft %}
+          <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'hochstufen')">Admin-Recht für Änderungen holen</button> <a href="#" class="paste-notweg" style="font-size:12px;margin-left:10px" onclick="pasteZeigen('paste-rechte');return false;">Fenster zeigt eine Fehlerseite? Adresse hier einfügen</a>
+          {% endif %}
+          <span id="messen-result" style="font-size:12px"></span>
+        </div>
+        {% if not rechte_unten %}{{ rechte_login() }}{% endif %}
+        {% endif %}
+
+        <h3 style="margin:14px 0 6px">Schlüssel der App</h3>
+        <p class="hint" style="margin:0 0 8px">
+          {% if e.auth_cert.not_after %}Gültig bis <strong>{{ e.auth_cert.not_after[:10] }}</strong>. {% endif %}
+          Der Dienst erneuert ihn selbst, 30 Tage vor Ablauf, für jeweils ein Jahr — ohne
+          zusätzliches Recht. Ist er abgelaufen, geht es nur noch über eine neue Anmeldung in Schritt 3.
+        </p>
+        {% if e.auth_cert_lauf.text %}
+        <div class="alert {{ 'success' if e.auth_cert_lauf.ok else 'warn' }}" style="margin-bottom:8px">{{ e.auth_cert_lauf.text }}
+          <span style="font-size:11px;opacity:.8">({{ e.auth_cert_lauf.zeit }})</span></div>
+        {% endif %}
+        {% if r.eigene_app %}
+        <div class="actions"><button class="btn secondary" onclick="schluesselErneuern(this)">Jetzt erneuern</button>
+          <span id="schluessel-result" style="font-size:12px"></span></div>
+        {% endif %}
+      </div>
+    </details>
+
+    {% if not e.connector_created %}
+    {{ connector_felder(true) }}
+    {% elif herab_offen %}
+    <div style="border-top:1px solid #e2e8f0;padding-top:12px" id="herabstufen-block">
+      <h3 style="margin:0 0 6px">Nächster Schritt: Rechte der App herabstufen</h3>
+      {#- Kein Warnkasten für den Normalfall „Admin-Anmeldung abgelaufen“ (stufe admin) — das ist
+          der nächste Schritt, keine Störung. Echte Fehler des letzten Versuchs bleiben sichtbar. -#}
+      {% if r.lauf.text and not r.lauf.ok and r.lauf.stufe != 'admin' %}
+      <div class="alert warn" style="margin-bottom:8px">Letzter Versuch: {{ r.lauf.text }}
         <span style="font-size:11px;opacity:.8">({{ r.lauf.zeit }})</span></div>
       {% endif %}
-      {% if r.herabgestuft %}
-      {% if r.wirksam.zeit %}
-      <div class="alert success" style="margin-bottom:8px">In Exchange wirksam: keine Schreibrechte mehr
-        {% if r.wirksam.minuten is not none %}— {{ r.wirksam.minuten }} Minuten nach dem Herabstufen{% endif %}
-        <span style="font-size:11px;opacity:.8">({{ r.wirksam.zeit }})</span></div>
-      {% else %}
-      <div class="alert warn" style="margin-bottom:8px">Exchange hat das Herabstufen noch nicht übernommen
-        {% if r.messung.zeit %}— letzte Messung: {{ r.messung.text }}
-        <span style="font-size:11px;opacity:.8">({{ r.messung.zeit }})</span>{% else %}— noch nicht gemessen{% endif %}.
-        Der Dienst misst stündlich nach.</div>
-      {% endif %}
-      {% endif %}
+      <p class="hint" style="margin:0 0 8px">Die App braucht Exchange-Administrator nur zum Anlegen des
+        Connectors und liest künftig nur die Postfachliste.
+        {% if r.admin_token %}Ein Klick, dann stuft das Relay herab.{% else %}Kurz anmelden, dann stuft das Relay herab.{% endif %}</p>
+      {% if not r.admin_token %}{{ zustimmung_hinweis() }}{% endif %}
       <div class="actions" style="flex-wrap:wrap;gap:8px">
-        <button class="btn secondary" onclick="rechteMessen(this)">Rechte jetzt messen</button>
         {% if r.admin_token %}
         <button class="btn primary" onclick="herabstufen(this)">Jetzt auf Lesen herabstufen</button>
         {% else %}
-        <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'herabstufen')">Anmelden und herabstufen</button>
+        <button class="btn primary" onclick="anmelden(this, 'paste-rechte', false, 'herabstufen')">Anmelden und herabstufen</button> <a href="#" class="paste-notweg" style="font-size:12px;margin-left:10px" onclick="pasteZeigen('paste-rechte');return false;">Fenster zeigt eine Fehlerseite? Adresse hier einfügen</a>
         {% endif %}
-        <button class="btn secondary" onclick="anmelden(this, 'paste-rechte', false, 'hochstufen')">Admin-Recht für Änderungen holen</button>
         <span id="rechte-result" style="font-size:12px"></span>
       </div>
-      <div id="paste-rechte" style="display:none;margin-top:10px">
-        <p class="hint" style="margin:0 0 4px">Landet das Login-Fenster auf <code>localhost</code> mit einer Fehlerseite:</p>
-        {{ adressleiste_hinweis() }}
-        <label for="paste-rechte-url" style="font-size:12px;color:#555">Adresse aus der Adressleiste</label>
-        <input type="text" id="paste-rechte-url" placeholder="{{ e.localhost_redirect_uri }}?code=…&state=…" style="width:100%;font-family:monospace;font-size:12px;margin-top:3px" autocapitalize="off" spellcheck="false">
-        <div id="paste-rechte-result" style="display:none;margin-top:8px"></div>
-        <div class="actions" style="margin-top:8px"><button class="btn primary" onclick="einfuegen('paste-rechte')">Fortsetzen</button></div>
-      </div>
-      {% endif %}
-
-      <h3 style="font-size:13px;margin:14px 0 6px">Schlüssel der App</h3>
-      <p class="hint" style="margin:0 0 8px">
-        {% if e.auth_cert.not_after %}Gültig bis <strong>{{ e.auth_cert.not_after[:10] }}</strong>. {% endif %}
-        Der Dienst erneuert ihn selbst, 30 Tage vor Ablauf, für jeweils ein Jahr — ohne
-        zusätzliches Recht. Ist er abgelaufen, geht es nur noch über eine neue Anmeldung in Schritt 3.
-      </p>
-      {% if e.auth_cert_lauf.text %}
-      <div class="alert {{ 'success' if e.auth_cert_lauf.ok else 'warn' }}" style="margin-bottom:8px">{{ e.auth_cert_lauf.text }}
-        <span style="font-size:11px;opacity:.8">({{ e.auth_cert_lauf.zeit }})</span></div>
-      {% endif %}
-      {% if r.eigene_app %}
-      <div class="actions"><button class="btn secondary" onclick="schluesselErneuern(this)">Jetzt erneuern</button>
-        <span id="schluessel-result" style="font-size:12px"></span></div>
-      {% endif %}
+      {{ rechte_login() }}
     </div>
+    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -309,16 +413,21 @@
       <code>{{ e.hostname or '<IP dieses Dienstes>' }}</code>, Port <code>{{ e.smtp_port }}</code>,
       keine Anmeldung, STARTTLS wenn möglich.
     </p>
+    {% if e.lern_rest_min %}
+    <div class="alert success" id="lern-ergebnis" style="margin-bottom:10px">✓ Lernmodus läuft noch {{ e.lern_rest_min }} Minute{{ '' if e.lern_rest_min == 1 else 'n' }}
+      für <code>{{ e.lern_netze|join(', ') }}</code> — eingetragen: {{ e.geraete }} Gerät{{ '' if e.geraete == 1 else 'e' }}.
+      Beenden und Geräteliste unter <a href="/relay">Relay</a>.</div>
+    {% endif %}
     <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
       <div style="flex:1;min-width:240px">
         <label for="lern-bereiche" style="font-size:12px;color:#555">Bereich</label>
-        <input type="text" id="lern-bereiche" style="width:100%;margin-top:3px" placeholder="192.168.1.0/24">
+        <input type="text" id="lern-bereiche" style="width:100%;margin-top:3px" placeholder="z. B. 192.168.1.0/24">
       </div>
       <div><label for="lern-minuten" style="font-size:12px;color:#555">Minuten</label><br><input type="number" id="lern-minuten" min="1" max="120" value="15" style="width:90px;margin-top:3px"></div>
       <button class="btn primary" onclick="lernStarten(this)">Lernmodus starten</button>
     </div>
     <div id="lern-result" style="display:none;margin-top:10px"></div>
-    <p class="hint" style="margin-top:10px">Oder von Hand: Adresse <input type="text" id="neu-ip" placeholder="10.1.5.7" style="width:130px"> <input type="text" id="neu-kommentar" placeholder="Kopierer Empfang" style="width:180px"> <button class="btn secondary btn-sm" onclick="geraetHinzufuegen(this)">Hinzufügen</button> <span id="neu-result" style="font-size:12px"></span></p>
+    <p class="hint" data-alternative style="margin-top:10px">Oder von Hand: Adresse <input type="text" id="neu-ip" placeholder="z. B. 10.1.5.7" style="width:130px"> <input type="text" id="neu-kommentar" placeholder="z. B. Kopierer Empfang" style="width:180px"> <button class="btn secondary btn-sm" onclick="geraetHinzufuegen(this)">Hinzufügen</button> <span id="neu-result" style="font-size:12px"></span></p>
   </div>
 </div>
 
@@ -377,6 +486,12 @@ async function anmelden(btn, pasteId, localhost, zweck) {
   if (!r.ok) { alert('Anmeldung konnte nicht gestartet werden: ' + r.fehler); return; }
   if (paste) document.getElementById(pasteId).style.display = '';
 }
+// Notweg: Das Einfügefeld nimmt jede Rückadresse mit passendem state an, egal unter welchem
+// Host das Fenster landete (/api/setup/auth-paste liest nur code und state).
+function pasteZeigen(pasteId) {
+  const feld = document.getElementById(pasteId);
+  if (feld) { feld.style.display = ''; const e = document.getElementById(pasteId + '-url'); if (e) e.focus(); }
+}
 async function einfuegen(pasteId) {
   const box = document.getElementById(pasteId + '-result');
   const url = (document.getElementById(pasteId + '-url').value || '').trim();
@@ -391,7 +506,7 @@ async function exoPruefen(btn) {
   const alt = btn.textContent; btn.disabled = true; btn.textContent = 'prüft (bis zu einer Minute) …';
   const r = await postJSON('/api/setup/exo-check', {});
   btn.disabled = false; btn.textContent = alt;
-  showMsg('conn-result', r.text || errText(r), !!r.ok);
+  showMsg('exo-result', r.text || errText(r), !!r.ok);
 }
 async function connectorEinrichten(btn) {
   const alt = btn.textContent; btn.disabled = true; btn.textContent = 'läuft (bis zu einer Minute) …';
@@ -407,14 +522,14 @@ async function rechteMessen(btn) {
   const r = await postJSON('/api/setup/rechte/messen', {});
   btn.disabled = false; btn.textContent = alt;
   const stufe = {admin: 'Exchange-Administrator', lesen: 'nur Lesen', keine: 'kein Lesezugriff'}[r.stufe] || 'nicht messbar';
-  showMsg('rechte-result', stufe + ' — ' + (r.text || errText(r)), r.stufe === 'lesen');
+  showMsg('messen-result', stufe + ' — ' + (r.text || errText(r)), r.stufe === 'lesen');
   if (r.stufe === 'lesen') setTimeout(function () { location.reload(); }, 2500);
 }
 async function herabstufen(btn) {
   const alt = btn.textContent; btn.disabled = true; btn.textContent = 'stuft herab …';
   const r = await postJSON('/api/setup/rechte/herabstufen', {});
   btn.disabled = false; btn.textContent = alt;
-  showMsg('rechte-result', r.text || errText(r), !!r.ok);
+  showMsg(btn.parentNode.querySelector('span[id$="-result"]'), r.text || errText(r), !!r.ok);
   if (r.ok) setTimeout(function () { location.reload(); }, 2500);
 }
 async function schluesselErneuern(btn) {

@@ -29,8 +29,11 @@ BOOTSTRAP_SCOPES = [
     "https://graph.microsoft.com/AppRoleAssignment.ReadWrite.All",
     "https://graph.microsoft.com/Directory.ReadWrite.All",
     "https://graph.microsoft.com/RoleManagement.ReadWrite.Directory",
-    "offline_access",
 ]
+# Kein `offline_access` (bis 0.2.60 angefordert): Das Relay nutzt nur das Zugriffstoken
+# (exchange_code → access_token, Admin-Token befristet im Speicher, rechte._admin) und
+# nie ein Refresh-Token. Der Scope erschien im Zustimmungsdialog als „Maintain access to
+# data you have given it access to“ — ein Recht ohne Nutzen. tests/test_einrichtung_aufbau.py.
 
 _sessions: dict[str, dict] = {}
 _SESSION_TTL = 600
@@ -54,7 +57,7 @@ def generate_pkce_pair() -> tuple[str, str]:
 ZWECKE = ("einrichtung", "herabstufen", "hochstufen")
 
 
-def create_session(redirect_uri: str, zweck: str = "einrichtung") -> tuple[str, str]:
+def create_session(redirect_uri: str, zweck: str = "einrichtung", herkunft: str = "") -> tuple[str, str]:
     """Neue Sitzung → (state, Anmeldeadresse).
 
     `zweck` entscheidet, was nach der Anmeldung geschieht (`einrichtung._nach_login`):
@@ -66,7 +69,10 @@ def create_session(redirect_uri: str, zweck: str = "einrichtung") -> tuple[str, 
     state = secrets.token_urlsafe(24)
     verifier, challenge = generate_pkce_pair()
     _sessions[state] = {"verifier": verifier, "redirect_uri": redirect_uri,
-                        "created_at": time.monotonic(), "zweck": zweck}
+                        "created_at": time.monotonic(), "zweck": zweck,
+                        # Rückadresse unter der Adresse, über die der Admin die Oberfläche aufrief —
+                        # setup_wizard trägt sie nach dem Login an der Login-App nach.
+                        "herkunft": herkunft}
     params = {
         "client_id": _get_client_id(), "response_type": "code", "redirect_uri": redirect_uri,
         "scope": " ".join(BOOTSTRAP_SCOPES), "state": state,

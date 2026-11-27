@@ -144,11 +144,12 @@ def test_rueckadresse_erst_nach_bekanntgabe(einstellungen):
     dann bleibt es beim Localhost-Weg. Danach läuft es im Popup."""
     from webui.routen import einrichtung
     einstellungen["BOOTSTRAP_CLIENT_ID"] = "boot-1"
+    https = "https://relay.firma.de:8080/auth/callback"
     einstellungen["BOOTSTRAP_REDIRECT_URIS"] = []
-    assert einrichtung._setup_redirect_uri(False).startswith("http://localhost:")
-    einstellungen["BOOTSTRAP_REDIRECT_URIS"] = ["https://relay.firma.de:8080/auth/callback"]
-    assert einrichtung._setup_redirect_uri(False) == "https://relay.firma.de:8080/auth/callback"
-    assert einrichtung._setup_redirect_uri(True).startswith("http://localhost:"), "ausdrücklich erzwungen"
+    assert einrichtung._setup_redirect_uri(False, https).startswith("http://localhost:")
+    einstellungen["BOOTSTRAP_REDIRECT_URIS"] = [https]
+    assert einrichtung._setup_redirect_uri(False, https) == https
+    assert einrichtung._setup_redirect_uri(True, https).startswith("http://localhost:"), "ausdrücklich erzwungen"
 
 
 def test_ohne_login_app_laeuft_der_erste_login_ueber_loopback_ohne_pfad(einstellungen):

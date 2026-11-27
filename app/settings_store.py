@@ -80,6 +80,7 @@ DEFAULTS: dict = {
     "ADRESSEN_ZUSAETZLICH": [],
     "EXO_ABFRAGE_AN": True,         # Postfachliste stündlich per PowerShell holen
     "EXO_CONNECTOR_CREATED": False,
+    "EXO_CONNECTOR_LAUF": {},       # letztes erfolgreiches Anlegen {zeit, hostname, ips} — Anzeige in Schritt 4
 
     # ── TLS-Zertifikat über Let's Encrypt (seit 0.2.38, wie Gateway) ─────────
     # Oberfläche: Einstellungen → TLS-Zertifikat. Ablauf siehe le_certbot.py

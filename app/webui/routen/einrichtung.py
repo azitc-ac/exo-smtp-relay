@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,6 +31,7 @@ import rechte
 import relay_hosts
 import settings_store
 import setup_wizard
+import smtp_relay
 import tls_cert
 
 from webui.deps import (templates, fusszeile, log, _gateway_name, _require_admin, _get_session_user,
@@ -37,6 +39,14 @@ from webui.deps import (templates, fusszeile, log, _gateway_name, _require_admin
 from webui.routen.einstellungen import _le_zustand
 
 router = APIRouter()
+
+
+def _lern_rest_min() -> int | None:
+    """Restminuten des Lernmodus für Schritt 5 — None, wenn er nicht läuft (smtp_relay entscheidet)."""
+    bis = smtp_relay.lernmodus_bis()
+    if bis is None:
+        return None
+    return max(1, int((bis - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
 
 
 def zustand() -> dict:
@@ -62,6 +72,9 @@ def zustand() -> dict:
         "rechte": rechte.zustand(),
         "exo": exo_mailboxes.zustand(),
         "connector_created": bool(s.get("EXO_CONNECTOR_CREATED")),
+        "connector_lauf": s.get("EXO_CONNECTOR_LAUF") or {},
+        "lern_rest_min": _lern_rest_min(),
+        "lern_netze": s.get("SMTP_RELAY_LERN_NETZE") or [],
         "geraete": len(geraete),
         "setup_complete": bool(s.get("SETUP_COMPLETE")),
         "pwsh": config.PWSH,
@@ -123,13 +136,21 @@ async def api_setup_bootstrap_client(request: Request, user: str = Depends(_requ
     return JSONResponse({"ok": True})
 
 
-def _setup_redirect_uri(localhost: bool) -> str:
-    """HTTPS-Rückadresse, sobald sie an der Login-App bekannt ist — sonst localhost
-    (Copy-Paste). Beim allerersten Login ist sie es nie; danach trägt
-    `patch_bootstrap_redirect_uri` sie nach, und der zweite Login läuft im Popup."""
-    https_uri = setup_wizard.sso_redirect_uri()
-    if not localhost and https_uri and https_uri in (settings_store.get("BOOTSTRAP_REDIRECT_URIS") or []):
-        return https_uri
+def _herkunft_uri(request: Request) -> str:
+    """Die Rückadresse unter der Adresse, über die der Browser die Oberfläche GERADE aufruft.
+    Die Oberfläche läuft nur über HTTPS (main._run_webui)."""
+    host = (request.headers.get("host") or request.url.netloc or "").strip()
+    return f"https://{host}/auth/callback" if host else ""
+
+
+def _setup_redirect_uri(localhost: bool, herkunft: str = "") -> str:
+    """HTTPS-Rückadresse nur, wenn der Browser des Admins sie erreicht UND die Login-App sie
+    kennt: die Adresse, über die er die Oberfläche gerade aufruft (`herkunft`). Sonst
+    localhost (Copy-Paste). Bis 0.2.60 war es ungeprüft der öffentliche Hostname aus dem
+    Zertifikat — der löst oft nur von aussen auf (oder gar nicht: DNS-01 braucht nur TXT),
+    und das Login-Fenster landete auf DNS_PROBE_FINISHED_NXDOMAIN."""
+    if not localhost and herkunft and herkunft in (settings_store.get("BOOTSTRAP_REDIRECT_URIS") or []):
+        return herkunft
     return setup_wizard.aktuelle_localhost_uri()
 
 
@@ -137,11 +158,12 @@ def _setup_redirect_uri(localhost: bool) -> str:
 async def auth_start(request: Request, user: str = Depends(_require_admin)):
     """Anmeldeadresse als JSON — für den Knopf im Assistenten."""
     localhost = request.query_params.get("localhost") in ("1", "true")
-    redirect_uri = _setup_redirect_uri(localhost)
+    herkunft = _herkunft_uri(request)
+    redirect_uri = _setup_redirect_uri(localhost, herkunft)
     zweck = request.query_params.get("zweck") or "einrichtung"
     if zweck not in pkce_mod.ZWECKE:
         raise HTTPException(400, "Unbekannter Zweck")
-    _state, auth_url = pkce_mod.create_session(redirect_uri, zweck)
+    _state, auth_url = pkce_mod.create_session(redirect_uri, zweck, herkunft)
     return JSONResponse({"auth_url": auth_url, "redirect_uri": redirect_uri,
                          "paste": redirect_uri.startswith("http://localhost")})
 
@@ -182,7 +204,7 @@ async def _nach_login(code: str, state: str) -> dict:
         rechte.merke_admin_token(token, gueltig)
         lauf = await rechte.adminrolle_zuweisen(token)
         return {"rechte": lauf, "app_id": settings_store.get("CLIENT_ID")}
-    ergebnis = await setup_wizard.run_post_auth_setup(token, gueltig)
+    ergebnis = await setup_wizard.run_post_auth_setup(token, gueltig, sitzung.get("herkunft") or "")
     # Die Postfachliste gleich holen — im Hintergrund, der Login soll nicht darauf warten.
     asyncio.get_running_loop().run_in_executor(None, exo_mailboxes.list_mailboxes, True)
     return ergebnis
@@ -225,7 +247,7 @@ async def api_setup_auth_paste(request: Request, user: str = Depends(_require_ad
     code, state = params.get("code", [""])[0], params.get("state", [""])[0]
     if not code or not state:
         raise HTTPException(400, "Die Adresse enthält keinen Code. Bitte die komplette Adresse aus "
-                                 f"der Adressleiste des Login-Fensters kopieren (beginnt mit {setup_wizard.aktuelle_localhost_uri()}?code=…).")
+                                 "der Adressleiste des Login-Fensters kopieren (enthält …/auth/callback?code=…&state=…).")
     try:
         ergebnis = await _nach_login(code, state)
     except _SitzungAbgelaufen as exc:

@@ -1,5 +1,60 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.61-beta — 2026-11-27 — Einrichtung: nächster Schritt am Kartenende, Ergebnisse bleiben stehen
+
+- **Login endete auf „DNS_PROBE_FINISHED_NXDOMAIN“.** Sobald der öffentliche Hostname an der
+  Login-App eingetragen war, nahm das Relay ihn als Rückadresse für jede Anmeldung — auch wenn der
+  Browser des Admins die Oberfläche über eine andere Adresse aufrief und den Namen gar nicht
+  auflösen konnte (Let's Encrypt über DNS-01 braucht nur einen TXT-Eintrag). Das Einfügefeld unter
+  „Rechte der App“ erschien in diesem Fall nicht, weil es nur beim localhost-Weg eingeblendet wurde.
+  Jetzt gilt die Adresse, über die du die Oberfläche gerade aufrufst; ist sie an der Login-App
+  nicht eingetragen, läuft die Anmeldung über localhost mit Einfügen. Nach der Anmeldung in
+  Schritt 3 trägt das Relay die Aufruf-Adresse an der Login-App nach. Neben jedem Anmeldeknopf
+  steht zusätzlich „Fenster zeigt eine Fehlerseite? Adresse hier einfügen“ — das Einfügefeld nimmt
+  die Adresse unter jedem Host an, entscheidend ist der `state`. Zu tun: nichts.
+- **Schritt 2, Hilfetext korrigiert:** Dort stand, der Hostname müsse „für den Rückweg von aussen
+  auflösbar sein“. Die Verbindung zu Exchange baut das Relay selbst auf; Microsoft nennt für den
+  Inbound-Connector mit Zertifikat keine DNS-Anforderung. Von aussen erreichbar sein muss der Name
+  nur für Let's Encrypt über HTTP-01.
+  Ebenso unter Einstellungen → TLS: Dort hieß es zusätzlich, der Name müsse zu einer akzeptierten
+  Domäne gehören. Microsoft nennt das als eine von zwei Möglichkeiten — die andere: alle
+  Absenderdomänen sind akzeptierte Domänen, was beim Relay der Regelfall ist.
+- **Schritt 4 (Inbound-Connector) neu geordnet.** Bis 0.2.60 stand „Connector anlegen“ mitten in
+  der Karte, darunter Postfachliste, Rechte und Schlüssel der App. Jetzt: oben die
+  Voraussetzungen (Zertifikat, Ergebnis des letzten Rechte-Laufs, „Modul und Anmeldung prüfen“),
+  in der Mitte eingeklappt „Postfachliste, Rechte und Schlüssel der App“, ganz unten das Feld für
+  die IP und der einzige blaue Knopf.
+- **Nach dem Anlegen ist Herabstufen der nächste Schritt — und der blaue Knopf.** Bis 0.2.60 war
+  im Zustand „Eingerichtet“ „Connector nachziehen“ blau und „Anmelden und herabstufen“ grau,
+  dazu ein gelber Kasten „Admin-Anmeldung abgelaufen …“, der wie ein Fehler aussah. Die App
+  behielte so dauerhaft Exchange-Administrator. Jetzt steht am Kartenende „Nächster Schritt:
+  Rechte der App herabstufen“ mit Erklärung und dem Knopf; „Connector nachziehen“ liegt
+  eingeklappt in der Pflege. Echte Fehler des letzten Herabstufens bleiben als Warnung sichtbar.
+- **Ergebnisse bleiben in der Karte stehen**, nicht nur kurz am Knopf: „✓ Connector angelegt am
+  … UTC. Exchange erkennt das Relay am Zertifikat für <Hostname>“ (bzw. „an der IP …“),
+  „✓ Rechte herabgestuft am … — Rolle Exchange-Administrator entfernt“ samt „Weiter mit Schritt 5“,
+  die letzte Rechte-Messung, und in Schritt 5 „✓ Lernmodus läuft noch N Minuten für …“.
+  Zeitpunkt und Variante des Connectors werden ab dieser Fassung gespeichert; ein früher
+  angelegter Connector zeigt „✓ Connector angelegt.“ ohne Datum.
+- **Zustimmung angekündigt.** Vor jedem Anmeldeknopf (Einrichtung, Herabstufen, Admin-Recht
+  holen) steht, dass Microsoft nach einer Zustimmung fragt: „Accept“, ohne den Haken
+  „Consent on behalf of your organization“ — die eigene Zustimmung reicht, mit dem Haken gilt sie
+  für alle Benutzer des Tenants.
+- **Kein `offline_access` mehr bei der Anmeldung.** Das Relay benutzt nur das Zugriffstoken, nie
+  ein Refresh-Token; der Scope erschien im Dialog als „Maintain access to data you have given it
+  access to“. Zu tun: nichts — eine bereits erteilte Zustimmung bleibt gültig, es wird nur
+  weniger angefordert.
+- **Einheitlich in allen Karten:** genau ein blauer Knopf für die nächste nötige Aktion, danach
+  kein weiteres Bedienelement. „Speichern“ beim Hostnamen wird grau, sobald einer gesetzt ist
+  (dann ist Let's Encrypt der Schritt), „Client-ID speichern“ in Schritt 3 ist optional und grau.
+- **Platzhalter sehen nicht mehr wie Werte aus:** Beispiele beginnen mit „z. B.“ (öffentliche IP
+  `z. B. 203.0.113.10`, Hostname, Bereiche, Adressen) in Einrichtung, Einstellungen, Relay und
+  Let's Encrypt.
+- Tests: `tests/test_einrichtung_aufbau.py` rendert die Einrichtung in sieben Zuständen und prüft je
+  Karte „genau ein Primärknopf, am Ende“, den erwarteten Knopf in Schritt 4, eine bleibende
+  Ergebnisanzeige je Aktion (Inventur aller Knöpfe), den Zustimmungshinweis vor jedem
+  Anmeldeknopf, die festgeschriebene Scope-Liste und die Platzhalter.
+
 ## 0.2.60-beta — 2026-11-27 — Let's Encrypt im Einrichtungsassistenten, Aktualisierungsseite hängt nicht mehr
 
 - **Einrichtung, Schritt 2 (Hostname): Let's Encrypt als empfohlener Weg.** Sobald der Hostname

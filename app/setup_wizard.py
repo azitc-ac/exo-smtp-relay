@@ -211,7 +211,12 @@ async def ensure_login_app(token: str) -> str:
     return app_id
 
 
-async def patch_bootstrap_redirect_uri(token: str) -> None:
+async def patch_bootstrap_redirect_uri(token: str, herkunft: str = "") -> None:
+    """Rückadressen an der Login-App nachtragen: localhost, der öffentliche Name und — seit
+    0.2.61 — die Adresse, über die der Admin die Oberfläche aufrief (`herkunft`). Nur die
+    letzte erreicht sein Browser sicher; der öffentliche Name löst oft nur von aussen auf.
+    `herkunft` geht in einem EIGENEN Schritt: Lehnt Entra sie ab (z. B. eine IP-Adresse —
+    Annahme, nicht gemessen), bleiben die anderen eingetragen."""
     bootstrap = (settings_store.get("BOOTSTRAP_CLIENT_ID") or "").strip()
     uri = sso_redirect_uri()
     if not bootstrap:
@@ -231,13 +236,22 @@ async def patch_bootstrap_redirect_uri(token: str) -> None:
                       json={"publicClient": {"redirectUris": uris}})
             log.info("Rückadresse(n) %s an der Login-App nachgetragen", ", ".join(fehlend))
         settings_store.update({"BOOTSTRAP_REDIRECT_URIS": uris})
+        if herkunft.startswith("https://") and herkunft not in uris:
+            try:
+                await _gh("patch", f"{GRAPH}/applications/{apps[0]['id']}", token,
+                          json={"publicClient": {"redirectUris": uris + [herkunft]}})
+                settings_store.update({"BOOTSTRAP_REDIRECT_URIS": uris + [herkunft]})
+                log.info("Rückadresse %s (Aufruf-Adresse) an der Login-App nachgetragen", herkunft)
+            except Exception as exc:                          # noqa: BLE001
+                log.warning("Aufruf-Adresse %s nicht nachgetragen — Login bleibt beim "
+                            "Copy-Paste-Weg: %s", herkunft, exc)
     except Exception as exc:                                  # noqa: BLE001
         log.warning("Login-App nicht nachgetragen: %s", exc)
 
 
 # ── Alles zusammen ───────────────────────────────────────────────────────────
 
-async def run_post_auth_setup(token: str, gueltig_s: int | None = None) -> dict:
+async def run_post_auth_setup(token: str, gueltig_s: int | None = None, herkunft: str = "") -> dict:
     tenant = await discover_tenant(token)
     patch = {"TENANT_ID": tenant["tenant_id"], "TENANT_DOMAIN": tenant["tenant_domain"]}
     if not (settings_store.get("EXO_SMARTHOST") or "").strip():
@@ -267,5 +281,5 @@ async def run_post_auth_setup(token: str, gueltig_s: int | None = None) -> dict:
     except Exception as exc:                                  # noqa: BLE001
         log.warning("Login-App nicht angelegt (Client-ID von Hand eintragen): %s", exc)
         ergebnis["login_app_error"] = str(exc)
-    await patch_bootstrap_redirect_uri(token)
+    await patch_bootstrap_redirect_uri(token, herkunft)
     return ergebnis
