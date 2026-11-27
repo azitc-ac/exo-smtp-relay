@@ -600,6 +600,12 @@ def test_http01_und_manuell_lehnen_wildcard_ab(client):  # noqa: F811
     assert r.status_code == 400 and "Provider" in r.json()["error"]
 
 
+def test_vorgabe_der_methode_je_plattform():
+    """Windows hat kein certbot — dort ist DNS-01 die Vorgabe."""
+    import settings_store
+    assert settings_store.DEFAULTS["LE_METHODE"] == ("dns01" if sys.platform == "win32" else "http01")
+
+
 def test_namen_aus():
     import tls_acme_dns
     assert tls_acme_dns.namen_aus("Relay.Example.com, *.example.com relay.example.com") == \

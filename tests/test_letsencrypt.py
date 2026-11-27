@@ -81,6 +81,9 @@ def umgebung(monkeypatch, data_dir):
     monkeypatch.setattr(settings_store, "_data", {})
     monkeypatch.setattr(config, "_ENV_SEEDS", {})
     settings_store.init({})
+    # certbot wird simuliert (auch unter Windows, wo LE_METHODE sonst dns01 vorgibt):
+    # diese Tests prüfen den HTTP-01-Weg.
+    settings_store.update({"LE_METHODE": "http01"})
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         monkeypatch.setattr(le_certbot, "HTTP01_PORT", s.getsockname()[1])
