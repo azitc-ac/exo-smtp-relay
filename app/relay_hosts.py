@@ -31,6 +31,7 @@ nicht schadet.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import socket
 import sqlite3
@@ -55,7 +56,7 @@ FENSTER = (30, 90, 180, 360)
 _lock = threading.Lock()
 
 
-def _conn() -> sqlite3.Connection:
+def _oeffnen() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     # SQLite legt die Datei mit der umask des Prozesses an (im Container 644).
@@ -116,6 +117,23 @@ def _conn() -> sqlite3.Connection:
         c.execute("ALTER TABLE hosts ADD COLUMN gateway INTEGER NOT NULL DEFAULT 0")
         log.info("relay_hosts: Spalte 'gateway' nachgetragen")
     return c
+
+
+@contextlib.contextmanager
+def _conn():
+    """Verbindung für EINEN Block: commit bzw. rollback wie bisher, danach GESCHLOSSEN.
+
+    ⚠️ `with sqlite3.connect(...) as c:` schließt die Verbindung NICHT — der
+    Kontextmanager von sqlite3 macht nur commit/rollback. Jede Abfrage ließ so
+    eine offene Datei zurück, bis die Speicherbereinigung sie fand; die
+    Testreihe scheiterte bei `ulimit -n 1024` (Debian-Vorgabe) mit
+    „Too many open files“ (gemessen 27.11.2026, ~1000 ResourceWarnings)."""
+    c = _oeffnen()
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def _jetzt() -> datetime:

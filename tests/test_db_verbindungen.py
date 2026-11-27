@@ -36,3 +36,15 @@ def test_mail_audit_rollt_bei_fehler_zurueck(monkeypatch, tmp_path):
     if "probe" in tabellen:
         with mail_audit._conn() as c:
             assert c.execute("SELECT COUNT(*) FROM probe").fetchone()[0] == 0
+
+
+def test_relay_hosts_schliesst_die_verbindung(monkeypatch, tmp_path):
+    """relay_hosts.py ist mit dem Gateway gespiegelt — dieselbe Regel gilt dort."""
+    import relay_hosts
+    monkeypatch.setattr(relay_hosts, "DB_PATH", tmp_path / "relay_hosts.db")
+    with relay_hosts._conn() as c:
+        c.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError):
+        c.execute("SELECT 1")
+    relay_hosts.speichern("10.99.0.7", kommentar="Probe")
+    assert relay_hosts.host("10.99.0.7")["kommentar"] == "Probe", "commit nach dem Block fehlt"

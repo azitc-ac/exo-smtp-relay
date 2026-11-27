@@ -83,13 +83,10 @@ jobs:
   # Unter 3.13 lief die Testreihe bei 1024 offenen Dateien in „Too many open files“ —
   # SQLite-Verbindungen blieben offen (`with sqlite3.connect() as c` schließt nicht).
   # Unter 3.11 und mit dem hohen Grenzwert der Runner fiel das nie auf.
-  # ⚠️ continue-on-error, bis relay_hosts._conn (gespiegelt mit dem Gateway) ebenfalls
-  # schließt — die Freigabe dafür steht aus. Danach die Zeile entfernen: Dann wird
-  # jedes neue Leck rot.
+  # Seit 0.2.63-beta scharf: Jedes neue Leck wird rot.
   tests-py313:
     name: Tests unter Python 3.13 (ulimit -n 1024)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

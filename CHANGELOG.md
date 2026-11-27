@@ -1,5 +1,17 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.63-beta — 2026-11-27 — Datenbankverbindungen werden geschlossen (Python 3.13, Debian 13)
+
+- **Offene Datenbankverbindungen.** Protokoll (`mail_audit`) und Geräteliste (`relay_hosts`)
+  öffneten für jede Abfrage eine SQLite-Verbindung und schlossen sie nicht: `with
+  sqlite3.connect(…)` übernimmt nur Commit bzw. Rollback, nicht das Schließen. Unter Python 3.13
+  mit dem Debian-Grenzwert von 1024 offenen Dateien scheiterte die Testreihe an „Too many open
+  files“; unter 3.11 fiel es nie auf. Die Installation per systemd nutzt das Python des Systems —
+  auf Debian 13 ist das 3.13. Jetzt wird jede Verbindung nach ihrem Block geschlossen. Zu tun:
+  nichts.
+- **CI prüft zusätzlich unter Python 3.13 mit `ulimit -n 1024`.** Ein neues Leck wird damit rot,
+  bevor es eine Installation erreicht.
+
 ## 0.2.62-beta — 2026-11-27 — Testmail über den echten Weg, klare Abweisung nicht freigegebener Geräte
 
 - **Testmail** in Einrichtung Schritt 6 und unter Einstellungen → Rückweg: Absender, Empfänger und
