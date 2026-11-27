@@ -35,6 +35,16 @@ MIRRORED: list[tuple[str, str]] = [
     ("app/webui/static/common.js", "gemeinsame Frontend-Helfer"),
     ("app/webui/static/style.css", "Stylesheet"),
     ("app/webui/static/dark-mode.css", "Dunkelmodus"),
+    # DNS-01-Katalog: Quelle ist das Relay, das Gateway übernimmt den Ordner (LIESMICH.md)
+    ("app/dns_provider/__init__.py", "DNS-01-Katalog"),
+    ("app/dns_provider/__main__.py", "DNS-01-Katalog: Manifest schreiben/prüfen"),
+    ("app/dns_provider/basis.py", "DNS-01-Katalog: Basisklasse"),
+    ("app/dns_provider/ionos.py", "DNS-01-Katalog: IONOS"),
+    ("app/dns_provider/azure.py", "DNS-01-Katalog: Azure DNS"),
+    ("app/dns_provider/dnsabfrage.py", "DNS-01-Katalog: eigener DNS-Resolver"),
+    ("app/dns_provider/KATALOG_VERSION", "DNS-01-Katalog: Fassung und Manifest"),
+    ("app/dns_provider/FASSUNGEN", "DNS-01-Katalog: Register der Fassungen"),
+    ("app/dns_provider/LIESMICH.md", "DNS-01-Katalog: Ablauf für Änderungen"),
 ]
 
 # Das Gateway daneben (eigenes Repo: ../EXO-Signature-Gateway) oder darüber
