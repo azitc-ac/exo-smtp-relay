@@ -78,6 +78,33 @@ jobs:
           python tools/release.py bauen dist-probe
           cd dist-probe && sha256sum -c --strict SHA256SUMS
 
+  # Python 3.13 mit dem Debian-Vorgabewert `ulimit -n 1024`. Die systemd-Installation
+  # nimmt das System-Python (Debian 13 = 3.13), das Image 3.11. Anlass 27.11.2026:
+  # Unter 3.13 lief die Testreihe bei 1024 offenen Dateien in „Too many open files“ —
+  # SQLite-Verbindungen blieben offen (`with sqlite3.connect() as c` schließt nicht).
+  # Unter 3.11 und mit dem hohen Grenzwert der Runner fiel das nie auf.
+  # ⚠️ continue-on-error, bis relay_hosts._conn (gespiegelt mit dem Gateway) ebenfalls
+  # schließt — die Freigabe dafür steht aus. Danach die Zeile entfernen: Dann wird
+  # jedes neue Leck rot.
+  tests-py313:
+    name: Tests unter Python 3.13 (ulimit -n 1024)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Abhängigkeiten
+        run: |
+          pip install --require-hashes --only-binary :all: -r app/requirements.lock
+          pip install -r tests/requirements.txt
+      - name: Tests mit 1024 offenen Dateien
+        run: |
+          ulimit -n 1024
+          ulimit -n
+          pytest tests/ -q
+
   windows:
     name: Tests unter Windows
     runs-on: windows-latest
