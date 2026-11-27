@@ -1,5 +1,36 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.62-beta — 2026-11-27 — Testmail über den echten Weg, klare Abweisung nicht freigegebener Geräte
+
+- **Testmail** in Einrichtung Schritt 6 und unter Einstellungen → Rückweg: Absender, Empfänger und
+  das Gerät, dessen Regeln gelten sollen. Die Nachricht läuft über **denselben Weg wie Post eines
+  Geräts** — Annahme am eigenen Listener, Prüfung von Absenderdomäne und Ziel nach den Regeln des
+  gewählten Geräts (z. B. „extern erlaubt“), Rückweg zu Exchange Online. Ein „zugestellt“ belegt
+  damit den ganzen Weg, nicht nur die Verbindung (dafür gibt es weiter „Verbindung testen“).
+  Das Ergebnis bleibt stehen: Zeitpunkt, Absender und Empfänger, **Message-ID** und die **Antwort
+  von Exchange** (mit dessen interner Kennung), dazu der Weg zur Nachrichtenablaufverfolgung im
+  Exchange Admin Center. Scheitert sie, steht dort der Grund und die Antwort, die ein Gerät bekäme.
+  Der Server selbst wird dabei kein Gerät: Die Testmail trägt eine Einmal-Kennung, die nur der
+  laufende Dienst kennt, einmal gilt und nach fünf Minuten verfällt; die Zähler des gewählten Geräts
+  bleiben unberührt. In Schritt 6 ist die Testmail empfohlen, nicht Pflicht: Sie braucht ein
+  freigegebenes Gerät und die Postfachliste, und ein frisch angelegter Connector greift in
+  Exchange oft erst nach einigen Minuten.
+- **Antwort von Exchange im Protokoll:** Jede Zustellung protokolliert jetzt die Antwort von
+  Exchange auf die Nachricht („250 2.6.0 <…> [InternalId=…] Queued mail for delivery“). Damit lässt
+  sich eine Gerätemail in der Nachrichtenablaufverfolgung finden.
+- **Nicht freigegebene Geräte werden klar abgewiesen.** Bis 0.2.61 bekam ein Gerät, das nicht in
+  der Liste steht, ohne STARTTLS zuerst „530 Must issue a STARTTLS command first“ und danach
+  „554 5.7.1 Access denied“ — wer das las, suchte den Fehler am Zertifikat. Jetzt antwortet das
+  Relay schon auf den Empfänger mit „554 5.7.1 Geraet <IP> nicht freigegeben — … Einrichtung
+  Schritt 5 bzw. Relay → Geräte eintragen“, ohne STARTTLS zu verlangen. Angenommen wird nach wie
+  vor nur von freigegebenen Geräten; die STARTTLS-Pflicht schützte bei nicht freigegebenen
+  Adressen nur die Befehle einer Sitzung, die ohnehin abgewiesen wurde. Unter *Relay* erscheinen
+  solche Versuche wie bisher mit Absender und Empfänger. Zu tun: nichts.
+- Tests: Ende zu Ende mit echtem Listener und einem Exchange-Ersatz mit STARTTLS (Weg, Ergebnis,
+  Regeln des Geräts, Einmal-Kennung gegen Wiederholung und erfundene Kennung, gesperrtes Gerät);
+  Abweisung bei RCPT für fremde, unbekannte, gesperrte Adressen, abgeschaltetes Relay und nach dem
+  Lernlauf; die eigene Adresse behält die STARTTLS-Pflicht.
+
 ## 0.2.61-beta — 2026-11-27 — Einrichtung: nächster Schritt am Kartenende, Ergebnisse bleiben stehen
 
 - **Login endete auf „DNS_PROBE_FINISHED_NXDOMAIN“.** Sobald der öffentliche Hostname an der

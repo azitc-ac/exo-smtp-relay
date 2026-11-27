@@ -88,15 +88,35 @@ def test_eingetragenes_geraet_liefert_ohne_starttls_ein(dienst):
     assert b"Subject: Scan" in inhalt
 
 
-def test_unbekanntes_geraet_muss_starttls_und_wird_dann_abgewiesen(dienst):
-    """Für eine fremde Adresse bleibt die Pflicht; nach STARTTLS scheitert sie
-    an der Geräteliste — auf keinem der beiden Wege kommt Post durch."""
+def test_unbekanntes_geraet_wird_bei_rcpt_mit_grund_abgewiesen(dienst, monkeypatch):
+    """Bis 0.2.61: ohne STARTTLS „530 Must issue a STARTTLS command first“, danach
+    „554 5.7.1 Access denied“ — wer das las, suchte den Fehler am Zertifikat. Jetzt
+    schon bei RCPT, ohne STARTTLS, mit Adresse und Weg zur Freigabe; nichts kommt durch.
+    Als „fremde“ Adresse dient 127.0.0.1, indem die eigenen Adressen umgebogen werden."""
+    import testmail
+    monkeypatch.setattr(testmail, "eigene_quellen", lambda: {"10.99.0.250"})
+    with smtplib.SMTP("127.0.0.1", dienst["port"], timeout=10) as s:
+        s.ehlo()
+        with pytest.raises(smtplib.SMTPRecipientsRefused) as e:
+            s.sendmail("drucker@firma.de", ["chefin@firma.de", "lager@firma.de"], NACHRICHT)
+    assert set(e.value.recipients) == {"chefin@firma.de", "lager@firma.de"}
+    code, text = e.value.recipients["chefin@firma.de"]
+    assert code == 554, (code, text)
+    assert b"127.0.0.1 nicht freigegeben" in text and b"Schritt 5" in text, text
+    assert dienst["senke"].post == []
+    abgewiesen = dienst["relay_hosts"].abgewiesene()
+    assert [(a["ip"], a["absender"], a["anzahl"]) for a in abgewiesen] == [("127.0.0.1", "drucker@firma.de", 1)]
+
+
+def test_eigene_adresse_ohne_kennung_bleibt_bei_starttls_und_wird_abgewiesen(dienst):
+    """Die eigene Adresse des Servers (Testmail-Weg) behält die STARTTLS-Pflicht und wird
+    ohne gültige Einmal-Kennung bei DATA abgewiesen — der Server ist kein Gerät."""
     import ssl
     with smtplib.SMTP("127.0.0.1", dienst["port"], timeout=10) as s:
         s.ehlo()
         with pytest.raises(smtplib.SMTPResponseException) as e:
             s.sendmail("drucker@firma.de", ["chefin@firma.de"], NACHRICHT)
-        assert e.value.smtp_code == 530, "ohne STARTTLS: 530 Must issue a STARTTLS command first"
+        assert e.value.smtp_code == 530
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -106,7 +126,7 @@ def test_unbekanntes_geraet_muss_starttls_und_wird_dann_abgewiesen(dienst):
         s.ehlo()
         with pytest.raises(smtplib.SMTPDataError) as e:
             s.sendmail("drucker@firma.de", ["chefin@firma.de"], NACHRICHT)
-        assert e.value.smtp_code == 554
+        assert e.value.smtp_code == 554 and b"nicht freigegeben" in e.value.smtp_error
     assert dienst["senke"].post == []
 
 

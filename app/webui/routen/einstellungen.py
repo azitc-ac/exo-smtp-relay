@@ -17,6 +17,7 @@ import exo_mailboxes
 import exo_setup
 import settings_store
 import smarthost
+import testmail
 import le_certbot
 import tls_acme_dns
 import tls_cert
@@ -36,7 +37,7 @@ async def einstellungen_page(request: Request, user: str = Depends(_require_admi
                  "le": _le_zustand(),
                  "exo": exo_mailboxes.zustand(),
                  "pwsh": config.PWSH, "data_dir": config.DATA_DIR,
-                 "smtp_port": config.SMTP_PORT})
+                 "smtp_port": config.SMTP_PORT, "tm": testmail.zustand()})
 
 
 @router.post("/api/einstellungen")
@@ -118,6 +119,18 @@ async def api_exo_connector_pruefen(user: str = Depends(_require_admin)):
 @router.post("/api/smarthost/test")
 async def api_smarthost_test(user: str = Depends(_require_admin)):
     return JSONResponse(await asyncio.to_thread(smarthost.verbindungstest))
+
+
+@router.post("/api/testmail")
+async def api_testmail(request: Request, user: str = Depends(_require_admin)):
+    """Testmail über den eigenen Listener (testmail.py) — derselbe Weg wie Gerätepost."""
+    import testmail
+    daten = await request.json()
+    log.info("Testmail durch %s: %s → %s (Regeln von %s)", user, daten.get("von"), daten.get("an"),
+             daten.get("geraet"))
+    erg = await asyncio.to_thread(testmail.senden, daten.get("von") or "", daten.get("an") or "",
+                                  daten.get("geraet") or "")
+    return JSONResponse(erg, status_code=200 if erg.get("ok") or erg.get("zeit") else 400)
 
 
 # ── Auth-Zertifikat (App-Registrierung) ──────────────────────────────────────

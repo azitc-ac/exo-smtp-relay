@@ -438,7 +438,12 @@
     {% if e.setup_complete %}<span class="step-status done">Abgeschlossen</span>{% else %}<span class="step-status pending">Ausstehend</span>{% endif %}
   </div>
   <div class="step-body">
-    <p class="hint" style="margin:0 0 10px">Danach führt dich die Startseite zum Dashboard. Alles Weitere — Rückweg, Zertifikate, Adressen — findest du unter Einstellungen.</p>
+    {#- Testmail empfohlen, nicht Pflicht: Sie braucht ein freigegebenes Gerät und die
+        Postfachliste, und ein frisch angelegter Connector greift in Exchange oft erst nach
+        einigen Minuten — ein Abschluss, der daran hängt, scheiterte an fremder Verzögerung. -#}
+    <h3 style="margin:0 0 6px">Testmail <span class="hint" style="display:inline;font-weight:400">empfohlen</span></h3>
+    {% include "_testmail.html" %}
+    <p class="hint" style="margin:14px 0 10px">Danach führt dich die Startseite zum Dashboard. Alles Weitere — Rückweg, Zertifikate, Adressen — findest du unter Einstellungen.</p>
     <div class="actions">
       <button class="btn primary" onclick="abschliessen(this)" {% if e.setup_complete %}disabled{% endif %}>Einrichtung abschliessen</button>
       <span id="abschluss-result" style="font-size:12px;margin-left:8px"></span>

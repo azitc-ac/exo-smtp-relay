@@ -221,6 +221,7 @@ BLEIBEND = {
     "dns01Start": ['id="dns01-offen"', "{{ le.dns01.record_value if le.dns01 else '' }}"],
     "dns01Verwerfen": ['id="dns01-start"'],
     "speichern": ['value="{{ s.LE_EMAIL }}"'],
+    "testmailSenden": ['id="testmail-ergebnis"'],
 }
 OHNE_BLEIBEND = {
     "exoPruefen": "Prüfung ohne Zustandsänderung — die Antwort steht am Knopf bis zum Neuladen",
@@ -235,7 +236,8 @@ OHNE_BLEIBEND = {
 def _vorlagen_text():
     from pathlib import Path
     v = Path(__file__).resolve().parent.parent / "app" / "webui" / "templates"
-    return "\n".join((v / n).read_text(encoding="utf-8") for n in ("einrichtung.html", "_letsencrypt.html"))
+    return "\n".join((v / n).read_text(encoding="utf-8") for n in ("einrichtung.html", "_letsencrypt.html",
+                                                                     "_testmail.html"))
 
 
 def test_jede_aktion_hat_eine_bleibende_ergebnisanzeige():
@@ -426,3 +428,16 @@ def test_platzhalter_sind_blasser_als_werte():
     css = (Path(__file__).resolve().parent.parent / "app/webui/static/style.css").read_text(encoding="utf-8")
     regel = re.search(r"input::placeholder,\s*textarea::placeholder\s*\{([^}]*)\}", css)
     assert regel and "#94a3b8" in regel.group(1) and "opacity: 1" in regel.group(1)
+
+
+def test_testmail_steht_in_schritt_6_und_unter_einstellungen(client, tmp_path, monkeypatch):  # noqa: F811
+    """EINE Vorlage an beiden Orten; in Schritt 6 vor „Einrichtung abschliessen“ (nicht Pflicht)."""
+    import relay_hosts
+    monkeypatch.setattr(relay_hosts, "DB_PATH", tmp_path / "geraete.db")
+    relay_hosts.speichern("10.99.0.7", kommentar="Scanner")
+    _anmelden(client)
+    schritt6 = client.get("/einrichtung").text.split('id="step-6"', 1)[1]
+    assert schritt6.index('id="testmail-block"') < schritt6.index("Einrichtung abschliessen")
+    assert 'value="10.99.0.7"' in schritt6
+    einst = client.get("/einstellungen").text
+    assert 'id="testmail-block"' in einst.split('id="testmail"', 1)[1]

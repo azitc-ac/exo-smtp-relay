@@ -77,6 +77,10 @@
     <button class="btn secondary" onclick="testen(this, '/api/smarthost/test', 'rueckweg-result')">Verbindung testen</button>
     <span id="rueckweg-result" style="font-size:12px;margin-left:8px"></span>
   </div>
+  <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:14px" id="testmail">
+    <h3 style="margin:0 0 6px">Testmail</h3>
+    {% include "_testmail.html" %}
+  </div>
 </div>
 
 <!-- ── Tenant und App-Registrierung ──────────────────────────────────────── -->

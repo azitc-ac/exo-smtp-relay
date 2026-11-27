@@ -49,9 +49,10 @@ class _LenientSMTP(_BaseSMTP):
 
     1. `connection_made`: STARTTLS bleibt angeboten, wird aber für ein
        freigegebenes Relay-Gerät nicht VERLANGT — ein Etikettendrucker von 2011
-       kann es nicht, und genau für solche Geräte gibt es diesen Dienst. Für
-       jede andere Adresse bleibt die Pflicht; die Entscheidung fällt bei jeder
-       Verbindung neu (Sperre oder Entfernen wirken ohne Neustart).
+       kann es nicht, und genau für solche Geräte gibt es diesen Dienst. Seit
+       0.2.62 auch nicht für fremde Adressen (sie scheitern bei RCPT mit klarem
+       Grund); Pflicht bleibt es nur für die eigenen Adressen des Servers
+       (Testmail). Die Entscheidung fällt bei jeder Verbindung neu.
     2. `smtp_MAIL`: unbekannte MAIL-FROM-Parameter werden übergangen statt mit
        555 abgewiesen. Manche Geräte senden `AUTH=<>` oder Ähnliches mit.
     3. `push`: Antwortzeilen nur in ASCII (wie Gateway v1.12.24).
@@ -77,10 +78,17 @@ class _LenientSMTP(_BaseSMTP):
             return                       # im Zweifel bei der Pflicht bleiben
         try:
             import smtp_relay
+            import testmail
             if smtp_relay.ist_relay_quelle(ip):
                 self.require_starttls = False
                 log.info("SMTP: %s ist ein freigegebenes Relay-Gerät — "
                          "STARTTLS wird angeboten, aber nicht verlangt", ip)
+            elif ip not in testmail.eigene_quellen():
+                # Seit 0.2.62: Auch ein NICHT freigegebenes Gerät muss kein STARTTLS — es wird
+                # bei RCPT mit klarem Grund abgewiesen (handler.handle_RCPT). Vorher bekam es
+                # zuerst „Must issue a STARTTLS command first“ und suchte den Fehler am
+                # Zertifikat. Vor DATA wird nichts angenommen; Anmeldedaten gibt es keine.
+                self.require_starttls = False
         except Exception as exc:         # noqa: BLE001
             log.warning("SMTP: Relay-Prüfung für %s fehlgeschlagen: %s", ip, exc)
 

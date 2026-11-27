@@ -32,6 +32,7 @@ import relay_hosts
 import settings_store
 import smarthost
 import smtp_relay
+import testmail
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,36 @@ def _received_header(peer_ip: str, tls: bool) -> bytes:
     return zeile.encode("ascii", errors="replace")
 
 
+def abweisung_geraet(ip: str) -> str:
+    """Die Antwort an ein nicht freigegebenes Gerät — mit Adresse und Weg zur Freigabe.
+    Bis 0.2.61 hieß es nur „554 5.7.1 Access denied“, und davor kam (ohne STARTTLS)
+    „Must issue a STARTTLS command first“: Wer das las, suchte den Fehler am Zertifikat."""
+    return (f"554 5.7.1 Gerät {ip or '?'} nicht freigegeben — in der Oberfläche des Relays "
+            "unter Einrichtung Schritt 5 bzw. Relay → Geräte eintragen")
+
+
 class RelayHandler:
+    async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
+        """Nicht freigegebene Geräte schon hier abweisen, mit klarem Grund — ohne STARTTLS-
+        Pflicht (main._LenientSMTP): Vor DATA wird nichts angenommen, und es gibt keine
+        Anmeldedaten, die im Klartext liefen. Eigene Adressen des Servers entscheidet DATA
+        (Testmail mit Einmal-Kennung, testmail.py)."""
+        try:
+            peer_ip = (session.peer or ("",))[0]
+        except Exception:                                     # noqa: BLE001
+            peer_ip = ""
+        if peer_ip and peer_ip not in testmail.eigene_quellen() and not smtp_relay.ist_relay_quelle(peer_ip):
+            if not getattr(session, "relay_abweisung_gemerkt", False):
+                session.relay_abweisung_gemerkt = True
+                log.warning("SMTP: %s abgewiesen — nicht in der Geräteliste", peer_ip)
+                if settings_store.get("SMTP_RELAY_ENABLED"):
+                    relay_hosts.merke_abweisung(peer_ip, envelope.mail_from or "", [address],
+                                                "nicht in der Geräteliste")
+            return abweisung_geraet(peer_ip)
+        envelope.rcpt_tos.append(address)
+        envelope.rcpt_options.extend(rcpt_options)
+        return "250 OK"
+
     async def handle_DATA(self, server, session, envelope):
         mail_trace.new_trace()
         peer_ip = ""
@@ -76,12 +106,16 @@ class RelayHandler:
                 mail_audit.log_event(sender=sender, recipients=recipients, subject=subject,
                                      message_id=mid, action=action, size_bytes=len(raw),
                                      processing_ms=int((time.monotonic() - t0) * 1000),
-                                     error=error, quelle=peer_ip, tls=tls, extern=extern)
+                                     error=error, quelle=(f"Testmail ({test['geraet']})" if test else peer_ip),
+                                     tls=tls, extern=extern)
             except Exception as exc:                          # noqa: BLE001
                 log.warning("mail_audit: %s nicht protokolliert: %s", action, exc)
 
         # ── 1. Quelle ────────────────────────────────────────────────────────
-        aus_relay_netz = smtp_relay.ist_relay_quelle(peer_ip) if peer_ip else False
+        # Testmail aus der Oberfläche (testmail.py): Einmal-Kennung statt Geräteliste,
+        # geprüft im Namen des gewählten Geräts. Sonst wie jede Einlieferung.
+        test = testmail.einloesen(raw, peer_ip) if peer_ip else None
+        aus_relay_netz = bool(test) or (smtp_relay.ist_relay_quelle(peer_ip) if peer_ip else False)
         if not aus_relay_netz:
             log.warning("SMTP: %s abgewiesen — nicht in der Geräteliste", peer_ip or "?")
             # Nur bei eingeschaltetem Relay merken: Sonst sammelte die Liste
@@ -89,14 +123,17 @@ class RelayHandler:
             # wäre darin nicht mehr zu finden.
             if peer_ip and settings_store.get("SMTP_RELAY_ENABLED"):
                 relay_hosts.merke_abweisung(peer_ip, sender, recipients, "nicht in der Geräteliste")
-            return "554 5.7.1 Access denied"
+            return abweisung_geraet(peer_ip)
 
         # ── 2. Absender und Ziel ─────────────────────────────────────────────
-        erlaubt, grund, antwort = smtp_relay.pruefe(sender, recipients, peer_ip)
+        erlaubt, grund, antwort = smtp_relay.pruefe(sender, recipients, test["geraet"] if test else peer_ip)
         if not erlaubt:
             log.warning("%s", grund)
             _audit("relay_abgelehnt", error=grund)
-            relay_hosts.merke_abweisung(peer_ip, sender, recipients, grund)
+            if test:
+                testmail.merken(test, False, fehler=grund, antwort_listener=antwort)
+            else:
+                relay_hosts.merke_abweisung(peer_ip, sender, recipients, grund)
             return antwort
 
         # ── 3. Zustellen ─────────────────────────────────────────────────────
@@ -117,14 +154,20 @@ class RelayHandler:
         inhalt = _received_header(peer_ip, tls) + raw
         try:
             # smtplib blockiert — nicht auf der Ereignisschleife des Listeners.
-            await asyncio.to_thread(smarthost.send, sender, recipients, inhalt)
+            zustellung = await asyncio.to_thread(smarthost.send, sender, recipients, inhalt) or {}
         except Exception as exc:                              # noqa: BLE001
             _audit("relay_fehler", subject=subject, mid=mid, error=str(exc)[:300], extern=extern)
+            if test:
+                testmail.merken(test, False, fehler=f"Rückweg zu Exchange: {exc}"[:400])
             # 4xx: Das Gerät soll es erneut versuchen. Die Post ist NICHT
             # angenommen — lieber ein Wiederversuch als ein stiller Verlust.
             return "451 4.4.1 Zustellung an Exchange Online fehlgeschlagen, bitte erneut versuchen"
 
-        relay_hosts.merke_zustellung(peer_ip, tls=tls)
+        if test:
+            # Keine Gerätezähler: Die Testmail kam nicht vom Gerät, sie galt nur seinen Regeln.
+            testmail.merken(test, True, antwort=zustellung.get("antwort", ""), ziel=zustellung.get("ziel", ""))
+        else:
+            relay_hosts.merke_zustellung(peer_ip, tls=tls)
         _audit("relay", subject=subject, mid=mid, extern=extern)
         log.info("SMTP-Relay: %s → %s (von %s)", sender, ", ".join(recipients[:3]), peer_ip)
         return "250 OK"

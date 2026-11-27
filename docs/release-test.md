@@ -193,8 +193,8 @@ Alle Antworten müssen ASCII und lesbar sein (Umlaute umgeschrieben).
 
 | Lage | Erwartet |
 |---|---|
-| Gerät nicht in der Liste, ohne TLS | `530 Must issue a STARTTLS command first` |
-| Gerät nicht in der Liste, mit STARTTLS | `554 5.7.1 Access denied` |
+| Gerät nicht in der Liste (mit oder ohne TLS) | bei RCPT `554 5.7.1 Geraet <IP> nicht freigegeben - … Einrichtung Schritt 5 …` |
+| Server selbst (127.0.0.1) ohne Testmail-Kennung | ohne TLS `530 Must issue a STARTTLS command first`, mit TLS bei DATA dieselbe 554 |
 | freigegeben, keine Adressen bekannt | `451 4.3.2 Relay temporaer nicht verfuegbar` |
 | Absenderdomäne fremd | `550 5.7.1 Absenderdomaene …` |
 | Empfänger außerhalb | `550 5.7.1 Relay nur an Empfaenger …` |

@@ -83,6 +83,25 @@ def _client_tls_context() -> ssl.SSLContext:
     return ctx
 
 
+def _uebergeben(smtp: smtplib.SMTP, mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
+    """`sendmail`, aber mit der Antwort auf DATA. Exchange nennt darin die interne
+    Kennung („250 2.6.0 <…> [InternalId=…] Queued mail for delivery“) — damit
+    findet man die Nachricht im Message Trace. smtplib verwirft sie sonst."""
+    antwort: dict = {}
+    data = smtp.data
+
+    def _data_merkend(msg):
+        code, text = data(msg)
+        antwort["text"] = f"{code} {text.decode(errors='replace') if isinstance(text, bytes) else text}"
+        return code, text
+    smtp.data = _data_merkend
+    try:
+        smtp.sendmail(mail_from, rcpt_tos, content)
+    finally:
+        smtp.data = data
+    return antwort.get("text", "")
+
+
 def _send_smarthost(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
     host = (settings_store.get("EXO_SMARTHOST") or "").strip()
     port = int(settings_store.get("EXO_PORT") or 25)
@@ -92,8 +111,8 @@ def _send_smarthost(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
         smtp.ehlo()
         smtp.starttls(context=_client_tls_context())
         smtp.ehlo()
-        smtp.sendmail(mail_from, rcpt_tos, content)
-    return f"{host}:{port}"
+        antwort = _uebergeben(smtp, mail_from, rcpt_tos, content)
+    return f"{host}:{port}", antwort
 
 
 def _send_submit(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
@@ -110,8 +129,8 @@ def _send_submit(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
                 smtp.ehlo()
                 auth_string = f"user=\r\nauth=Bearer {token}\r\n\r\n"
                 smtp.auth("XOAUTH2", lambda _: auth_string.encode("utf-8"))
-                smtp.sendmail(mail_from, rcpt_tos, content)
-            return f"{host}:{port} via XOAUTH2"
+                antwort = _uebergeben(smtp, mail_from, rcpt_tos, content)
+            return f"{host}:{port} via XOAUTH2", antwort
         except smtplib.SMTPAuthenticationError:
             log.warning("SMTP XOAUTH2 auth fehlgeschlagen, versuche Basic Auth")
         except Exception as exc:  # noqa: BLE001
@@ -128,19 +147,21 @@ def _send_submit(mail_from: str, rcpt_tos: list[str], content: bytes) -> str:
         smtp.starttls(context=tls_vertrauen.client_kontext())
         smtp.ehlo()
         smtp.login(user, pw)
-        smtp.sendmail(mail_from, rcpt_tos, content)
-    return f"{host}:{port} als {user}"
+        antwort = _uebergeben(smtp, mail_from, rcpt_tos, content)
+    return f"{host}:{port} als {user}", antwort
 
 
-def send(mail_from: str, rcpt_tos: list[str], content: bytes) -> None:
-    """Nachricht unverändert weiterreichen. Wirft bei jedem Fehler."""
+def send(mail_from: str, rcpt_tos: list[str], content: bytes) -> dict:
+    """Nachricht unverändert weiterreichen. Wirft bei jedem Fehler.
+    → {"ziel": Host:Port, "antwort": Antwort von Exchange auf DATA}."""
     modus = (settings_store.get("EXO_SUBMIT_MODE") or "smarthost").strip()
     try:
         if modus == "submit":
-            ziel = _send_submit(mail_from, rcpt_tos, content)
+            ziel, antwort = _send_submit(mail_from, rcpt_tos, content)
         else:
-            ziel = _send_smarthost(mail_from, rcpt_tos, content)
-        log.info("Zustellung OK: from=%s to=%s via %s", mail_from, rcpt_tos, ziel)
+            ziel, antwort = _send_smarthost(mail_from, rcpt_tos, content)
+        log.info("Zustellung OK: from=%s to=%s via %s — %s", mail_from, rcpt_tos, ziel, antwort)
+        return {"ziel": ziel, "antwort": antwort}
     except Exception as exc:
         log.error("Zustellung fehlgeschlagen: from=%s to=%s: %s", mail_from, rcpt_tos, exc)
         raise

@@ -32,6 +32,7 @@ import relay_hosts
 import settings_store
 import setup_wizard
 import smtp_relay
+import testmail
 import tls_cert
 
 from webui.deps import (templates, fusszeile, log, _gateway_name, _require_admin, _get_session_user,
@@ -92,6 +93,7 @@ async def einrichtung_page(request: Request, user: str = Depends(_require_admin)
                  # Let's Encrypt im Assistenten: derselbe Zustand und dieselbe Vorlage
                  # (_letsencrypt.html) wie unter Einstellungen → TLS.
                  "le": _le_zustand(),
+                 "tm": testmail.zustand(),
                  "auth_error": request.query_params.get("auth_error", "")})
 
 

@@ -65,30 +65,30 @@ def test_eingetragenes_geraet_kommt_durch(anlage):
 
 
 def test_fremdes_netz_wird_abgewiesen(anlage):
-    assert _lauf("203.0.113.9") == "554 5.7.1 Access denied"
+    assert _lauf("203.0.113.9") == handler.abweisung_geraet("203.0.113.9")
     assert not anlage["_gesehen"]
 
 
 def test_nachbar_im_selben_netz_ist_keine_freigabe(anlage):
-    assert _lauf("10.1.5.31") == "554 5.7.1 Access denied"
+    assert _lauf("10.1.5.31") == handler.abweisung_geraet("10.1.5.31")
 
 
 def test_abgeschaltetes_relay_weist_alles_ab(anlage):
     anlage["SMTP_RELAY_ENABLED"] = False
-    assert _lauf("10.1.5.30") == "554 5.7.1 Access denied"
+    assert _lauf("10.1.5.30") == handler.abweisung_geraet("10.1.5.30")
     assert not anlage["_gesehen"]
 
 
 def test_gesperrtes_geraet_wird_im_handler_abgewiesen(anlage):
     import relay_hosts
     relay_hosts.speichern("10.1.5.30", gesperrt=True)
-    assert _lauf("10.1.5.30") == "554 5.7.1 Access denied"
+    assert _lauf("10.1.5.30") == handler.abweisung_geraet("10.1.5.30")
     assert not anlage["_gesehen"]
 
 
 def test_unbekanntes_geraet_landet_in_der_abweisungsliste(anlage):
     import relay_hosts
-    assert _lauf("10.1.5.99", absender="neu@firma.de") == "554 5.7.1 Access denied"
+    assert _lauf("10.1.5.99", absender="neu@firma.de") == handler.abweisung_geraet("10.1.5.99")
     offen = relay_hosts.abgewiesene()
     assert [z["ip"] for z in offen] == ["10.1.5.99"]
     assert offen[0]["absender"] == "neu@firma.de"

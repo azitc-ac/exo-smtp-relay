@@ -1,0 +1,54 @@
+{#- Testmail — EINE Vorlage für Einrichtung Schritt 6 und Einstellungen → Rückweg (0.2.62-beta).
+    Die Mail läuft über den eigenen Listener wie Post eines Geräts (testmail.py); das Ergebnis
+    bleibt stehen (TESTMAIL_LAUF), mit Message-ID und Antwort von Exchange. Kontext: `tm`
+    aus testmail.zustand(). -#}
+{% set l = tm.lauf %}
+<div id="testmail-block">
+  <p class="hint" style="margin:0 0 8px">Schickt eine echte Nachricht über denselben Weg wie ein Gerät:
+    Annahme, Prüfung mit den Regeln des gewählten Geräts, Rückweg zu Exchange Online. Kommt sie an,
+    funktioniert der ganze Weg.</p>
+  {% if l.zeit %}
+  {% if l.ok %}
+  <div class="alert success" id="testmail-ergebnis" style="margin-bottom:10px">✓ Testmail am {{ l.zeit[:16]|replace('T', ' ') }} UTC
+    an Exchange übergeben: <code>{{ l.von }}</code> → <code>{{ l.an }}</code> (Regeln von Gerät <code>{{ l.geraet }}</code>).<br>
+    Message-ID <code>{{ l.mid }}</code>{% if l.antwort %} · Antwort von Exchange: <code>{{ l.antwort }}</code>{% endif %}<br>
+    Nachverfolgen: Exchange Admin Center → Nachrichtenfluss → Nachrichtenablaufverfolgung, nach der Message-ID suchen.</div>
+  {% else %}
+  <div class="alert warn" id="testmail-ergebnis" style="margin-bottom:10px">Testmail am {{ l.zeit[:16]|replace('T', ' ') }} UTC
+    nicht zugestellt{% if l.von %} (<code>{{ l.von }}</code> → <code>{{ l.an }}</code>){% endif %}: {{ l.fehler }}
+    {% if l.antwort_listener %}<br>Antwort an das Gerät wäre: <code>{{ l.antwort_listener }}</code>{% endif %}</div>
+  {% endif %}
+  {% endif %}
+  {% if not tm.geraete %}
+  <p class="hint" style="margin:0">Erst ein Gerät freigeben (Schritt 5): Die Testmail wird mit dessen Regeln geprüft.</p>
+  {% else %}
+  <div class="settings-row">
+    <label for="testmail-von">Absender</label>
+    <input type="email" id="testmail-von" value="{{ tm.von }}" placeholder="z. B. scanner@firma.de" style="width:260px" autocomplete="off">
+  </div>
+  <div class="settings-row">
+    <label for="testmail-an">Empfänger</label>
+    <input type="email" id="testmail-an" value="{{ tm.an }}" placeholder="z. B. chefin@firma.de" style="width:260px" autocomplete="off">
+  </div>
+  <div class="settings-row">
+    <label for="testmail-geraet">Regeln von Gerät</label>
+    <select id="testmail-geraet">
+      {% for g in tm.geraete %}<option value="{{ g.ip }}" {% if g.ip == l.geraet %}selected{% endif %}>{{ g.ip }}{% if g.kommentar %} — {{ g.kommentar }}{% endif %}{% if g.extern %} (extern erlaubt){% endif %}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="actions">
+    <button class="btn secondary" id="testmail-btn" onclick="testmailSenden(this)">Testmail senden</button>
+    <span id="testmail-result" style="font-size:12px;margin-left:8px"></span>
+  </div>
+  {% endif %}
+</div>
+<script>
+async function testmailSenden(btn) {
+  const r = await knopfAktion(btn, 'sendet …', function () {
+    return postJSON('/api/testmail', { von: feldWert('testmail-von'), an: feldWert('testmail-an'),
+                                       geraet: feldWert('testmail-geraet') });
+  });
+  showMsg('testmail-result', r.ok ? 'an Exchange übergeben' : (r.fehler || errText(r)), !!r.ok);
+  if (r.zeit) setTimeout(function () { location.reload(); }, 1200);   // Ergebnis bleibt stehen
+}
+</script>

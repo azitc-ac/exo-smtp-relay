@@ -1,4 +1,13 @@
-"""STARTTLS ist Pflicht — ausser für ein freigegebenes Relay-Gerät.
+"""STARTTLS: für Geräte keine Pflicht — und wer nicht freigegeben ist, kommt nicht durch.
+
+STAND 0.2.62: Bis 0.2.61 galt die Pflicht für jede nicht freigegebene Adresse.
+Geschützt hat sie dort nur die Befehle einer Sitzung, die ohnehin abgewiesen
+wurde — Annahme setzt in `handler.handle_DATA` immer die Freigabe voraus. Dafür
+las ein nicht eingetragenes Gerät zuerst „Must issue a STARTTLS command first“
+und suchte den Fehler am Zertifikat. Jetzt wird es bei RCPT mit Grund
+abgewiesen, ohne STARTTLS (`handler.handle_RCPT`). Pflicht bleibt STARTTLS nur
+für die eigenen Adressen des Servers (Testmail-Weg). Die Gegenrichtung prüfen
+die Tests unten weiter — nur ist die Schutzfunktion jetzt die Abweisung.
 
 ANLASS (2026-08-25)
 -------------------
@@ -77,39 +86,66 @@ def listener(monkeypatch, tmp_path):
     return bauen, werte, relay_hosts
 
 
+def _rcpt(ip):
+    """handle_RCPT für eine Verbindung von `ip` → (Antwort, angenommene Empfänger)."""
+    import asyncio
+    import handler
+
+    class _Umschlag:
+        mail_from = "drucker@firma.de"
+        rcpt_tos: list = []
+        rcpt_options: list = []
+    s, u = _Sitzung(), _Umschlag()
+    u.rcpt_tos, u.rcpt_options = [], []
+    s.peer = (ip, 51234)
+    antwort = asyncio.run(handler.RelayHandler().handle_RCPT(None, s, u, "chefin@firma.de", []))
+    return antwort, u.rcpt_tos
+
+
+def _abgewiesen(ip):
+    antwort, angenommen = _rcpt(ip)
+    return antwort.startswith("554 5.7.1") and "nicht freigegeben" in antwort and angenommen == []
+
+
 def test_eingetragenes_geraet_darf_ohne_starttls(listener):
     bauen, _, _ = listener
     assert bauen("10.1.5.7").require_starttls is False
+    assert _rcpt("10.1.5.7") == ("250 OK", ["chefin@firma.de"])
 
 
-def test_exchange_muss_weiterhin_starttls(listener):
-    """⚠️ Der wichtigste Test.
-
-    Über diesen Weg läuft die gesamte Unternehmenspost. Eine Lockerung, die
-    hierher durchschlägt, wäre still und schwerwiegend zugleich.
-    """
+def test_fremde_adresse_wird_bei_rcpt_abgewiesen(listener):
+    """⚠️ Der wichtigste Test: Eine Adresse von aussen (hier ein Bereich von Microsoft)
+    kommt ohne Eintrag nicht durch — die Lockerung der TLS-Pflicht darf hier nichts öffnen."""
     bauen, _, _ = listener
-    assert bauen("52.101.42.11").require_starttls is True
+    assert bauen("52.101.42.11").require_starttls is False
+    assert _abgewiesen("52.101.42.11")
 
 
-def test_unbekannte_adresse_muss_starttls(listener):
+def test_unbekannte_adresse_wird_abgewiesen(listener):
     bauen, _, _ = listener
-    assert bauen("10.1.5.99").require_starttls is True, (
-        "Nachbar im selben Netz, aber nicht eingetragen — die Liste ist die "
-        "Freigabe, auch für diese Frage.")
+    assert _abgewiesen("10.1.5.99"), (
+        "Nachbar im selben Netz, aber nicht eingetragen — die Liste ist die Freigabe.")
 
 
-def test_gesperrtes_geraet_muss_wieder_starttls(listener):
-    """Eine Sperre nimmt auch die TLS-Ausnahme — sonst wäre sie halbherzig."""
-    bauen, _, relay_hosts = listener
+def test_gesperrtes_geraet_wird_abgewiesen(listener):
+    """Eine Sperre wirkt sofort, auch ohne STARTTLS-Pflicht."""
+    _, _, relay_hosts = listener
     relay_hosts.speichern("10.1.5.7", gesperrt=True)
-    assert bauen("10.1.5.7").require_starttls is True
+    assert _abgewiesen("10.1.5.7")
 
 
-def test_abgeschaltetes_relay_nimmt_die_ausnahme_zurueck(listener):
-    bauen, werte, _ = listener
+def test_abgeschaltetes_relay_weist_auch_eingetragene_ab(listener):
+    _, werte, _ = listener
     werte["SMTP_RELAY_ENABLED"] = False
-    assert bauen("10.1.5.7").require_starttls is True
+    assert _abgewiesen("10.1.5.7")
+
+
+def test_eigene_adresse_behaelt_die_pflicht(listener):
+    """Der Server selbst ist kein Gerät: Testmail-Weg, STARTTLS bleibt Pflicht, und
+    entschieden wird erst bei DATA über die Einmal-Kennung (test_testmail.py)."""
+    bauen, _, _ = listener
+    assert bauen("127.0.0.1").require_starttls is True
+    assert _rcpt("127.0.0.1") == ("250 OK", ["chefin@firma.de"])
 
 
 def test_im_lernfenster_darf_ein_neues_geraet_ohne_starttls(listener):
@@ -122,10 +158,11 @@ def test_im_lernfenster_darf_ein_neues_geraet_ohne_starttls(listener):
                                     + timedelta(minutes=10)).isoformat()
     assert bauen("10.1.5.44").require_starttls is False
 
+    assert _rcpt("10.1.5.44")[0] == "250 OK"
+
     werte["SMTP_RELAY_LERN_BIS"] = ""
-    assert bauen("10.1.5.44").require_starttls is True, (
-        "Nach dem Lernlauf gilt die Pflicht wieder — für eine Adresse, die es "
-        "nicht in die Liste geschafft hat.")
+    assert _abgewiesen("10.1.5.44"), (
+        "Nach dem Lernlauf ist Schluss — für eine Adresse, die es nicht in die Liste geschafft hat.")
 
 
 def test_ohne_zertifikat_bleibt_alles_wie_es_war(listener, monkeypatch):
