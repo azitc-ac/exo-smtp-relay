@@ -90,6 +90,19 @@
   </div>
 </div>
 
+<!-- Abschluss-Dialog (wie Gateway upd-modal): erst der Klick lädt neu, kein Timer. -->
+<div id="akt-dialog" role="dialog" aria-modal="true" aria-labelledby="akt-dialog-titel"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center;padding:16px">
+  <div class="dlg-card" style="width:100%;max-width:520px;padding:18px;box-sizing:border-box">
+    <div class="alert success" style="margin-bottom:10px"><strong id="akt-dialog-titel"></strong>
+      <div id="akt-dialog-version" style="margin-top:4px"></div></div>
+    <pre id="akt-dialog-text" class="hint" style="white-space:pre-wrap;margin:0 0 12px;overflow-wrap:anywhere"></pre>
+    <div class="actions" style="justify-content:flex-end">
+      <button class="btn primary" id="akt-dialog-neu" onclick="location.reload()">Neu laden</button>
+    </div>
+  </div>
+</div>
+
 <script>
 async function einstSpeichern() {
   const r = await postJSON('/api/einstellungen', {
@@ -115,17 +128,102 @@ async function einspielen(btn) {
                               : 'Auftrag übergeben — v' + r.version + ' wird eingespielt …', true);
   statusVerfolgen();
 }
+/* Verfolgen eines Einspielens — Muster des Gateways (backup.html: _updPoll/_updShowSuccess).
+ * Bis 0.2.59 zeigte JEDER gescheiterte Abruf „Dienst startet neu …“, ohne Ende: auch 401, eine
+ * Anmeldeseite statt JSON und 5xx (Alex, Update 0.2.56 → 0.2.58-beta: fertig, Seite hing).
+ * Jetzt:
+ *   - Abschluss über den VERSIONSVERGLEICH (gemeldete Fassung ≠ Fassung beim Laden der Seite),
+ *     nicht nur über den Zustand; dann Dialog „vX → vY“, „Neu laden“ lädt die Seite.
+ *   - Kein Netz (http 0) = Dienst weg → weiter warten, nach AKT_FRIST_MS eine echte Fehlermeldung.
+ *   - 401 oder Anmeldeseite (keine JSON-Antwort mit HTTP 200) = Dienst ist wieder da → neu laden
+ *     (führt bei abgelaufener Sitzung zur Anmeldung).
+ *   - Andere HTTP-Fehler werden mit Code und Text angezeigt, nach der Frist als Fehler.
+ * Die Felder `ok`, `aktuell`, `status.zustand`, `status.text` von /api/aktualisierung liest auch die
+ * Seite einer ÄLTEREN Fassung, die gegen die neue API pollt — sie bleiben (Test). */
+const AKT_VERSION_SEITE = {{ z.aktuell|tojson }};
+const AKT_PROTOKOLL = {{ (protokoll or "")|tojson }};   // tojson: Windows-Pfad mit \\
+const AKT_TAKT_MS = (window.AKT_TEST && window.AKT_TEST.takt) || 3000;
+const AKT_FRIST_MS = (window.AKT_TEST && window.AKT_TEST.frist) || 3 * 60 * 1000;
+const AKT_LAUF_FRIST_MS = (window.AKT_TEST && window.AKT_TEST.laufFrist) || 15 * 60 * 1000;
+let _aktTimer = null, _aktStart = 0, _aktLetzterKontakt = 0;
+
 function statusVerfolgen() {
-  const t = setInterval(async function () {
-    const z = await getJSON('/api/aktualisierung');
-    if (!z.ok) { showMsg('status', 'Dienst startet neu …', true); return; }
-    const st = z.status || {};
-    showMsg('status', (st.zustand || '') + ' — ' + (st.text || ''), st.zustand !== 'fehler' && st.zustand !== 'zurueckgerollt');
-    if (['ok', 'fehler', 'zurueckgerollt'].indexOf(st.zustand) >= 0) {
-      clearInterval(t);
-      if (st.zustand === 'ok') setTimeout(function () { location.reload(); }, 1500);
+  _aktStart = _aktLetzterKontakt = Date.now();
+  clearInterval(_aktTimer);
+  _aktTimer = setInterval(_aktPoll, AKT_TAKT_MS);
+}
+
+function _aktStopp() { clearInterval(_aktTimer); _aktTimer = null; }
+
+async function _aktPoll() {
+  const z = await getJSON('/api/aktualisierung');
+  const jetzt = Date.now();
+  if (z.abrufFehler && !z.http) {                         // keine Verbindung: Dienst startet neu
+    if (jetzt - _aktLetzterKontakt > AKT_FRIST_MS) {
+      _aktStopp();
+      _aktFehler('Der Dienst ist seit ' + Math.round((jetzt - _aktLetzterKontakt) / 60000)
+                 + ' Minuten nicht erreichbar (' + (z.error || 'kein Netz') + ').');
+    } else {
+      showMsg('status', 'Dienst startet neu …', true);
     }
-  }, 3000);
+    return;
+  }
+  _aktLetzterKontakt = jetzt;
+  if (z.http === 401 || (z.abrufFehler && z.http === 200)) {   // Dienst da, Anmeldung verlangt
+    _aktStopp();
+    showMsg('status', 'Dienst ist wieder erreichbar — Seite wird neu geladen …', true);
+    location.reload();
+    return;
+  }
+  if (!z.ok) {
+    const text = 'Dienst antwortet mit HTTP ' + (z.http || '?') + ': ' + (z.error || 'ohne Text');
+    if (jetzt - _aktStart > AKT_FRIST_MS) { _aktStopp(); _aktFehler(text); }
+    else showMsg('status', text + ' — neuer Versuch …', true);
+    return;
+  }
+  const st = z.status || {};
+  if (st.zustand === 'fehler' || st.zustand === 'zurueckgerollt') {
+    _aktStopp(); _aktFehler(st.zustand + ' — ' + (st.text || '')); return;
+  }
+  if (z.aktuell && z.aktuell !== AKT_VERSION_SEITE) {    // andere Fassung läuft: fertig
+    _aktStopp();
+    _aktErfolg(AKT_VERSION_SEITE, z.aktuell, st.text || '');
+    return;
+  }
+  if (st.zustand === 'ok') { _aktStopp(); _aktErfolg(AKT_VERSION_SEITE, z.aktuell || AKT_VERSION_SEITE, st.text || ''); return; }
+  if (st.zustand === 'wartet' || st.zustand === 'laeuft') {
+    if (jetzt - _aktStart > AKT_LAUF_FRIST_MS) {
+      _aktStopp();
+      _aktFehler('Nach ' + Math.round(AKT_LAUF_FRIST_MS / 60000) + ' Minuten noch „' + st.zustand
+                 + '“: ' + (st.text || ''));
+    } else {
+      showMsg('status', st.zustand + ' — ' + (st.text || ''), true);
+    }
+    return;
+  }
+  _aktStopp();
+  _aktFehler('Kein laufender Vorgang mehr vermerkt (Zustand „' + (st.zustand || '–') + '“).');
+}
+
+function _aktFehler(text) {
+  const el = document.getElementById('status');
+  el.className = 'alert error';
+  el.hidden = false; el.style.display = 'block';
+  el.innerHTML = '<strong>Aktualisierung nicht bestätigt:</strong> ' + esc(text)
+    + '<br>Seite neu laden, um den aktuellen Stand zu sehen. Protokoll des Dienstes: <code>'
+    + esc(AKT_PROTOKOLL) + '</code>'
+    + '<div class="actions"><button class="btn secondary" onclick="location.reload()">Seite neu laden</button></div>';
+}
+
+function _aktErfolg(vorher, nachher, text) {
+  const geaendert = vorher !== nachher;
+  document.getElementById('akt-dialog-titel').textContent =
+    geaendert ? 'Update erfolgreich!' : 'Vorgang abgeschlossen — Fassung unverändert.';
+  document.getElementById('akt-dialog-version').innerHTML = geaendert
+    ? 'v' + esc(vorher) + ' → <strong>v' + esc(nachher) + '</strong>' : '<strong>v' + esc(nachher) + '</strong>';
+  document.getElementById('akt-dialog-text').textContent = text;
+  document.getElementById('akt-dialog').style.display = 'flex';
+  showMsg('status', geaendert ? 'v' + nachher + ' läuft.' : 'Abgeschlossen.', true);
 }
 {% if z.status.zustand in ('wartet', 'laeuft') %}statusVerfolgen();{% endif %}
 </script>

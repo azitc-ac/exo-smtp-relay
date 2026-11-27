@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 import aktualisierung
+import log_manager
 import settings_store
 
 from webui.deps import templates, log, _gateway_name, _require_admin
@@ -27,7 +28,8 @@ async def aktualisierung_page(request: Request, user: str = Depends(_require_adm
         context={"active": "aktualisierung", "gateway_name": _gateway_name(),
                  "s": settings_store.public_view(), "z": aktualisierung.zustand(),
                  "kanaele": aktualisierung.KANAELE,
-                 "intervalle": aktualisierung.INTERVALLE_H})
+                 "intervalle": aktualisierung.INTERVALLE_H,
+                 "protokoll": str(log_manager.LOG_DIR / log_manager._LOG_FILENAME)})
 
 
 @router.get("/api/aktualisierung")

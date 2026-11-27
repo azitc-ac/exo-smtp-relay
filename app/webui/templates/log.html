@@ -209,15 +209,36 @@ function setStatus(label, cls) {
     status.className   = 'log-status ' + cls;
 }
 
+// Das Stream-Token lebt nur im Speicher des Dienstes (deps._LOG_TOKENS, 1 h). Nach einem Neustart
+// oder nach einer Stunde lehnt /log/stream es ab — bis 0.2.59 stand dann ewig „Verbinde…“
+// (Geschwister des Hängers auf der Aktualisierungsseite, 0.2.60-beta). Jetzt: Scheitert das
+// Verbinden wiederholt, obwohl /health antwortet, ist der Dienst da und nur das Token alt → neu laden.
+let _fehlVersuche = 0;
+const LOG_TAKT_MS = (window.LOG_TEST && window.LOG_TEST.takt) || 3000;
+async function wiederverbinden() {
+    _fehlVersuche++;
+    if (_fehlVersuche >= 2) {
+        try {
+            const r = await fetch('/health', { cache: 'no-store' });
+            // /health antwortet immer mit JSON (503 nur, wenn SMTP noch nicht bedient) — JSON heißt:
+            // die Weboberfläche läuft. Eine Proxy-Fehlerseite ist kein JSON.
+            if ((r.headers.get('content-type') || '').indexOf('application/json') === 0) {
+                setStatus('Dienst neu gestartet — lade neu …', 'connecting'); location.reload(); return;
+            }
+        } catch (_) { /* Dienst noch weg: weiter versuchen */ }
+    }
+    connect();
+}
+
 function connect() {
     if (es) { es.close(); es = null; }
     setStatus('Verbinde…', 'connecting');
     es = new EventSource('/log/stream?token={{ stream_token }}');
-    es.onopen    = function() { setStatus('Live', 'live'); };
+    es.onopen    = function() { _fehlVersuche = 0; setStatus('Live', 'live'); };
     es.onmessage = function(e) { try { appendLine(JSON.parse(e.data)); } catch(_) { ursache(_, 'log:170'); } };
     es.onerror   = function() {
         es.close(); es = null;
-        if (loggingOn) { setStatus('Verbinde…', 'connecting'); setTimeout(connect, 3000); }
+        if (loggingOn) { setStatus('Verbinde…', 'connecting'); setTimeout(wiederverbinden, LOG_TAKT_MS); }
     };
 }
 

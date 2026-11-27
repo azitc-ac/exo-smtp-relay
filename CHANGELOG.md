@@ -1,5 +1,34 @@
 # Changelog — EXO SMTP Relay
 
+## 0.2.60-beta — 2026-11-27 — Let's Encrypt im Einrichtungsassistenten, Aktualisierungsseite hängt nicht mehr
+
+- **Einrichtung, Schritt 2 (Hostname): Let's Encrypt als empfohlener Weg.** Sobald der Hostname
+  steht, stellt der Assistent das Zertifikat selbst aus: HTTP-01 (Port 80) oder DNS-01 mit
+  DNS-Provider (z. B. IONOS), dann „ausstellen“. Es ist **derselbe Block** wie unter
+  Einstellungen → TLS (neue Vorlage `_letsencrypt.html`, dieselben Felder, Endpunkte und dasselbe
+  JavaScript), keine zweite Logik. Liegt ein Zertifikat von Let's Encrypt vor, steht dort
+  „Ausgestellt von Let's Encrypt … gültig bis …“. Die Erkennung über die feste öffentliche IP ist
+  sichtbar als Alternative genannt.
+- **Schritt 4 (Connector)** sagt, welche Variante passt: mit Let's-Encrypt-Zertifikat das Feld für
+  die IP leer lassen, ohne Zertifikat geht nur die IP-Variante, mit Verweis auf Schritt 2.
+- **Aktualisierungsseite hing bei „Dienst startet neu …“** (Alex, Update 0.2.56 → 0.2.58-beta:
+  Tausch fertig, Seite stand trotzdem still). Bis 0.2.59 zeigte JEDER gescheiterte Abruf diesen
+  Text, ohne Zeitlimit: kein Netz, 401, eine Anmeldeseite statt JSON und 5xx. Jetzt nach dem Muster
+  des Gateways: Der Abschluss wird über den **Versionsvergleich** erkannt (gemeldete Fassung ≠
+  Fassung beim Laden der Seite), dann erscheint ein Dialog „Update erfolgreich! vX → vY“, „Neu
+  laden“ lädt die Seite. 401 oder Anmeldeseite heißt: Dienst ist wieder da, die Seite lädt neu
+  (bei abgelaufener Sitzung zur Anmeldung). Ist der Dienst 3 Minuten lang nicht erreichbar oder
+  antwortet er weiter mit einem Fehler, steht die echte Meldung samt Pfad des Protokolls da, mit
+  „Seite neu laden“. Browser-Tests spielen die Fälle durch. Hinweis: Das greift ab der ersten Seite,
+  die von 0.2.60-beta ausgeliefert wurde. Ein Update, das noch von einer älteren Seite aus gestartet
+  wird, läuft mit deren JavaScript.
+- Geprüft: Sitzungen überleben einen Neustart (Geheimnis in `data/`, signiertes Merkmal). Daran lag
+  der Hänger also nicht.
+- **Log-Seite, gleiche Fehlerklasse:** Nach einem Neustart (oder nach einer Stunde) stand sie ewig
+  auf „Verbinde…“, weil das Token für den Live-Stream nur im Speicher des alten Prozesses lag.
+  Scheitert das Verbinden wiederholt, obwohl `/health` antwortet, lädt sie jetzt neu und holt sich
+  so ein neues Token.
+
 ## 0.2.59-beta — 2026-11-27 — Pakete tragen das Commit-Datum statt 01.01.2020, Hinweis zur localhost-Fehlerseite
 
 - **Zeitstempel der Dateien in den Release-Paketen:** Alle Einträge im Windows-ZIP, im

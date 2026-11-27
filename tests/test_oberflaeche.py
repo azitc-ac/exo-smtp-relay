@@ -342,3 +342,65 @@ def test_localhost_fehlerseite_anleitung_steht_hervorgehoben_im_warnkasten(clien
     stil = re.search(r'adressleiste-hinweis"[^>]*style="([^"]*)"', seite).group(1)
     assert "color" not in stil and "#" not in stil and "width" not in stil, stil
 
+
+
+# ── Let's Encrypt im Einrichtungsassistenten (0.2.60-beta) ───────────────────
+
+def _le_teil(seite: str) -> str:
+    """Der Block aus _letsencrypt.html, wie er in einer Seite steht (ab LE_DOMAIN bis zum Skript)."""
+    m = re.search(r'<label for="LE_DOMAIN">.*?const LE_FELDER = .*?</script>', seite, re.S)
+    assert m, "Let's-Encrypt-Block fehlt"
+    return m.group(0)
+
+
+def _le_endpunkte(text: str) -> set:
+    return set(re.findall(r"'(/api/(?:letsencrypt|tls/dns01/[a-z]+|einstellungen))'", text))
+
+
+def test_assistent_bietet_lets_encrypt_als_empfohlenen_weg_auf_denselben_wegen(client, monkeypatch):
+    import settings_store
+    import tls_cert
+    _anmelden(client)
+    settings_store.update({"PUBLIC_HOSTNAME": "relay.firma.de"})
+    monkeypatch.setattr(tls_cert, "info", lambda: {"vorhanden": True, "hostnames": ["relay.firma.de"],
+                                                   "not_after": "2027-02-01T00:00:00+00:00", "selbstsigniert": True,
+                                                   "staging": False, "lets_encrypt": False, "aussteller": "CN=relay"})
+    assistent = client.get("/einrichtung").text
+    block = assistent.split('id="le-block"', 1)[1].split('<!-- ── 3', 1)[0]
+    assert 'id="le-empfohlen"' in block and "Empfohlen" in block
+    for feld in ('id="LE_METHODE"', 'value="http01"', 'value="dns01"', 'id="DNS01_PROVIDER"', "IONOS",
+                 'id="le-teil-http01"', "Zertifikat über DNS-01 ausstellen"):
+        assert feld in block, feld
+    assert "feste" in block and "IP" in block.split('id="le-alternative"', 1)[1], "IP-Variante nicht als Alternative"
+    # Ein Pfad: derselbe Block, dieselben Felder, dieselben Endpunkte wie unter Einstellungen.
+    einst = client.get("/einstellungen").text
+    assert _le_teil(assistent) == _le_teil(einst), "Assistent und Einstellungen weichen ab"
+    vorlage = (WURZEL / "app" / "webui" / "templates" / "_letsencrypt.html").read_text(encoding="utf-8")
+    assert _le_endpunkte(vorlage) >= {"/api/letsencrypt", "/api/tls/dns01/auto", "/api/tls/dns01/start",
+                                      "/api/tls/dns01/finish", "/api/tls/dns01/test", "/api/einstellungen"}
+    for name in ("einrichtung.html", "einstellungen.html"):
+        eigen = (WURZEL / "app" / "webui" / "templates" / name).read_text(encoding="utf-8")
+        assert '{% include "_letsencrypt.html" %}' in eigen, name
+        assert not _le_endpunkte(eigen) & {"/api/letsencrypt", "/api/tls/dns01/auto"}, f"{name}: eigene LE-Logik"
+    from webui.app import ROUTENMODULE
+    routen = {r.path for m in ROUTENMODULE for r in m.router.routes}
+    assert _le_endpunkte(vorlage) <= routen, _le_endpunkte(vorlage) - routen
+    # Schritt 4: ohne LE-Zertifikat Hinweis auf die IP-Variante und Schritt 2.
+    settings_store.update({"AZURE_APP_CREATED": True})
+    assert re.search(r'id="conn-variante"[^>]*>[^<]*Noch kein Zertifikat von Let', client.get("/einrichtung").text)
+
+
+def test_assistent_zeigt_ausgestellt_von_lets_encrypt(client, monkeypatch):
+    import settings_store
+    import tls_cert
+    _anmelden(client)
+    settings_store.update({"PUBLIC_HOSTNAME": "relay.firma.de", "AZURE_APP_CREATED": True, "LE_AUTO_RENEW": True})
+    monkeypatch.setattr(tls_cert, "info", lambda: {"vorhanden": True, "hostnames": ["relay.firma.de"],
+                                                   "not_after": "2027-02-01T00:00:00+00:00", "selbstsigniert": False,
+                                                   "staging": False, "lets_encrypt": True,
+                                                   "aussteller": "CN=R11,O=Let's Encrypt,C=US"})
+    seite = client.get("/einrichtung").text
+    status = re.search(r'<div class="alert success" id="le-status"[^>]*>(.*?)</div>', seite, re.S)
+    assert status and "Ausgestellt von Let" in status.group(1) and "2027-02-01" in status.group(1)
+    assert "automatisch erneuert" in status.group(1)
+    assert re.search(r'<div class="alert success" id="conn-variante"', seite), "Schritt 4 nennt die Zertifikatsvariante nicht"

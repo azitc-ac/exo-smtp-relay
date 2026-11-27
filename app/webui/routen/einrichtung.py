@@ -34,6 +34,7 @@ import tls_cert
 
 from webui.deps import (templates, fusszeile, log, _gateway_name, _require_admin, _get_session_user,
                         _password_change_required)
+from webui.routen.einstellungen import _le_zustand
 
 router = APIRouter()
 
@@ -75,6 +76,9 @@ async def einrichtung_page(request: Request, user: str = Depends(_require_admin)
         request=request, name="einrichtung.html",
         context={"active": "einrichtung", "gateway_name": _gateway_name(), "e": zustand(),
                  "s": settings_store.public_view(),
+                 # Let's Encrypt im Assistenten: derselbe Zustand und dieselbe Vorlage
+                 # (_letsencrypt.html) wie unter Einstellungen → TLS.
+                 "le": _le_zustand(),
                  "auth_error": request.query_params.get("auth_error", "")})
 
 

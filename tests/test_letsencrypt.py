@@ -434,7 +434,11 @@ def test_backup_ohne_certbot_verzeichnisse_mit_dns01_zustand(umgebung, monkeypat
 
 def test_jede_le_einstellung_hat_einen_oberflaechenpunkt():
     import settings_store
-    html = (WURZEL / "app" / "webui" / "templates" / "einstellungen.html").read_text("utf-8")
+    vorlagen = WURZEL / "app" / "webui" / "templates"
+    html = (vorlagen / "einstellungen.html").read_text("utf-8")
+    # Seit 0.2.60-beta steht der Block in _letsencrypt.html (auch im Einrichtungsassistenten).
+    assert '{% include "_letsencrypt.html" %}' in html
+    html += (vorlagen / "_letsencrypt.html").read_text("utf-8")
     schluessel = [k for k in settings_store.DEFAULTS
                   if k.startswith(("LE_", "ACME_")) and k != "LE_LAUF"]
     assert len(schluessel) == 6                  # seit 0.2.57-beta mit LE_METHODE

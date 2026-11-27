@@ -56,9 +56,8 @@
       Der Name, unter dem Exchange Online diesen Dienst kennt — er steht im
       TLS-Zertifikat und im Inbound-Connector. Für den Rückweg muss er von aussen
       auflösbar sein (z. B. <code>relay.firma.de</code>). Ein selbstsigniertes
-      Zertifikat wird automatisch darauf ausgestellt; ein Zertifikat einer CA holst
-      du unter <a href="/einstellungen#letsencrypt">Einstellungen → TLS</a> von Let's Encrypt
-      oder importierst es dort.
+      Zertifikat wird automatisch darauf ausgestellt; <strong>empfohlen</strong> ist ein
+      Zertifikat von Let's Encrypt — gleich hier unten.
     </p>
     <div class="settings-row">
       <label for="hostname">Hostname</label>
@@ -69,6 +68,34 @@
     </div>
     {% if e.tls.vorhanden %}
     <p class="hint" style="margin-top:8px">TLS-Zertifikat: <code>{{ e.tls.hostnames|join(', ') }}</code> · {% if e.tls.selbstsigniert %}selbstsigniert{% else %}{{ e.tls.aussteller }}{% endif %} · bis {{ e.tls.not_after[:10] }}</p>
+    {% endif %}
+
+    {% if e.hostname %}
+    {#- Let's Encrypt als empfohlener Weg, im Assistenten erledigt — dieselbe Vorlage wie
+        Einstellungen → TLS (0.2.60-beta). Die IP-Variante (Schritt 4) bleibt Alternative. -#}
+    {% set le_ok = e.tls.lets_encrypt and not e.tls.staging %}
+    <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px" id="le-block">
+      <p style="font-weight:600;font-size:13px;margin:0 0 6px">TLS-Zertifikat von Let's Encrypt
+        <span class="conn-badge conn-ok" id="le-empfohlen">Empfohlen</span></p>
+      {% if le_ok %}
+      <div class="alert success" id="le-status" style="margin-bottom:8px">Ausgestellt von Let's Encrypt für
+        <code>{{ e.tls.hostnames|join(', ') }}</code>, gültig bis {{ e.tls.not_after[:10] }}{% if s.LE_AUTO_RENEW %} — wird automatisch erneuert{% endif %}.
+        Exchange Online erkennt das Relay damit am Zertifikat (Schritt 4, ohne feste IP).</div>
+      {% else %}
+      <p class="hint" id="le-status" style="margin:0 0 8px">Noch {% if e.tls.staging %}ein Testzertifikat (Staging){% else %}kein Zertifikat{% endif %} von Let's Encrypt.
+        Mit ihm erkennt Exchange Online das Relay am Namen — ohne feste öffentliche IP, und
+        Clients sehen keine Zertifikatswarnung. Methode HTTP-01 (Port 80) oder DNS-01 über deinen
+        DNS-Provider, dann „ausstellen“.</p>
+      {% endif %}
+      <details id="le-details" {% if not le_ok %}open{% endif %}>
+        <summary style="cursor:pointer;font-size:13px">{% if le_ok %}Einstellungen und neu ausstellen{% else %}Let's Encrypt einrichten{% endif %}</summary>
+        {% include "_letsencrypt.html" %}
+      </details>
+      <p class="hint" style="margin:8px 0 0" id="le-alternative"><strong>Alternative:</strong> ohne
+        öffentliches Zertifikat erkennt Exchange das Relay an seiner <strong>festen öffentlichen IP</strong>
+        (Schritt 4) — dann genügt das selbstsignierte Zertifikat. Alles weitere zu Zertifikaten
+        (PFX-Import) unter <a href="/einstellungen#tls">Einstellungen → TLS</a>.</p>
+    </div>
     {% endif %}
   </div>
 </div>
@@ -169,11 +196,20 @@
   <div class="step-body">
     <p class="hint" style="margin:0 0 10px">
       Exchange Online nimmt Post vom Relay nur über einen Inbound-Connector an. Er
-      erkennt den Dienst <strong>am TLS-Zertifikat</strong> (nur mit einem Zertifikat
-      einer öffentlichen CA, z. B. <a href="/einstellungen#letsencrypt">Let's Encrypt</a>) oder <strong>an der öffentlichen IP</strong> (feste
-      Adresse nötig; mit selbstsigniertem Zertifikat der einzige Weg).
+      erkennt den Dienst <strong>am TLS-Zertifikat</strong> (empfohlen; braucht ein Zertifikat
+      einer öffentlichen CA, z. B. <a href="#le-block">Let's Encrypt aus Schritt 2</a>) oder — als
+      Alternative — <strong>an der öffentlichen IP</strong> (feste Adresse nötig; mit
+      selbstsigniertem Zertifikat der einzige Weg).
       Läuft per PowerShell mit dem Modul ExchangeOnlineManagement ({{ e.pwsh }}).
     </p>
+    {% if e.tls.lets_encrypt and not e.tls.staging %}
+    <div class="alert success" id="conn-variante" style="margin-bottom:10px">Zertifikat von Let's Encrypt vorhanden —
+      Feld „Öffentliche IP(s)“ leer lassen, dann erkennt Exchange das Relay an <code>{{ e.hostname }}</code>.</div>
+    {% else %}
+    <div class="alert warn" id="conn-variante" style="margin-bottom:10px">Noch kein Zertifikat von Let's Encrypt — so geht
+      nur die IP-Variante. Empfohlen: erst in <a href="#le-block">Schritt 2</a> ausstellen, dann den Connector
+      ohne IP anlegen.</div>
+    {% endif %}
     {% if not e.azure_app_created %}
     <div class="alert warn" style="margin-bottom:0">Erst Schritt 3 abschliessen.</div>
     {% else %}
